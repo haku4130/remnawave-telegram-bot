@@ -69,7 +69,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy docker-compose.yml to server
+      - name: Deploy (local — same server as runner)
+        run: |
+          cp docker-compose.yml ${{ secrets.DEPLOY_PATH }}/docker-compose.yml
+          cd ${{ secrets.DEPLOY_PATH }}
+          docker compose pull
+          docker compose up -d --remove-orphans
+
+      # Раскомментировать эти шаги когда будет деплоиться на отдельный сервер
+      - name: Copy docker-compose.yml to remote server
+        if: false
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -80,7 +89,8 @@ jobs:
           target: ${{ secrets.DEPLOY_PATH }}
           overwrite: true
 
-      - name: Deploy via SSH
+      - name: Deploy to remote server via SSH
+        if: false
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
