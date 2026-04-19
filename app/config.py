@@ -6,12 +6,12 @@ import re
 from collections import defaultdict
 from datetime import time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 from urllib.parse import quote as _url_quote, urlparse
 from zoneinfo import ZoneInfo
 
 import structlog
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -21,6 +21,31 @@ DEFAULT_DISPLAY_NAME_BANNED_KEYWORDS: list[str] = [
 ]
 
 USER_TAG_PATTERN = re.compile(r'^[A-Z0-9_]{1,16}$')
+
+
+def _is_optional_int_union(annotation: object) -> bool:
+    args = get_args(annotation)
+    if len(args) != 2:
+        return False
+    return int in args and type(None) in args
+
+
+def _coerce_optional_int_from_env(value: object) -> int | None:
+    """Accept unset/blank/placeholder .env values for optional int settings."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    lowered = s.lower()
+    if s.startswith('#') or s.startswith('<') or lowered in ('none', 'null', 'n/a', 'na'):
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
 
 
 logger = structlog.get_logger(__name__)
@@ -927,6 +952,19 @@ class Settings(BaseSettings):
         log_path = Path(v)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         return str(log_path)
+
+    @model_validator(mode='before')
+    @classmethod
+    def coerce_optional_int_env_strings(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        for name, finfo in cls.model_fields.items():
+            if not _is_optional_int_union(finfo.annotation):
+                continue
+            if name not in data:
+                continue
+            data[name] = _coerce_optional_int_from_env(data[name])
+        return data
 
     def get_database_url(self) -> str:
         if self.DATABASE_URL and self.DATABASE_URL.strip():
@@ -2779,7 +2817,12 @@ class Settings(BaseSettings):
     def get_ban_system_request_timeout(self) -> int:
         return max(1, self.BAN_SYSTEM_REQUEST_TIMEOUT)
 
-    model_config = {'env_file': '.env', 'env_file_encoding': 'utf-8', 'extra': 'ignore'}
+    model_config = {
+        'env_file': '.env',
+        'env_file_encoding': 'utf-8',
+        'extra': 'ignore',
+        'env_ignore_empty': True,
+    }
 
     @field_validator('TIMEZONE')
     @classmethod

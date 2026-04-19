@@ -22,21 +22,14 @@ FROM python:3.13-slim
 ARG VERSION="v3.45.2" # x-release-please-version
 ARG BUILD_DATE
 ARG VCS_REF
+ARG VCS_REPO_URL="https://github.com/haku4130/remnawave-telegram-bot"
 
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-RUN groupadd -g 1000 app && \
-    useradd -u 1000 -g 1000 -m -s /bin/bash app
-
 WORKDIR /app
 
-COPY --chown=app:app . .
-
-RUN mkdir -p logs data uploads/images uploads/videos uploads/thumbnails && \
-    chown -R app:app logs data uploads
-
-USER app
+COPY . .
 
 ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
@@ -48,13 +41,12 @@ ENV PYTHONPATH=/app \
 EXPOSE 8080
 
 LABEL org.opencontainers.image.title="Bedolaga RemnaWave Bot" \
-      org.opencontainers.image.description="Telegram bot for RemnaWave VPN service" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/fr1ngg/remnawave-bedolaga-telegram-bot" \
-      org.opencontainers.image.url="https://github.com/fr1ngg/remnawave-bedolaga-telegram-bot" \
-      org.opencontainers.image.vendor="fr1ngg"
+    org.opencontainers.image.description="Telegram bot for RemnaWave VPN service" \
+    org.opencontainers.image.version="${VERSION}" \
+    org.opencontainers.image.created="${BUILD_DATE}" \
+    org.opencontainers.image.revision="${VCS_REF}" \
+    org.opencontainers.image.source="${VCS_REPO_URL}" \
+    org.opencontainers.image.url="${VCS_REPO_URL}"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
