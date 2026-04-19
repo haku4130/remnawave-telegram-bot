@@ -22,6 +22,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - bot_network
 
   redis:
     image: redis:7-alpine
@@ -35,6 +37,8 @@ services:
       interval: 10s
       timeout: 10s
       retries: 3
+    networks:
+      - bot_network
 
   bot:
     image: haku4130/remnawave-telegram-bot:latest
@@ -75,6 +79,7 @@ services:
       # Логотип для сообщений
       - ./vpn_logo.png:/app/vpn_logo.png:ro
     networks:
+      - bot_network
       - remnawave-network
     ports:
       - '${WEB_API_PORT:-8080}:8080'
@@ -97,6 +102,7 @@ services:
       - REMNA_BASE_URL=$REMNAWAVE_API_URL
       - REMNA_TOKEN=$REMNAWAVE_API_KEY
     networks:
+      - bot_network
       - remnawave-network
 
 volumes:
@@ -104,6 +110,7 @@ volumes:
   redis_data:
 
 networks:
+  bot_network:
   remnawave-network:
     name: remnawave-network
     external: true
