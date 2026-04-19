@@ -74,6 +74,8 @@ services:
       - ./uploads:/app/uploads:rw
       # Логотип для сообщений
       - ./vpn_logo.png:/app/vpn_logo.png:ro
+    networks:
+      - remnawave-network
     ports:
       - '${WEB_API_PORT:-8080}:8080'
     healthcheck:
@@ -94,7 +96,14 @@ services:
     environment:
       - REMNA_BASE_URL=$REMNAWAVE_API_URL
       - REMNA_TOKEN=$REMNAWAVE_API_KEY
+    networks:
+      - remnawave-network
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true
