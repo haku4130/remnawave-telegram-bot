@@ -138,7 +138,7 @@ services:
     container_name: remna-routing-updater
     restart: unless-stopped
     environment:
-      - REMNA_BASE_URL=$REMNAWAVE_API_URL
+      - REMNA_BASE_URL=${REMNAWAVE_API_URL}/api
       - REMNA_TOKEN=$REMNAWAVE_API_KEY
     networks:
       - bot_network
