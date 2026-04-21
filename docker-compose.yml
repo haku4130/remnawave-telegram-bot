@@ -81,8 +81,25 @@ services:
     networks:
       - bot_network
       - remnawave-network
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.services.remnawave-bot.loadbalancer.server.port=${WEB_API_PORT:?}
+      - traefik.http.middlewares.remnawave-bot-api-strip.stripprefix.prefixes=/api
+      - traefik.http.routers.remnawave-bot-api-http.entrypoints=http
+      - traefik.http.routers.remnawave-bot-api-http.rule=Host(`cabinet.zanity.net`) && PathPrefix(`/api`)
+      - traefik.http.routers.remnawave-bot-api-http.priority=100
+      - traefik.http.routers.remnawave-bot-api-http.middlewares=https-redirect,remnawave-bot-api-strip
+      - traefik.http.routers.remnawave-bot-api-https.entrypoints=https
+      - traefik.http.routers.remnawave-bot-api-https.rule=Host(`cabinet.zanity.net`) && PathPrefix(`/api`)
+      - traefik.http.routers.remnawave-bot-api-https.priority=100
+      - traefik.http.routers.remnawave-bot-api-https.tls=true
+      - traefik.http.routers.remnawave-bot-api-https.tls.certresolver=le
+      - traefik.http.routers.remnawave-bot-api-https.middlewares=remnawave-bot-api-strip
+      - traefik.http.routers.remnawave-bot-api-https.service=remnawave-bot
     ports:
-      - '${WEB_API_PORT:-8080}:8080'
+      - '${WEB_API_PORT:?}:${WEB_API_PORT:?}'
     healthcheck:
       test:
         [
@@ -93,6 +110,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  cabinet-frontend:
+    image: ghcr.io/bedolaga-dev/bedolaga-cabinet:latest
+    container_name: cabinet_frontend
+    restart: unless-stopped
+    networks:
+      - bot_network
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.services.cabinet-frontend.loadbalancer.server.port=80
+      - traefik.http.routers.cabinet-frontend-http.entrypoints=http
+      - traefik.http.routers.cabinet-frontend-http.rule=Host(`cabinet.zanity.net`)
+      - traefik.http.routers.cabinet-frontend-http.priority=10
+      - traefik.http.routers.cabinet-frontend-http.middlewares=https-redirect
+      - traefik.http.routers.cabinet-frontend-https.entrypoints=https
+      - traefik.http.routers.cabinet-frontend-https.rule=Host(`cabinet.zanity.net`)
+      - traefik.http.routers.cabinet-frontend-https.priority=10
+      - traefik.http.routers.cabinet-frontend-https.tls=true
+      - traefik.http.routers.cabinet-frontend-https.tls.certresolver=le
+      - traefik.http.routers.cabinet-frontend-https.service=cabinet-frontend
 
   routing-updater:
     image: ghcr.io/lifeindarkside/remnawave-routing-update:latest
@@ -113,4 +152,6 @@ networks:
   bot_network:
   remnawave-network:
     name: remnawave-network
+    external: true
+  traefik-public:
     external: true
