@@ -104,7 +104,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'python -c "import requests, os; requests.get(''http://localhost:8080/health'', headers={''X-API-Key'': os.environ.get(''WEB_API_DEFAULT_TOKEN'')}, timeout=5) or exit(1)"',
+          'python -c "import requests, os; requests.get(''http://localhost:${WEB_API_PORT:?}/health'', headers={''X-API-Key'': os.environ.get(''WEB_API_DEFAULT_TOKEN'')}, timeout=5) or exit(1)"',
         ]
       interval: 10s
       timeout: 10s
@@ -132,6 +132,16 @@ services:
       - traefik.http.routers.cabinet-frontend-https.tls=true
       - traefik.http.routers.cabinet-frontend-https.tls.certresolver=le
       - traefik.http.routers.cabinet-frontend-https.service=cabinet-frontend
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider http://127.0.0.1:80/ || exit 1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   routing-updater:
     image: ghcr.io/lifeindarkside/remnawave-routing-update:latest

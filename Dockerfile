@@ -38,8 +38,6 @@ ENV PYTHONPATH=/app \
     BUILD_DATE=${BUILD_DATE} \
     VCS_REF=${VCS_REF}
 
-EXPOSE 8080
-
 LABEL org.opencontainers.image.title="Bedolaga RemnaWave Bot" \
     org.opencontainers.image.description="Telegram bot for RemnaWave VPN service" \
     org.opencontainers.image.version="${VERSION}" \
@@ -47,8 +45,5 @@ LABEL org.opencontainers.image.title="Bedolaga RemnaWave Bot" \
     org.opencontainers.image.revision="${VCS_REF}" \
     org.opencontainers.image.source="${VCS_REPO_URL}" \
     org.opencontainers.image.url="${VCS_REPO_URL}"
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 CMD ["python", "main.py"]
