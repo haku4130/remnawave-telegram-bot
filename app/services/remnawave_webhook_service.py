@@ -977,10 +977,8 @@ class RemnaWaveWebhookService:
             if subscription.subscription_crypto_link != subscription_crypto_link:
                 subscription.subscription_crypto_link = subscription_crypto_link
                 changed = True
-        elif subscription_url and subscription.subscription_crypto_link:
-            # URL обновился, а крипто-ссылка не пришла — сбрасываем старую
-            subscription.subscription_crypto_link = None
-            changed = True
+        # NOTE: панель не включает cryptoLink в каждый webhook user.modified
+        # Отсутствие поля не означает что его нужно сбрасывать
 
         # Always stamp to protect from sync overwrite, even if no fields changed
         self._stamp_webhook_update(subscription)
@@ -1304,6 +1302,13 @@ class RemnaWaveWebhookService:
     async def _handle_bandwidth_threshold(
         self, db: AsyncSession, user: User, subscription: Subscription | None, data: dict
     ) -> None:
+        # Respect user notification preferences
+        from app.utils.notification_prefs import is_traffic_warning_enabled
+
+        if not is_traffic_warning_enabled(user):
+            logger.debug('Traffic warning disabled by user prefs', user_id=user.id)
+            return
+
         # Extract threshold percentage from meta or data
         percent = data.get('thresholdPercent') or data.get('threshold', '')
         if not percent:

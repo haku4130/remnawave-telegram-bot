@@ -353,6 +353,9 @@ async def get_purchase_options(
                 'all_tariffs_purchased': len(purchased_tariff_ids) >= len(tariffs)
                 if settings.is_multi_tariff_enabled()
                 else False,
+                # Направления смены тарифа
+                'tariff_switch_upgrade_enabled': settings.TARIFF_SWITCH_UPGRADE_ENABLED,
+                'tariff_switch_downgrade_enabled': settings.TARIFF_SWITCH_DOWNGRADE_ENABLED,
             }
 
         # Classic mode - return periods
@@ -911,6 +914,13 @@ async def purchase_tariff(
                 )
         except Exception as remnawave_error:
             logger.error('Failed to sync subscription with RemnaWave', remnawave_error=remnawave_error)
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=user.id,
+                action='create' if not subscription.remnawave_uuid else 'update',
+            )
 
         # Save cart for auto-renewal (not for daily tariffs - they have their own charging)
         if not is_daily_tariff:
@@ -1212,9 +1222,11 @@ async def activate_trial(
                     trial_tariff = None
 
         if trial_tariff:
+            from app.database.crud.server_squad import get_effective_tariff_squad_uuids
+
             trial_traffic_limit = trial_tariff.traffic_limit_gb
             trial_device_limit = trial_tariff.device_limit
-            trial_squads = trial_tariff.allowed_squads or []
+            trial_squads = await get_effective_tariff_squad_uuids(db, trial_tariff.allowed_squads)
             tariff_id_for_trial = trial_tariff.id
             tariff_trial_days = getattr(trial_tariff, 'trial_duration_days', None)
             if tariff_trial_days:
@@ -1227,6 +1239,13 @@ async def activate_trial(
             )
     except Exception as e:
         logger.error('Error getting trial tariff', error=e)
+
+    # No trial tariff configured, use the legacy random trial squad fallback.
+    if not trial_squads:
+        from app.database.crud.server_squad import get_random_trial_squad_uuid
+
+        trial_squad_uuid = await get_random_trial_squad_uuid(db)
+        trial_squads = [trial_squad_uuid] if trial_squad_uuid else []
 
     # Create trial subscription
     subscription = await create_trial_subscription(
@@ -1249,6 +1268,13 @@ async def activate_trial(
             await db.refresh(subscription)
     except Exception as e:
         logger.error('Failed to create RemnaWave user for trial', error=e)
+        from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+        remnawave_retry_queue.enqueue(
+            subscription_id=subscription.id,
+            user_id=user.id,
+            action='create',
+        )
 
     # Send admin notification about trial activation
     try:

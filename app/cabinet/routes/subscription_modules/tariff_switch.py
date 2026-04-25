@@ -119,6 +119,18 @@ async def preview_tariff_switch(
     )
     upgrade_cost = switch_result.upgrade_cost
     is_upgrade = switch_result.is_upgrade
+
+    # Проверяем разрешение на смену в данном направлении
+    if is_upgrade and not settings.TARIFF_SWITCH_UPGRADE_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Повышение тарифа недоступно',
+        )
+    if not is_upgrade and not settings.TARIFF_SWITCH_DOWNGRADE_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Понижение тарифа недоступно',
+        )
     base_upgrade_cost = switch_result.raw_cost
     discount_value = switch_result.discount_value
     period_discount_percent = switch_result.effective_discount_pct
@@ -263,10 +275,23 @@ async def switch_tariff(
         user=user,
     )
     upgrade_cost = switch_result.upgrade_cost
+    is_upgrade = switch_result.is_upgrade
     base_upgrade_cost = switch_result.raw_cost
     discount_value = switch_result.discount_value
     period_discount_percent = switch_result.effective_discount_pct
     new_period_days = switch_result.new_period_days
+
+    # Проверяем разрешение на смену в данном направлении
+    if is_upgrade and not settings.TARIFF_SWITCH_UPGRADE_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Повышение тарифа недоступно',
+        )
+    if not is_upgrade and not settings.TARIFF_SWITCH_DOWNGRADE_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Понижение тарифа недоступно',
+        )
 
     # Validate daily price for switching TO daily
     new_is_daily = getattr(new_tariff, 'is_daily', False)
@@ -428,6 +453,13 @@ async def switch_tariff(
             )
     except Exception as e:
         logger.error('Failed to sync tariff switch with RemnaWave', error=e)
+        from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+        remnawave_retry_queue.enqueue(
+            subscription_id=subscription.id,
+            user_id=user.id,
+            action='update' if _has_panel else 'create',
+        )
 
     # Reset all devices on tariff switch
     devices_reset = False

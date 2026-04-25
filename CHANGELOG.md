@@ -1,5 +1,206 @@
 # Changelog
 
+## [3.52.1](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.52.0...v3.52.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* broadcast preview count — add .correlate(User) to EXISTS subqueries ([63e1127](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/63e112735302cc5fc961b2da87fb1250f922fe3d))
+* ignore bot's own messages in unknown message handlers ([52bf2a9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/52bf2a9589e3e14abda78a62e45e86e022da4994))
+* unpin messages in Telegram BEFORE deactivating in DB ([ab4661b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/ab4661b5c643d6dad787cc499c5cff128ec21be5))
+* use fresh DB session for deactivate after long unpin loop ([5ed9a0d](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/5ed9a0d4fbef5c92bfb4e7eb0daed493805c5e44))
+
+## [3.52.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.51.0...v3.52.0) (2026-04-24)
+
+
+### New Features
+
+* admin bulk actions API — mass operations on users ([fb2773f](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/fb2773fee4f36fc517624d96243b731c94a3508d))
+* bulk actions — campaign/partner filters, delete_user action ([d77fd81](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/d77fd81e161a65ba848133ba4798a6a335e35c1c))
+* bulk actions — SSE streaming progress, grant subscription, multi-tariff info ([c0e0756](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/c0e0756b9ac15cd926708be3f2f9c93e571ad411))
+* bulk delete_subscription action — removes from bot DB + RemnaWave ([605f202](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/605f202191d0203fdc7f5ea3bb0695ece47c9cd6))
+* bulk set_devices action + device info in subscription list ([be787a8](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/be787a85bfd981b70bd347c943f5cef8ec0610fc))
+* FAQ support in info pages — page_type field + migration ([d394565](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/d394565fe940549d1211a1ddab37f4d002d43dd5))
+* info page tab replacement — replaces_tab field + API ([bdb8cab](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/bdb8cab1c97328ff05218a9a68612418c69ccacf))
+* information pages — CRUD model, admin API, public API ([e4b4a54](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/e4b4a54797875b697146f8b804b3bbdfff4eb78b))
+* multi-tariff bulk actions — subscription-level targeting ([e78177b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/e78177b2fc34c895ab2b74705516af2a3fcbfb70))
+* support multiple tariff_ids in user list filter ([0d2b1df](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/0d2b1dfdc97d2f3058ef793c89beaa8da5709a4a))
+
+
+### Bug Fixes
+
+* /reorder route unreachable — move before /{page_id} path param ([122d12d](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/122d12db20537cf0ad55cea5328f03aa3464b540))
+* add subscription/tariff/promo_group filters to admin user list API ([daa4725](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/daa472570ccf6ef50441e0e173ddd1b87fe31e5e))
+* always return subscriptions list in user list API ([cfbcc30](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/cfbcc3082fca3a6101604aea197e7844974ed15d))
+* bulk actions review — rollback on error, multi-tariff constraint checks ([5b45d43](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/5b45d4354f6e58bd609e69a45ef100acfed3dbf4))
+* bulk change_tariff not clearing squads when new tariff has none ([db7b673](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/db7b6734fdcae52397a25eb94e1b24e908fcc41c))
+* bulk delete_user — pass real admin_id, sanitize error messages ([2e45a93](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2e45a93bd72c7e930fad60f7be2292596271c0dc))
+* gift purchases no longer inflate promo group level ([1522d35](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1522d35f2dec0e35153c452818380f9b41b35f1d))
+* info pages review — deduplicate slug index, type reorder items ([2071a68](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2071a680d3d569f67c447921370463f13c928c55))
+* integrate Yandex Metrika offline conv + S2S postback hooks ([7d512d2](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/7d512d214a1ca184ba6601bf1ee5a39727ed41e5))
+* MissingGreenlet in subscription-ids bulk actions ([2ad893b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2ad893badfec6f782ed89746b1cf2d3d7b07aa3a))
+* privacy policy and offer text display HTML links as plain text ([59c54c9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/59c54c9b39d9cb26ed518cc74c93e1da43ce2020))
+* restore HTTP Referer fallback for landing purchases ([24dc8d2](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/24dc8d2a5e1be5239036acf5888acfe1e8e96444))
+* restore referrer field in admin landing purchases response ([2cde38c](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2cde38c63b35e52a552bf58c003a8281525a0be7))
+* sanitize error messages in all bulk action catch-all handlers ([9217f41](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/9217f4116f74d15133531a711cb2bc083f30dd49))
+* server squad sync fails on fresh DB without default promo group ([ae7feeb](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/ae7feeb726ab0a9b3074c9ed11fd45e2cc412ea0))
+* stop printing tracebacks for warning-level logs inside except blocks ([68d2350](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/68d2350dfdf2f1f6964dd744a447b558a1d06267))
+* suppress 'User already enabled' traceback in bulk add_traffic ([ff41ea9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/ff41ea9abbdbeb6746e23cde48a5f962b289fc48))
+
+
+### Documentation
+
+* add Overpay to README with partner block ([bcf5519](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/bcf5519880471d113833a5031cae54594e658a7b))
+* add Overpay to README with partner block ([70568f8](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/70568f82c5c6c2c1041865c7109907fa9e2b8c6a))
+
+## [3.51.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.50.0...v3.51.0) (2026-04-23)
+
+
+### New Features
+
+* integrate Overpay payment provider (pay.overpay.io) ([2c3ffc8](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2c3ffc8c8a9e6591d2356320ed0a71ab5db6cbec))
+* respond to unknown media messages (photos, videos, documents) ([29ae708](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/29ae7089aa0a8a5c7ddd73622a492df6b5e67e03))
+
+
+### Bug Fixes
+
+* inactive user cleanup deletes users with paid subscriptions ([7005052](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/70050521566ab86b75fb4f64ed3b61bced5d1612))
+* pad short RemnaWave usernames to meet 3-char minimum ([6f87563](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/6f875637899544d95daf8d87a30042b5347f6b41))
+
+## [3.50.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.49.0...v3.50.0) (2026-04-22)
+
+
+### New Features
+
+* add WEBHOOK_IP to allow Telegram bypass DNS lookup for webhook ([#2894](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/issues/2894)) ([7093d36](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/7093d368d3356c692bff3eddda68996579bfd036))
+* landing page analytics goals and sticky pay button ([3272b4b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/3272b4bb053c76c3995cd3904b085a28f741e815))
+* tariff switch direction control, fix device pricing within tariff limit ([9ed4f08](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/9ed4f086b0102c20d7861e03f4d212ff57e28245))
+* **tickets:** multi-media message gallery (media_items JSONB) ([36571c4](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/36571c4275b76fa0bdb490ffccacc0a0e32e9bd6))
+* v3.50.0 release ([a491fe3](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/a491fe34bda6da86d72891fe4d05b6abd169cf2f))
+* Yandex Metrika offline conversions + S2S postbacks ([1068c13](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1068c1387a03bf7c94c7b29f9bb61acc3e3e782a))
+
+
+### Bug Fixes
+
+* classic mode renewal resets device_limit to 1 via cart key mismatch ([9ca3320](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/9ca3320a0204346aac2c76601f221b0bc70226a7))
+* do not reset subscription_crypto_link when cryptoLink absent in webhook ([#2891](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/issues/2891)) ([b71e58c](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/b71e58c8d25a5c94c94a401a59359cab4870e3c0))
+* do not update first_name/last_name from OIDC claims ([#2892](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/issues/2892)) ([1696e6f](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1696e6f8843ceaa1a3e9a6d536e0d99968e579b1))
+* FSM state loss on balance topup, PayPear confirmation_url, hidden trial tariff in renewal ([7be404b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/7be404b918640dcccdcda82802bb02a342b730d6))
+* grant all available squads for unrestricted trials ([#2897](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/issues/2897)) ([905cea6](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/905cea68b48b596412d83c42de0d1dce77dcaee0))
+* menu layout schema icon limit, traffic_topup_enabled condition, shadowing imports ([66f8577](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/66f8577448712786d851b1802c4a183e7acc1779))
+* tariff switch pricing showing free for upgrades, admin duplicate subscription guard ([da855a7](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/da855a7c8955dcbf3543dbbaedc00e16b9c35193))
+* ticket media_items review fixes ([dd17710](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/dd177101f7314c5d25120a69e04c66d74f37b18f))
+* validate analytics goal is set when analytics is enabled on landing ([d316325](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/d31632534b3e1b2268a8f8b2a441214f377f23eb))
+* устранить MissingGreenlet в автоплатежах и починить traceback в логах ([db79cc9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/db79cc9eb0d7dc7a4a1ae9190f7a23c6c9e6e317))
+* устранить root cause MissingGreenlet в автоплатежах через refetch по id ([3b03c25](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/3b03c253cc1603fe54fddcbc8bc374ec2c71bdfc))
+
+## [3.49.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.48.0...v3.49.0) (2026-04-18)
+
+
+### New Features
+
+* integrate AuraPay payment provider ([9717936](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/97179360c0288940b1fa2f6c21a6e1431a27536f))
+
+
+### Bug Fixes
+
+* add missing RollyPay CRUD wrappers and guest payment flow ([0f814be](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/0f814be1b7dfaec84dde9acc402b2c1790417611))
+* align campaign top registrations revenue with period comparison ([16bc1d4](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/16bc1d41989d66e105724ed846fb40ccf03322fd))
+* handle edge case when all tariffs are daily in legacy renewal ([29877fc](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/29877fc93bc612ee199ccb2438c90e57a3c1e9e0))
+* rate-limit daily subscription insufficient balance notifications to 6 hours ([ecc4a61](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/ecc4a6147dad0c8886acd48f38e567a6c7fc8916))
+* redirect legacy users without tariff to tariff selection on renewal ([5986c00](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/5986c00fab8c5fe2060d296afca72d28038ff7bd))
+* register PayPear and RollyPay in admin panel settings ([2aa5927](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2aa59274331610eec3cd84f90ddb49ee59da22ef))
+
+
+### Documentation
+
+* add AuraPay to README with partner block ([25ea5c6](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/25ea5c60fdaf3cac9294b6df74142c176b1d4d04))
+* add PayPear and RollyPay to README with partner blocks ([1c696c6](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1c696c69e34e668ff90c915249b7c3dc37bfd89b))
+* add PayPear and RollyPay to README with partner blocks ([b531959](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/b53195998231d34b6e1c7165193e87fee6e5c293))
+
+## [3.48.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.47.0...v3.48.0) (2026-04-16)
+
+
+### New Features
+
+* integrate PayPear payment provider ([a18f6ca](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/a18f6caa9bd9c08511c464e6141fb8aa614135b0))
+* integrate RollyPay payment provider (SBP via USDT) ([ccc2f4e](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/ccc2f4efecf0a3c1a943971c81a9a7d1985ae14a))
+
+
+### Bug Fixes
+
+* increase nalogo receipt queue retry window to 12 hours ([92eaf45](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/92eaf4531162e5625b938bafc43eb98abe2632e2))
+* low balance alerts disabled by default, add quiet hours, expiry filter, top-up button ([2d5afe5](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2d5afe5d75ff65f4d167a853e078943d518a881f))
+* show menu buttons for limited (traffic exhausted) subscriptions ([0c54549](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/0c545490b61baec930f10adc86652a7e5cf5d378))
+* show menu buttons for limited subscriptions in back-to-menu paths ([61cf495](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/61cf495fc5919e699aba7231f49222722da044b4))
+* support payment_method selection for RollyPay (sbp/card/crypto) ([a598582](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/a59858227f31bd53d0ac54d693288ad52e447687))
+
+
+### Documentation
+
+* add SEVERPAY, PAYPEAR, ROLLYPAY to .env.example ([25447ed](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/25447edc9eab7c3a76ed94be52c1b341917a40c2))
+
+## [3.47.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.46.1...v3.47.0) (2026-04-15)
+
+
+### New Features
+
+* multi-tariff sync fix, daily discount fix, campaign links, TELEGRAM_API_URL ([4db9e85](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/4db9e850629f25cbcb11bb5ba0e0de5c580ca115))
+
+## [3.46.1](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.46.0...v3.46.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* add checkfirst guards to cabinet_refresh_tokens migration ([8587f03](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/8587f03f67d7a451b07a4d9c450bc4524f4ac0e7))
+* add missing migration for cabinet_refresh_tokens table ([4707cdf](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/4707cdf60c9d163c1191719b3b1fc4a17ae993d2))
+* cabinet_refresh_tokens migration + notification_settings jsonb ([0274738](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/02747381dce2b96af7f97b5f41d6acff5d9d8fd3))
+* change notification_settings from json to jsonb for DISTINCT compatibility ([e74fda9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/e74fda954ccc63e2ac7a30933d9f9ac26772b25d))
+
+## [3.46.0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.45.2...v3.46.0) (2026-04-13)
+
+
+### New Features
+
+* add broadcast category (system/news/promo) + filter recipients by user prefs ([931abfe](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/931abfe7a5a7fb70e9638fbf6b566fa8d1a837e4))
+* add category field to broadcast API schemas and routes ([0300044](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/0300044b009f3e4b3aa3928652dfaf261a387dbc))
+* add RemnaWave retry queue for failed API calls (BUG-2, BUG-10) ([abdf296](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/abdf2967675975e90f0c4d834f129281c1c28e7b))
+* add remnawave_resync_service for identity-change sync ([b57f185](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/b57f185258be050d945cec5989ad6dc710980a6a))
+* add traffic % warning check using user's threshold preference ([1d96f80](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1d96f80f60ca445eb5108e7bc54e00d022a4cc9e))
+* add user notification preferences helper utility ([e0e2edf](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/e0e2edf81659fbeea361046d1bb2718c2149d884))
+* implement low balance alert + respect user notification preferences ([4e50419](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/4e50419171176ee452371ff095bdfead3879e554))
+* respect user subscription_expiry notification preferences ([63fdfe4](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/63fdfe4a421942b26caca35d8bd9b1d65f1fe7e2))
+* respect user traffic_warning notification preference in webhook handler ([7208a52](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/7208a52c9424d39757187fc86eec2c3460a2cdbb))
+* save campaign_slug during standalone email registration ([a8e2b62](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/a8e2b62f4bb0833ca32446b34ad4e0c5615fcd2a))
+* start RemnaWave retry queue on app startup ([8f1882f](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/8f1882f24c7d066e2d0fc756f38ce23bf082687e))
+
+
+### Bug Fixes
+
+* add retry queue to all remaining RemnaWave error handlers ([7e920fa](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/7e920fa30fc8e61ed2dd31e7a09151d57b7361ca))
+* add retry queue to cabinet subscription operation RemnaWave errors ([1b376ba](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1b376baeca120970b1ffcd406b1bbf7d9d43cee0))
+* add retry queue to classic mode bot purchase handler ([970dc54](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/970dc549dfa06ba9945d5bd861374058acdca86b))
+* add retry queue to daily subscription service RemnaWave errors ([65120f0](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/65120f0badc9a4581ba0a127acdae8a0b23e8501))
+* add retry queue to payment webhook and renewal service RemnaWave errors ([91a756a](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/91a756a33ed4ce685bdf485cdb4e91c3e08799dd))
+* add TRAFFIC_WARNING_ALERT and LOW_BALANCE_ALERT localization keys to all locales ([2321667](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/2321667ecbe76bfe8dd37213e0bb4e45104e0fc5))
+* always sync squads in auto-purchase renewal (BUG-4) ([8542a39](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/8542a393055a93d320d5c8c6d3aa7cc291cf8def))
+* default sync_squads=True in update_remnawave_user (BUG-4) ([6aed7d3](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/6aed7d355bc47c4dbd2aa761d78a5e5421c32edf))
+* enforce max_attempts limit in NaloGO receipt queue ([16d9163](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/16d91638bc149c5eee8f4cdd266cbd195c411030))
+* enqueue retry on RemnaWave API failure in all purchase flows (BUG-2, BUG-10) ([9cb559f](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/9cb559ff3994c0f1c6ba48a4ec09dec9b391e48b))
+* exclude users with active subscriptions from expired broadcast ([1eeeb39](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/1eeeb39779982ebb2700cb7523760631229407da))
+* handle TelegramBadRequest when deleting old ticket notifications ([eb18b3a](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/eb18b3a0f9ac3a617a1b21d3293e1619980a2a71))
+* match tariff_id when creating subscriptions from panel sync (BUG-11) ([646ac4c](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/646ac4cfa18f738040fbc6498c5d86c1546e2b9a))
+* protect OAuth users with remnawave_uuid from sync deactivation (BUG-6) ([cf19e4e](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/cf19e4e1f7148b21d9a8072f7a0b4ae97fd04e8a))
+* raise MAX_BUTTONS_PER_ROW to 8 and allow tg:// deep links in menu editor ([570af82](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/570af82dfdec980f42be96c8f816e1677f896f81))
+* resync RemnaWave after account merge (BUG-7) ([9c08ce6](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/9c08ce69485b78f8fe818500e05ab6995115166a))
+* resync RemnaWave after Telegram account linking (BUG-1) ([d465ccb](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/d465ccb3ac3a86add6313d6bb61d53d0fe143d5e))
+* sync connected_squads from panel during sync (BUG-5) ([35412e9](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/35412e9f215680c0fdf1c55b5bf23496f662935c))
+* trial activation fallback to trial-eligible servers when tariff has no squads (BUG-12) + fix misleading button text ([be32010](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/be32010d63966498bc6216823a75d328346d9a37))
+* upsert refresh tokens (ON CONFLICT) + periodic cleanup of expired/revoked tokens ([fb8d2b3](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/fb8d2b3ee4566823840100b96fe2f3bc7d41edb7))
+* use 'is not None' for telegram_id in create_user API (BUG-9) ([8623521](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/862352139e8a3545e144b0618fed5011470a9a67))
+* use MAX_DEVICES_LIMIT instead of hardcoded 10 for device buttons ([bc3893b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/bc3893b934f0d4e5059eedbd03cdfbc628852ac1))
+* use update_remnawave_user when UUID exists in tariff_purchase (BUG-3) ([a1b6d9b](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/commit/a1b6d9bb619ec3de038647fe6f2e5d38979298a8))
+
 ## [3.45.2](https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot/compare/v3.45.1...v3.45.2) (2026-04-08)
 
 

@@ -3834,9 +3834,11 @@ async def activate_subscription_trial_endpoint(
                     trial_tariff = await get_tariff_by_id(db, trial_tariff_id)
 
             if trial_tariff:
+                from app.database.crud.server_squad import get_effective_tariff_squad_uuids
+
                 trial_traffic_limit = trial_tariff.traffic_limit_gb
                 trial_device_limit = trial_tariff.device_limit
-                trial_squads = trial_tariff.allowed_squads or []
+                trial_squads = await get_effective_tariff_squad_uuids(db, trial_tariff.allowed_squads)
                 tariff_id_for_trial = trial_tariff.id
                 tariff_trial_days = getattr(trial_tariff, 'trial_duration_days', None)
                 if tariff_trial_days:
@@ -7055,6 +7057,14 @@ async def switch_tariff_endpoint(
         )
     except Exception as e:
         logger.error('Ошибка синхронизации с RemnaWave при смене тарифа', error=e)
+        from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+        if hasattr(subscription, 'id') and hasattr(subscription, 'user_id'):
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=subscription.user_id,
+                action='update',
+            )
 
     lang = getattr(user, 'language', settings.DEFAULT_LANGUAGE)
     if upgrade_cost > 0:
@@ -7245,6 +7255,14 @@ async def purchase_traffic_topup_endpoint(
             await service.enable_remnawave_user(_en_uuid)
     except Exception as e:
         logger.error('Ошибка синхронизации с RemnaWave при докупке трафика', error=e)
+        from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+        if hasattr(subscription, 'id') and hasattr(subscription, 'user_id'):
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=subscription.user_id,
+                action='update',
+            )
 
     # Создаем транзакцию
     await create_transaction(
@@ -7484,6 +7502,14 @@ async def toggle_daily_subscription_pause_endpoint(
                         logger.warning('Failed to sync squads after user creation (miniapp)', error=squad_err)
         except Exception as e:
             logger.error('Ошибка синхронизации с RemnaWave при возобновлении', error=e)
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            if hasattr(subscription, 'id') and hasattr(subscription, 'user_id'):
+                remnawave_retry_queue.enqueue(
+                    subscription_id=subscription.id,
+                    user_id=subscription.user_id,
+                    action='update',
+                )
 
         # Send admin notification about daily subscription resume
         if resume_transaction is not None:
