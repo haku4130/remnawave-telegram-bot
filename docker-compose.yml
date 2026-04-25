@@ -98,6 +98,15 @@ services:
       - traefik.http.routers.remnawave-bot-api-https.tls.certresolver=le
       - traefik.http.routers.remnawave-bot-api-https.middlewares=remnawave-bot-api-strip
       - traefik.http.routers.remnawave-bot-api-https.service=remnawave-bot
+      - traefik.http.routers.remnawave-bot-webhook-http.entrypoints=http
+      - traefik.http.routers.remnawave-bot-webhook-http.rule=Host(`bot.zanity.net`)
+      - traefik.http.routers.remnawave-bot-webhook-http.middlewares=https-redirect
+      - traefik.http.routers.remnawave-bot-webhook-http.service=remnawave-bot
+      - traefik.http.routers.remnawave-bot-webhook-https.entrypoints=https
+      - traefik.http.routers.remnawave-bot-webhook-https.rule=Host(`bot.zanity.net`)
+      - traefik.http.routers.remnawave-bot-webhook-https.tls=true
+      - traefik.http.routers.remnawave-bot-webhook-https.tls.certresolver=le
+      - traefik.http.routers.remnawave-bot-webhook-https.service=remnawave-bot
     ports:
       - '${WEB_API_PORT:?}:${WEB_API_PORT:?}'
     healthcheck:
