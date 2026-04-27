@@ -80,7 +80,6 @@ services:
       - ./vpn_logo.png:/app/vpn_logo.png:ro
     networks:
       - bot_network
-      - remnawave-network
       - traefik-public
     labels:
       - traefik.enable=true
@@ -161,7 +160,6 @@ services:
       - REMNA_TOKEN=$REMNAWAVE_API_KEY
     networks:
       - bot_network
-      - remnawave-network
 
 volumes:
   postgres_data:
@@ -169,8 +167,5 @@ volumes:
 
 networks:
   bot_network:
-  remnawave-network:
-    name: remnawave-network
-    external: true
   traefik-public:
     external: true

@@ -12,7 +12,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - bot_network
-      - remnawave-network # Подключаем к сети панели
     healthcheck:
       test:
         [
@@ -33,7 +32,6 @@ services:
       - redis_data:/data
     networks:
       - bot_network
-      - remnawave-network # Подключаем к сети панели
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 30s
@@ -75,7 +73,6 @@ services:
       - '${WEB_API_PORT:?}:${WEB_API_PORT:?}'
     networks:
       - bot_network
-      - remnawave-network # Подключаем к сети панели
     healthcheck:
       test:
         [
@@ -96,14 +93,5 @@ volumes:
 networks:
   bot_network:
     driver: bridge
-    #    ipam:
-    #      config:
-    #        - subnet: 172.20.0.0/16
-    #          gateway: 172.20.0.1
     driver_opts:
       com.docker.network.driver.mtu: 1350
-
-  remnawave-network:
-    name: remnawave-network
-    driver: bridge
-#    external: true # Используем существующую сеть панели
