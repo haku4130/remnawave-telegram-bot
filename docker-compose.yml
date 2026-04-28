@@ -164,7 +164,11 @@ services:
   xray-checker:
     image: kutovoys/xray-checker
     environment:
-      - SUBSCRIPTION_URL=${SUBSCRIPTION_URL}
+      - SUBSCRIPTION_URL=${SUBSCRIPTION_URL}#ZanityVPN
+      - WEB_PUBLIC=true
+      - METRICS_PROTECTED=true
+      - METRICS_USERNAME=${XRAY_CHECKER_METRICS_USERNAME}
+      - METRICS_PASSWORD=${XRAY_CHECKER_METRICS_PASSWORD}
     networks:
       - bot_network
       - traefik-public
