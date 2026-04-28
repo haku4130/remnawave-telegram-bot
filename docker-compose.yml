@@ -161,6 +161,25 @@ services:
     networks:
       - bot_network
 
+  xray-checker:
+    image: kutovoys/xray-checker
+    environment:
+      - SUBSCRIPTION_URL=${SUBSCRIPTION_URL}
+    networks:
+      - bot_network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.services.xray-checker.loadbalancer.server.port=2112
+      - traefik.http.routers.xray-checker-http.entrypoints=http
+      - traefik.http.routers.xray-checker-http.rule=Host(`status.zanity.net`)
+      - traefik.http.routers.xray-checker-http.middlewares=https-redirect
+      - traefik.http.routers.xray-checker-https.entrypoints=https
+      - traefik.http.routers.xray-checker-https.rule=Host(`status.zanity.net`)
+      - traefik.http.routers.xray-checker-https.tls=true
+      - traefik.http.routers.xray-checker-https.tls.certresolver=le
+      - traefik.http.routers.xray-checker-https.service=xray-checker
+
 volumes:
   postgres_data:
   redis_data:
