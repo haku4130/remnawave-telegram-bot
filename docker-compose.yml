@@ -167,6 +167,7 @@ services:
       - SUBSCRIPTION_URL=${SUBSCRIPTION_URL}
     networks:
       - bot_network
+      - traefik-public
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
