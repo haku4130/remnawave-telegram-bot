@@ -65,6 +65,8 @@ services:
 
       TZ: 'Europe/Moscow'
       LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Логи
       - ./logs:/app/logs:rw
