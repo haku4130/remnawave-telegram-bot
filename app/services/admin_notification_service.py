@@ -1,3 +1,4 @@
+import asyncio
 import html
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -5,7 +6,7 @@ from typing import Any
 
 import structlog
 from aiogram import Bot, types
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +47,9 @@ logger = structlog.get_logger(__name__)
 
 
 class AdminNotificationService:
+    _SEND_RETRY_ATTEMPTS = 3
+    _SEND_RETRY_BACKOFF_SECONDS = 1.0
+
     def __init__(self, bot: Bot):
         self.bot = bot
         self.chat_id = getattr(settings, 'ADMIN_NOTIFICATIONS_CHAT_ID', None)
@@ -72,6 +76,24 @@ class AdminNotificationService:
         for cat in NotificationCategory:
             key = f'ADMIN_NOTIFICATIONS_{cat.value.upper()}_ENABLED'
             self.category_enabled[cat] = getattr(settings, key, True)
+
+    async def _send_message_with_retry(self, bot: Bot, **message_kwargs: Any) -> None:
+        """Send Telegram message with retries for transient network timeouts."""
+        for attempt in range(1, self._SEND_RETRY_ATTEMPTS + 1):
+            try:
+                await bot.send_message(**message_kwargs)
+                return
+            except TelegramNetworkError:
+                if attempt >= self._SEND_RETRY_ATTEMPTS:
+                    raise
+                logger.warning(
+                    'Сетевая ошибка отправки уведомления, повторяем попытку',
+                    attempt=attempt,
+                    total_attempts=self._SEND_RETRY_ATTEMPTS,
+                    retry_in_seconds=self._SEND_RETRY_BACKOFF_SECONDS,
+                    chat_id=self.chat_id,
+                )
+                await asyncio.sleep(self._SEND_RETRY_BACKOFF_SECONDS * attempt)
 
     async def _get_referrer_info(self, db: AsyncSession, referred_by_id: int | None) -> str:
         if not referred_by_id:
@@ -1291,7 +1313,7 @@ class AdminNotificationService:
             if reply_markup is not None:
                 message_kwargs['reply_markup'] = reply_markup
 
-            await self.bot.send_message(**message_kwargs)
+            await self._send_message_with_retry(self.bot, **message_kwargs)
             logger.info('Уведомление отправлено в чат', chat_id=self.chat_id, category=category)
             return True
 
@@ -2080,7 +2102,7 @@ class AdminNotificationService:
             if notification_topic_id:
                 message_kwargs['message_thread_id'] = notification_topic_id
 
-            await bot.send_message(**message_kwargs)
+            await self._send_message_with_retry(bot, **message_kwargs)
             logger.info(
                 'Уведомление о подозрительной активности отправлено в чат топик',
                 chat_id=self.chat_id,
