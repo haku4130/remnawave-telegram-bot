@@ -66,7 +66,7 @@ services:
       TZ: 'Europe/Moscow'
       LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     volumes:
       # Логи
       - ./logs:/app/logs:rw
@@ -122,7 +122,7 @@ services:
       start_period: 10s
 
   cabinet-frontend:
-    image: ghcr.io/bedolaga-dev/bedolaga-cabinet:latest
+    image: haku4130/bedolaga-cabinet:latest
     container_name: cabinet_frontend
     restart: unless-stopped
     networks:
