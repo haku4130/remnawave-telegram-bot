@@ -147,8 +147,11 @@ async def _build_tariff_response(
                 discount_percent = 0
                 final_price = original_price
 
-            per_month = final_price // months if months > 0 else final_price
-            original_per_month = original_price // months if months > 0 else original_price
+            # Приводим цену к эквиваленту за месяц (30 дней) для отображения.
+            # Используем точный коэффициент days/30 — не округляем до целых месяцев,
+            # иначе для периодов < 30 дней получается деление на 1 вместо реального коэффициента.
+            per_month = round(final_price * 30 / period_days) if period_days > 0 else final_price
+            original_per_month = round(original_price * 30 / period_days) if period_days > 0 else original_price
 
             period_data: dict[str, Any] = {
                 'days': period_days,
