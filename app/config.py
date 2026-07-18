@@ -141,6 +141,16 @@ class Settings(BaseSettings):
 
     DATABASE_MODE: str = 'auto'
 
+    # Параметры пула подключений к PostgreSQL. Раньше были захардкожены в
+    # app/database/database.py — вынесены в .env, чтобы масштабировать пул под
+    # нагрузку без пересборки образа. При нескольких воркерах каждый процесс
+    # держит СВОЙ пул, поэтому суммарно ≈ WORKERS * (POOL_SIZE + MAX_OVERFLOW)
+    # соединений — держите ниже max_connections PostgreSQL. Для SQLite не
+    # применяются (там используется NullPool без пулинга).
+    DATABASE_POOL_SIZE: int = 20
+    DATABASE_MAX_OVERFLOW: int = 20
+    DATABASE_POOL_TIMEOUT: int = 30
+
     REDIS_URL: str = 'redis://localhost:6379/0'
     CART_TTL_SECONDS: int = 3600  # Время жизни корзины пользователя в Redis (1 час)
     # «Свежее намерение» пополнить ради сохранённой корзины. Тихая авто-покупка из
@@ -214,6 +224,12 @@ class Settings(BaseSettings):
     RESET_DEVICES_ON_RENEWAL: bool = False
     TARIFF_SWITCH_UPGRADE_ENABLED: bool = True
     TARIFF_SWITCH_DOWNGRADE_ENABLED: bool = True
+    # Мастер-переключатель сброса бесплатного периода при переходе на платный.
+    # При True остаток НЕ переносится ни для триала («бесплатная версия» бота),
+    # ни для 0₽-тарифа — даже если TRIAL_ADD_REMAINING_DAYS_TO_PAID=true (сброс
+    # перебивает перенос). Платные подписки переносят дни как обычно. Выключите,
+    # чтобы разрешить перенос (тогда для триалов действует TRIAL_ADD_REMAINING_DAYS_TO_PAID).
+    TARIFF_SWITCH_RESET_FREE_DAYS: bool = True
     MAX_DEVICES_LIMIT: int = 20
 
     TRIAL_WARNING_HOURS: int = 2
@@ -397,9 +413,27 @@ class Settings(BaseSettings):
     # Per-subscription override lives in Subscription.autopay_period_days.
     DEFAULT_AUTOPAY_PERIOD_DAYS: int = 0
     MIN_BALANCE_FOR_AUTOPAY_KOPEKS: int = 10000
+
+    # ── Антиспам уведомлений об ошибке автоплатежа ──
+    # Максимум уведомлений об ошибке списания за ОДИН цикл подписки (до следующего end_date).
+    # 0 — не отправлять уведомления об ошибке вовсе.
+    AUTOPAY_FAIL_MAX_NOTIFICATIONS: int = 2
+    # За сколько часов до окончания подписки слать «финальное» напоминание. 0 — без финала.
+    AUTOPAY_FAIL_FINAL_REMINDER_HOURS: int = 3
+    # Периодические повторы между первым и финальным уведомлением, каждые N часов
+    # (legacy-режим). 0 — без повторов (только первое + финальное).
+    AUTOPAY_FAIL_REPEAT_INTERVAL_HOURS: int = 0
+
     SUBSCRIPTION_RENEWAL_BALANCE_THRESHOLD_KOPEKS: int = 20000
 
     MONITORING_INTERVAL: int = 60
+    # Жёсткий per-send таймаут (сек) на отправку уведомлений из MonitoringService.
+    # Дефолтный session timeout aiogram = 60s; при медленном канале до Telegram
+    # или недоступном получателе один send_photo/send_message блокирует ВЕСЬ хвост
+    # цикла мониторинга на минуты (последовательно по многим получателям, без
+    # per-send логов). Этот таймаут даёт быстрый предсказуемый предел: на TimeoutError
+    # получатель пропускается, цикл продолжается.
+    MONITORING_NOTIFICATION_SEND_TIMEOUT: float = 20.0
     LOW_BALANCE_ALERT_EXPIRY_DAYS: int = 3  # Only alert when subscription expires within N days
     # Months of inactivity before a user row is soft-deleted (status=DELETED).
     # 12 months is conservative — VPN users are highly seasonal (vacations,
@@ -578,6 +612,11 @@ class Settings(BaseSettings):
     PLATEGA_SECRET: str | None = None
     PLATEGA_DISPLAY_NAME: str = 'Platega'
     PLATEGA_BASE_URL: str = 'https://app.platega.io'
+    # 'v1' — документированный POST /transaction/process с обязательным paymentMethod
+    # (ответ несёт ссылку в поле `redirect`); 'v2' — POST /v2/transaction/process
+    # (ссылка в поле `url`), нужен мерчантам, у которых карточные каскады доступны
+    # только в v2 (#2934: v1 отдаёт 400 «No available card cascades» для карт).
+    PLATEGA_API_VERSION: str = 'v1'
     PLATEGA_RETURN_URL: str | None = None
     PLATEGA_FAILED_URL: str | None = None
     PLATEGA_CURRENCY: str = 'RUB'
@@ -683,6 +722,9 @@ class Settings(BaseSettings):
     YANDEX_OFFLINE_CONV_DL: str = ''
     YANDEX_OFFLINE_CONV_DT: str = ''
     YANDEX_OFFLINE_CONV_CURRENCY: str = 'RUB'
+    # Offline Conversions API (mc.yandex.ru via OAuth, yclid-keyed)
+    YANDEX_OFFLINE_CONV_OAUTH_TOKEN: str = ''
+    YANDEX_OFFLINE_CONV_PURCHASE_GOAL_ID: str = ''
 
     # ── S2S Postback (server-to-server affiliate notifications) ──
     S2S_POSTBACK_ENABLED: bool = False
@@ -773,6 +815,14 @@ class Settings(BaseSettings):
     OVERPAY_RETURN_URL: str | None = None
     OVERPAY_LIFETIME_MINUTES: int = 1440
     OVERPAY_PAYMENT_METHODS: str = 'card,fps'
+    OVERPAY_SBP_TERMINAL_ID: str | None = None
+    OVERPAY_CARD_TERMINAL_ID: str | None = None
+    OVERPAY_INT_TERMINAL_ID: str | None = None
+    OVERPAY_SBP_DIRECT_QR: bool = False
+    OVERPAY_INT_ENABLED: bool = False
+    OVERPAY_INT_MIN_EUR: float = 5.0
+    OVERPAY_RUB_PER_EUR: float = 0.0
+    OVERPAY_SERVER_IP: str | None = None
 
     # AuraPay (aurapay.tech)
     AURAPAY_ENABLED: bool = False
@@ -898,11 +948,40 @@ class Settings(BaseSettings):
     ETOPLATEZHI_CARD_DISPLAY_NAME: str = 'Карта (Etoplatezhi)'
 
     MAIN_MENU_MODE: str = 'default'  # 'default' | 'cabinet'
+    # Rich-меню (Bot API 10.1): заголовки, таблица подписок, details-блоки, tg-time.
+    # Требует telegram-bot-api с Bot API 10.1+; при недоступности бот сам откатывается
+    # на классический рендер до рестарта. В rich-режиме главное меню идёт без логотипа.
+    MAIN_MENU_RICH_ENABLED: bool = True
+    # Эффект сообщения при отправке rich-меню (только личные чаты). Известные id:
+    # 🎉 5046509860389126442, ❤️ 5044134455711629726, 🔥 5104841245755180586,
+    # 👍 5107584321108051014, 👎 5104858069142078462, 💩 5046589136895476101.
+    # Пусто — без эффекта. При отказе сервера эффект отключается сам до рестарта.
+    MAIN_MENU_RICH_EFFECT_ID: str = '5046509860389126442'
+    # Сворачивать таблицу подписок в раскрываемый details-блок, когда у юзера
+    # больше одной подписки (мультитариф) — меню компактнее.
+    MAIN_MENU_RICH_SUBSCRIPTIONS_COLLAPSIBLE: bool = True
+    # Публичный HTTPS-URL картинки-логотипа в шапке rich-меню. Пусто — авто-режим:
+    # при заданном WEBHOOK_URL и существующем LOGO_FILE логотип отдаётся своим
+    # эндпоинтом {origin WEBHOOK_URL}/cabinet/branding/bot-logo. Если Telegram не
+    # сможет скачать картинку, меню продолжит отправляться без логотипа до рестарта.
+    MAIN_MENU_RICH_LOGO_URL: str = ''
+
+    # Лог действий пользователя (нажатия кнопок в боте + мутационные запросы в
+    # кабинете) в button_click_logs — источник таймлайна «Активность» в карточке
+    # юзера админ-кабинета.
+    USER_ACTION_LOG_ENABLED: bool = True
+    # Сколько дней хранить записи логов действий (0 = не чистить).
+    USER_ACTION_LOG_RETENTION_DAYS: int = 90
     # Стиль кнопок Cabinet: primary (синий), success (зелёный), danger (красный), '' (по умолчанию для каждой секции)
     CABINET_BUTTON_STYLE: str = ''
     CONNECT_BUTTON_MODE: str = 'miniapp_subscription'
     MINIAPP_CUSTOM_URL: str = ''
     MINIAPP_STATIC_PATH: str = 'miniapp'
+    # Короткое имя Telegram Mini App (BotFather → /newapp), напр. 'cabinet'.
+    # Нужно только для диплинков t.me/<bot>/<app>?startapp=… которые открывают
+    # кабинет из ГРУППОВЫХ чатов (web_app-кнопки в группах не работают). В личке
+    # достаточно MINIAPP_CUSTOM_URL. Пусто → в группах кнопка кабинета не строится.
+    MINIAPP_APP_SHORT_NAME: str = ''
 
     # Media upload settings (news article images/videos)
     MEDIA_UPLOAD_DIR: str = './uploads'
@@ -917,6 +996,14 @@ class Settings(BaseSettings):
     MINIAPP_SERVICE_DESCRIPTION_RU: str = 'Безопасное и быстрое подключение'
     CONNECT_BUTTON_HAPP_DOWNLOAD_ENABLED: bool = False
     HAPP_CRYPTOLINK_REDIRECT_TEMPLATE: str | None = None
+    # Remnawave 2.8.0 удалил /api/system/tools/happ/encrypt — недостающие crypt-ссылки
+    # генерируются локально (RSA публичным ключом Happ, как на subpage панели ->
+    # happ://crypt4/...). Выключатель на случай ротации ключа Happ: тогда до обновления
+    # бота ссылки поедут через панель/внешний API.
+    HAPP_CRYPTOLINK_LOCAL_ENCRYPTION_ENABLED: bool = True
+    # Запасной путь — официальный Happ API (crypto.happ.su -> happ://crypt5/...).
+    # Выключатель на случай проблем с внешним сервисом.
+    HAPP_CRYPTOLINK_API_FALLBACK_ENABLED: bool = True
     HAPP_DOWNLOAD_LINK_IOS: str | None = None
     HAPP_DOWNLOAD_LINK_ANDROID: str | None = None
     HAPP_DOWNLOAD_LINK_MACOS: str | None = None
@@ -931,6 +1018,12 @@ class Settings(BaseSettings):
     DEFAULT_LANGUAGE: str = 'ru'
     AVAILABLE_LANGUAGES: str = 'ru,en,ua,zh,fa'
     LANGUAGE_SELECTION_ENABLED: bool = True
+
+    PRIVACY_POLICY_DISPLAY_MODE: str = 'both'
+    PUBLIC_OFFER_DISPLAY_MODE: str = 'both'
+    RECURRENT_PAYMENTS_DISPLAY_MODE: str = 'both'
+    SERVICE_RULES_DISPLAY_MODE: str = 'both'
+    FAQ_DISPLAY_MODE: str = 'both'
 
     # Округление цен при отображении (≤50 коп вниз, >50 коп вверх)
     PRICE_ROUNDING_ENABLED: bool = True
@@ -1235,6 +1328,38 @@ class Settings(BaseSettings):
             return max(1, value_int)
         except (TypeError, ValueError):
             return 10
+
+    @field_validator('DATABASE_POOL_SIZE', mode='before')
+    @classmethod
+    def ensure_positive_database_pool_size(cls, value: int | None) -> int:
+        # pool_size=0 в SQLAlchemy QueuePool означает «без лимита» — это footgun,
+        # который легко исчерпает max_connections PostgreSQL, поэтому держим >= 1.
+        try:
+            if value is None or value == '':
+                return 20
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return 20
+
+    @field_validator('DATABASE_MAX_OVERFLOW', mode='before')
+    @classmethod
+    def ensure_nonnegative_database_max_overflow(cls, value: int | None) -> int:
+        try:
+            if value is None or value == '':
+                return 20
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 20
+
+    @field_validator('DATABASE_POOL_TIMEOUT', mode='before')
+    @classmethod
+    def ensure_positive_database_pool_timeout(cls, value: int | None) -> int:
+        try:
+            if value is None or value == '':
+                return 30
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return 30
 
     @field_validator('LOG_FILE', mode='before')
     @classmethod
@@ -2434,6 +2559,20 @@ class Settings(BaseSettings):
     def get_overpay_display_name_html(self) -> str:
         return html.escape(self.get_overpay_display_name())
 
+    def get_overpay_terminal_id(self, option: str | None = None) -> str | None:
+        terminals = {
+            'fps': self.OVERPAY_SBP_TERMINAL_ID,
+            'card': self.OVERPAY_CARD_TERMINAL_ID,
+            'int': self.OVERPAY_INT_TERMINAL_ID,
+        }
+        return terminals.get(option or '') or self.OVERPAY_PROJECT_ID
+
+    def is_overpay_int_enabled(self) -> bool:
+        return self.is_overpay_enabled() and self.OVERPAY_INT_ENABLED and self.OVERPAY_RUB_PER_EUR > 0
+
+    def is_overpay_sbp_direct_qr_enabled(self) -> bool:
+        return self.OVERPAY_SBP_DIRECT_QR and bool((self.OVERPAY_SERVER_IP or '').strip())
+
     def is_aurapay_enabled(self) -> bool:
         return (
             self.AURAPAY_ENABLED
@@ -3367,6 +3506,30 @@ class Settings(BaseSettings):
             stacklevel=2,
         )
         return self.BOT_TOKEN
+
+    def collect_insecure_default_warnings(self) -> list[str]:
+        """Return warnings about insecure default/secret configuration.
+
+        Surfaced once at startup (via the structured logger) so operators notice when the
+        bot runs with shipped defaults that must be changed before production.
+        """
+        messages: list[str] = []
+
+        if self.POSTGRES_PASSWORD == 'secure_password_123' and 'postgresql' in self.get_database_url():
+            messages.append(
+                'POSTGRES_PASSWORD is the shipped default ("secure_password_123"). '
+                'Set a unique strong password before exposing this deployment.'
+            )
+
+        if self.is_cabinet_enabled() and not self.CABINET_JWT_SECRET:
+            messages.append(
+                'CABINET_JWT_SECRET is not set — cabinet JWTs are signed with BOT_TOKEN, which is '
+                'widely exposed (Telegram API, payment-provider configs). A BOT_TOKEN leak would let '
+                'anyone forge cabinet sessions. Set CABINET_JWT_SECRET to a unique value: '
+                'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+            )
+
+        return messages
 
     def get_cabinet_access_token_expire_minutes(self) -> int:
         return max(1, self.CABINET_ACCESS_TOKEN_EXPIRE_MINUTES)

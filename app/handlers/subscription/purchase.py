@@ -14,6 +14,7 @@ from app.database.crud.subscription import (
     create_paid_subscription,
     create_pending_trial_subscription,
     create_trial_subscription,
+    should_carry_trial_remaining_days,
 )
 from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
@@ -601,8 +602,10 @@ async def show_trial_offer(callback: types.CallbackQuery, db_user: User, db: Asy
 
     texts = get_texts(db_user.language)
 
-    # Проверяем, отключён ли триал для этого типа пользователя
-    if settings.is_trial_disabled_for_user(getattr(db_user, 'auth_type', 'telegram')):
+    # Триал отключён глобально (нулевая длительность) либо для этого типа пользователя
+    if settings.TRIAL_DURATION_DAYS <= 0 or settings.is_trial_disabled_for_user(
+        getattr(db_user, 'auth_type', 'telegram')
+    ):
         await callback.message.edit_text(
             texts.t('TRIAL_DISABLED_FOR_USER_TYPE', 'Пробный период недоступен'),
             reply_markup=get_back_keyboard(db_user.language),
@@ -794,8 +797,10 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
         await callback.answer()
         return
 
-    # Проверяем, отключён ли триал для этого типа пользователя
-    if settings.is_trial_disabled_for_user(getattr(db_user, 'auth_type', 'telegram')):
+    # Триал отключён глобально (нулевая длительность) либо для этого типа пользователя
+    if settings.TRIAL_DURATION_DAYS <= 0 or settings.is_trial_disabled_for_user(
+        getattr(db_user, 'auth_type', 'telegram')
+    ):
         await callback.message.edit_text(
             texts.t('TRIAL_DISABLED_FOR_USER_TYPE', 'Пробный период недоступен'),
             reply_markup=get_back_keyboard(db_user.language),
@@ -2455,7 +2460,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
 
                 trial_duration = (current_time - existing_subscription.start_date).days
 
-                if settings.TRIAL_ADD_REMAINING_DAYS_TO_PAID and existing_subscription.end_date:
+                if should_carry_trial_remaining_days() and existing_subscription.end_date:
                     remaining_trial_delta = existing_subscription.end_date - current_time
                     if remaining_trial_delta.total_seconds() > 0:
                         bonus_period = remaining_trial_delta
@@ -3240,7 +3245,14 @@ async def handle_trial_pay_with_balance(callback: types.CallbackQuery, db_user: 
 
     user_balance_kopeks = getattr(db_user, 'balance_kopeks', 0) or 0
     if user_balance_kopeks < trial_price_kopeks:
-        await callback.answer(texts.t('INSUFFICIENT_BALANCE', '❌ Недостаточно средств на балансе'), show_alert=True)
+        topup_needed_kopeks = trial_price_kopeks - user_balance_kopeks
+        await callback.answer(
+            texts.t(
+                'INSUFFICIENT_BALANCE',
+                '❌ Недостаточно средств на балансе. Пополните баланс на {amount} и попробуйте снова.',
+            ).format(amount=settings.format_price(topup_needed_kopeks)),
+            show_alert=True,
+        )
         return
 
     # Списываем с баланса

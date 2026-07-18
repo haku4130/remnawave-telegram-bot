@@ -36,19 +36,29 @@ from app.database.crud.user_device_alias import (
 )
 from app.database.crud.user_promo_group import sync_user_primary_promo_group
 from app.database.models import (
+    ButtonClickLog,
+    CabinetRefreshToken,
+    Coupon,
     GuestPurchase,
     PaymentMethod,
+    PollResponse,
+    PromoCode,
+    PromoCodeUse,
     PromoGroup,
     ReferralEarning,
     Subscription,
+    SubscriptionEvent,
     SubscriptionServer,
     SubscriptionStatus,
+    Ticket,
     TrafficPurchase,
     Transaction,
     TransactionType,
     User,
     UserPromoGroup,
     UserStatus,
+    WheelSpin,
+    WithdrawalRequest,
 )
 from app.services.permission_service import PermissionService
 from app.utils.subscription_utils import coerce_panel_device_limit
@@ -99,6 +109,8 @@ from ..schemas.users import (
     UpdateSubscriptionResponse,
     UpdateUserStatusRequest,
     UpdateUserStatusResponse,
+    UserActivityItem,
+    UserActivityResponse,
     UserAvailableTariffItem,
     UserAvailableTariffsResponse,
     UserDetailResponse,
@@ -1489,6 +1501,29 @@ async def update_user_subscription(
         return UpdateSubscriptionResponse(
             success=True,
             message='Subscription cancelled',
+            subscription=await _build_subscription_info_async(db, subscription),
+        )
+
+    if request.action == 'reset':
+        # Полностью обнулить подписку «как будто пользователь её не оформлял»: снять
+        # наспамленные дни, обнулить трафик/сквады, пометить DISABLED и ОТКЛЮЧИТЬ в
+        # панели RemnaWave (не удаляя). Пользователь и его тикеты сохраняются —
+        # дальше юзер сам покупает тариф с нуля и выбирает срок.
+        from app.services.subscription_service import reset_subscription_with_panel
+
+        result = await reset_subscription_with_panel(db, user, subscription)
+
+        logger.info(
+            'Admin reset subscription for user',
+            admin_id=admin.id,
+            user_id=user_id,
+            subscription_id=subscription.id,
+            panel_disabled=result.get('panel_disabled'),
+        )
+
+        return UpdateSubscriptionResponse(
+            success=True,
+            message='Subscription reset',
             subscription=await _build_subscription_info_async(db, subscription),
         )
 
@@ -2893,6 +2928,307 @@ async def get_user_transactions(
     }
 
 
+def _activity_sources(user_id: int) -> dict[str, tuple]:
+    """Источники таймлайна активности: type -> (select, count_select, mapper).
+
+    Дедупликация пересечений:
+    - транзакции, на которые ссылается SubscriptionEvent.transaction_id или
+      ReferralEarning.referral_transaction_id, исключаются (событие/начисление
+      богаче: message/reason);
+    - события promocode_activation исключаются — PromoCodeUse полнее (события
+      пишутся только вместе с админ-уведомлениями).
+    """
+    event_referenced = select(SubscriptionEvent.transaction_id).where(
+        SubscriptionEvent.user_id == user_id,
+        SubscriptionEvent.transaction_id.is_not(None),
+    )
+    earning_referenced = select(ReferralEarning.referral_transaction_id).where(
+        ReferralEarning.user_id == user_id,
+        ReferralEarning.referral_transaction_id.is_not(None),
+    )
+    transactions_where = and_(
+        Transaction.user_id == user_id,
+        Transaction.id.not_in(event_referenced),
+        Transaction.id.not_in(earning_referenced),
+    )
+    events_where = and_(
+        SubscriptionEvent.user_id == user_id,
+        SubscriptionEvent.event_type != 'promocode_activation',
+    )
+
+    def _map_transaction(t: Transaction) -> UserActivityItem:
+        return UserActivityItem(
+            type='transaction',
+            subtype=t.type,
+            title=t.description,
+            amount_kopeks=t.amount_kopeks,
+            timestamp=t.created_at,
+            meta={'payment_method': t.payment_method, 'is_completed': t.is_completed},
+        )
+
+    def _map_event(e: SubscriptionEvent) -> UserActivityItem:
+        return UserActivityItem(
+            type='event',
+            subtype=e.event_type,
+            title=e.message,
+            amount_kopeks=e.amount_kopeks,
+            timestamp=e.occurred_at,
+            meta=e.extra if isinstance(e.extra, dict) else None,
+        )
+
+    def _map_promocode(row) -> UserActivityItem:
+        use, code = row
+        return UserActivityItem(type='promocode', source='bot', title=code, timestamp=use.used_at)
+
+    def _map_coupon(c: Coupon) -> UserActivityItem:
+        return UserActivityItem(type='coupon', subtype=c.status, title=c.token, timestamp=c.redeemed_at)
+
+    def _map_ticket(t: Ticket) -> UserActivityItem:
+        return UserActivityItem(
+            type='ticket',
+            subtype=t.status,
+            title=t.title,
+            timestamp=t.created_at,
+            meta={'ticket_id': t.id},
+        )
+
+    def _map_wheel(w: WheelSpin) -> UserActivityItem:
+        return UserActivityItem(
+            type='wheel_spin',
+            subtype=w.prize_type,
+            source='bot',
+            title=w.prize_display_name,
+            amount_kopeks=w.prize_value_kopeks,
+            timestamp=w.created_at,
+        )
+
+    def _map_poll(p: PollResponse) -> UserActivityItem:
+        return UserActivityItem(
+            type='poll',
+            source='bot',
+            amount_kopeks=p.reward_amount_kopeks if p.reward_given else None,
+            timestamp=p.completed_at,
+        )
+
+    def _map_gift_sent(g: GuestPurchase) -> UserActivityItem:
+        return UserActivityItem(
+            type='gift_sent',
+            subtype=g.status,
+            title=g.gift_recipient_value,
+            amount_kopeks=g.amount_kopeks,
+            timestamp=g.paid_at or g.created_at,
+        )
+
+    def _map_gift_received(g: GuestPurchase) -> UserActivityItem:
+        return UserActivityItem(
+            type='gift_received',
+            subtype=g.status,
+            amount_kopeks=g.amount_kopeks,
+            timestamp=g.delivered_at or g.created_at,
+        )
+
+    def _map_earning(e: ReferralEarning) -> UserActivityItem:
+        return UserActivityItem(
+            type='referral_earning',
+            subtype=e.reason,
+            amount_kopeks=e.amount_kopeks,
+            timestamp=e.created_at,
+        )
+
+    def _map_login(token: CabinetRefreshToken) -> UserActivityItem:
+        return UserActivityItem(
+            type='cabinet_login',
+            source='cabinet',
+            title=token.device_info,
+            timestamp=token.created_at,
+        )
+
+    def _map_withdrawal(w: WithdrawalRequest) -> UserActivityItem:
+        return UserActivityItem(
+            type='withdrawal',
+            subtype=w.status,
+            amount_kopeks=w.amount_kopeks,
+            timestamp=w.created_at,
+        )
+
+    def _map_button_click(c: ButtonClickLog) -> UserActivityItem:
+        return UserActivityItem(
+            type='button_click',
+            subtype='command' if c.button_type == 'command' else None,
+            source='bot',
+            title=c.button_text or c.callback_data or c.button_id,
+            timestamp=c.clicked_at,
+            meta={'callback_data': c.callback_data} if c.callback_data else None,
+        )
+
+    def _map_cabinet_action(c: ButtonClickLog) -> UserActivityItem:
+        return UserActivityItem(
+            type='cabinet_action',
+            source='cabinet',
+            title=c.button_id,
+            timestamp=c.clicked_at,
+            meta={'path': c.callback_data} if c.callback_data else None,
+        )
+
+    # button_click_logs делится на нажатия кнопок бота (пишет ButtonStatsMiddleware)
+    # и действия в кабинете (button_type='cabinet', пишет user_action_log_service).
+    bot_clicks_where = and_(
+        ButtonClickLog.user_id == user_id,
+        or_(ButtonClickLog.button_type.is_(None), ButtonClickLog.button_type != 'cabinet'),
+    )
+    cabinet_actions_where = and_(ButtonClickLog.user_id == user_id, ButtonClickLog.button_type == 'cabinet')
+
+    return {
+        'transaction': (
+            select(Transaction).where(transactions_where),
+            select(func.count(Transaction.id)).where(transactions_where),
+            Transaction.created_at,
+            _map_transaction,
+        ),
+        'event': (
+            select(SubscriptionEvent).where(events_where),
+            select(func.count(SubscriptionEvent.id)).where(events_where),
+            SubscriptionEvent.occurred_at,
+            _map_event,
+        ),
+        'promocode': (
+            select(PromoCodeUse, PromoCode.code)
+            .join(PromoCode, PromoCode.id == PromoCodeUse.promocode_id)
+            .where(PromoCodeUse.user_id == user_id),
+            select(func.count(PromoCodeUse.id)).where(PromoCodeUse.user_id == user_id),
+            PromoCodeUse.used_at,
+            _map_promocode,
+        ),
+        'coupon': (
+            select(Coupon).where(Coupon.redeemed_by == user_id, Coupon.redeemed_at.is_not(None)),
+            select(func.count(Coupon.id)).where(Coupon.redeemed_by == user_id, Coupon.redeemed_at.is_not(None)),
+            Coupon.redeemed_at,
+            _map_coupon,
+        ),
+        'ticket': (
+            select(Ticket).where(Ticket.user_id == user_id),
+            select(func.count(Ticket.id)).where(Ticket.user_id == user_id),
+            Ticket.created_at,
+            _map_ticket,
+        ),
+        'wheel_spin': (
+            select(WheelSpin).where(WheelSpin.user_id == user_id),
+            select(func.count(WheelSpin.id)).where(WheelSpin.user_id == user_id),
+            WheelSpin.created_at,
+            _map_wheel,
+        ),
+        'poll': (
+            select(PollResponse).where(PollResponse.user_id == user_id, PollResponse.completed_at.is_not(None)),
+            select(func.count(PollResponse.id)).where(
+                PollResponse.user_id == user_id, PollResponse.completed_at.is_not(None)
+            ),
+            PollResponse.completed_at,
+            _map_poll,
+        ),
+        'gift_sent': (
+            select(GuestPurchase).where(GuestPurchase.buyer_user_id == user_id, GuestPurchase.is_gift.is_(True)),
+            select(func.count(GuestPurchase.id)).where(
+                GuestPurchase.buyer_user_id == user_id, GuestPurchase.is_gift.is_(True)
+            ),
+            GuestPurchase.created_at,
+            _map_gift_sent,
+        ),
+        'gift_received': (
+            select(GuestPurchase).where(GuestPurchase.user_id == user_id, GuestPurchase.is_gift.is_(True)),
+            select(func.count(GuestPurchase.id)).where(
+                GuestPurchase.user_id == user_id, GuestPurchase.is_gift.is_(True)
+            ),
+            GuestPurchase.created_at,
+            _map_gift_received,
+        ),
+        'referral_earning': (
+            select(ReferralEarning).where(ReferralEarning.user_id == user_id),
+            select(func.count(ReferralEarning.id)).where(ReferralEarning.user_id == user_id),
+            ReferralEarning.created_at,
+            _map_earning,
+        ),
+        'cabinet_login': (
+            select(CabinetRefreshToken).where(CabinetRefreshToken.user_id == user_id),
+            select(func.count(CabinetRefreshToken.id)).where(CabinetRefreshToken.user_id == user_id),
+            CabinetRefreshToken.created_at,
+            _map_login,
+        ),
+        'withdrawal': (
+            select(WithdrawalRequest).where(WithdrawalRequest.user_id == user_id),
+            select(func.count(WithdrawalRequest.id)).where(WithdrawalRequest.user_id == user_id),
+            WithdrawalRequest.created_at,
+            _map_withdrawal,
+        ),
+        'button_click': (
+            select(ButtonClickLog).where(bot_clicks_where),
+            select(func.count(ButtonClickLog.id)).where(bot_clicks_where),
+            ButtonClickLog.clicked_at,
+            _map_button_click,
+        ),
+        'cabinet_action': (
+            select(ButtonClickLog).where(cabinet_actions_where),
+            select(func.count(ButtonClickLog.id)).where(cabinet_actions_where),
+            ButtonClickLog.clicked_at,
+            _map_cabinet_action,
+        ),
+    }
+
+
+@router.get('/{user_id}/activity', response_model=UserActivityResponse)
+async def get_user_activity(
+    user_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    types: str | None = Query(None, description='CSV фильтр по типам записей (см. UserActivityItem.type)'),
+    admin: User = Depends(require_permission('users:read')),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Таймлайн активности пользователя в боте и кабинете.
+
+    Fan-in по существующим таблицам: из каждого источника берутся первые
+    offset+limit записей по времени, сливаются и сортируются — глубокая
+    пагинация дороже, но limit ограничен и таймлайн листают сверху.
+    """
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found',
+        )
+
+    sources = _activity_sources(user.id)
+    if types:
+        requested = {t.strip() for t in types.split(',') if t.strip()}
+        unknown = requested - sources.keys()
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'Unknown activity types: {", ".join(sorted(unknown))}',
+            )
+        sources = {key: value for key, value in sources.items() if key in requested}
+
+    window = offset + limit
+    merged: list[UserActivityItem] = []
+    total = 0
+    for query, count_query, ts_column, mapper in sources.values():
+        total += (await db.execute(count_query)).scalar() or 0
+        rows = (await db.execute(query.order_by(ts_column.desc()).limit(window))).all()
+        for row in rows:
+            value = row[0] if len(row) == 1 else row
+            item = mapper(value)
+            if item.timestamp is not None:
+                merged.append(item)
+
+    merged.sort(key=lambda item: item.timestamp, reverse=True)
+
+    return UserActivityResponse(
+        items=merged[offset : offset + limit],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
 # === Panel Sync ===
 
 
@@ -3139,11 +3475,37 @@ async def sync_user_from_panel(
                     # Specific subscription requested — use its UUID directly
                     panel_user = await api.get_user_by_uuid(selected_sub.remnawave_uuid)
                 elif selected_sub and not selected_sub.remnawave_uuid:
-                    # Specific subscription requested but not yet linked to panel — cannot sync
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail='This subscription is not linked to the panel yet. Sync to panel first.',
-                    )
+                    # The subscription lost its panel UUID (e.g. a spurious user.deleted
+                    # webhook wiped it). Re-link it to its live panel user by
+                    # telegram_id/email — but only UNAMBIGUOUSLY: choose a panel user that
+                    # is NOT already linked to another of this user's subscriptions, so we
+                    # never bind two subs to the same panel user (telegram_id is one-to-many
+                    # in multi-tariff). This is what makes the panel->bot repair work after
+                    # the sibling-expiry corruption.
+                    linked_uuids = {s.remnawave_uuid for s in from_subs if s.id != selected_sub.id and s.remnawave_uuid}
+                    candidates = []
+                    if user.telegram_id:
+                        candidates = list(await api.get_user_by_telegram_id(user.telegram_id) or [])
+                    if not candidates and user.email:
+                        candidates = list(await api.get_user_by_email(user.email) or [])
+                    orphans = [pu for pu in candidates if pu.uuid not in linked_uuids]
+                    if len(orphans) == 1:
+                        panel_user = orphans[0]
+                        changes['remnawave_uuid'] = {'old': None, 'new': panel_user.uuid}
+                        selected_sub.remnawave_uuid = panel_user.uuid
+                    elif len(orphans) > 1:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=(
+                                'Multiple panel users match this account; cannot safely re-link '
+                                'this subscription. Resolve manually.'
+                            ),
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail='This subscription is not linked to the panel and no matching panel user was found.',
+                        )
                 else:
                     # No specific subscription — iterate all subscription UUIDs
                     sub_uuids = [s.remnawave_uuid for s in from_subs if s.remnawave_uuid]
@@ -3171,14 +3533,21 @@ async def sync_user_from_panel(
                     errors=['No user found in Remnawave panel by UUID, telegram_id, or email'],
                 )
 
-            # Build panel info
+            # Build panel info. active_internal_squads is a list[dict] (see the
+            # diagnostic in get_user_sync_status / auth.py); the previous .uuid/str
+            # checks matched nothing, so panel squads were never extracted and the
+            # repair could not restore connected_squads. Handle dict (real), str and
+            # object forms defensively.
             active_squads = []
-            if hasattr(panel_user, 'active_internal_squads') and panel_user.active_internal_squads:
-                for squad in panel_user.active_internal_squads:
-                    if hasattr(squad, 'uuid'):
-                        active_squads.append(squad.uuid)
-                    elif isinstance(squad, str):
-                        active_squads.append(squad)
+            for squad in getattr(panel_user, 'active_internal_squads', None) or []:
+                if isinstance(squad, dict):
+                    squad_uuid = squad.get('uuid')
+                elif isinstance(squad, str):
+                    squad_uuid = squad
+                else:
+                    squad_uuid = getattr(squad, 'uuid', None)
+                if squad_uuid:
+                    active_squads.append(squad_uuid)
 
             panel_info = PanelUserInfo(
                 uuid=panel_user.uuid,
