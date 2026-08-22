@@ -485,7 +485,17 @@ done; wait
 for h in nl1 nl2 de1 de2 fi1 msk1 msk2 msk4; do echo -n "$h: "; ssh root@$h.zanity.net 'docker exec remnanode sh -c "cat /opt/app/package.json 2>/dev/null || cat /app/package.json" 2>/dev/null | grep -m1 version'; done
 ```
 
-Ожидается: восемь строк `"version": "3.3.2"`.
+Ожидается: семь строк `"version": "3.3.2"`.
+
+**de1 — исключение:** в его образе из `ghcr.io` нет `package.json`, только
+`dist`, поэтому версию так не прочитать. Проверять по смене digest'а образа
+относительно записанного в файле отката плюс по статусу ноды в UI панели:
+
+```bash
+ssh root@de1.zanity.net 'docker inspect remnanode --format "{{.Image}}"'
+```
+
+Ожидается: digest отличается от `sha256:03f14935…` из файла отката.
 
 - [ ] **Шаг 3: Гейт — nl1 не потерял прокси и релей**
 
