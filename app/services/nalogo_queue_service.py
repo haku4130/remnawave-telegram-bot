@@ -93,6 +93,9 @@ class NalogoQueueService:
         if not self._bot:
             return
 
+        if not settings.ADMIN_NOTIFICATIONS_ENABLED or not settings.ADMIN_NOTIFICATIONS_INFRASTRUCTURE_ENABLED:
+            return
+
         chat_id = settings.get_admin_notifications_chat_id()
         if not chat_id:
             return
@@ -118,6 +121,29 @@ class NalogoQueueService:
             logger.info('Отправлено уведомление о чеках NaloGO')
         except Exception as error:
             logger.error('Ошибка отправки уведомления о чеках', error=error)
+
+    async def _send_receipt_to_user(
+        self,
+        telegram_user_id: int | None,
+        receipt_uuid: str,
+        amount: float,
+        user_email: str | None = None,
+    ) -> None:
+        """Отправляет пользователю ссылку на чек из отложенной очереди и дублирует в админ-топик."""
+        if not self._bot or not self._nalogo_service:
+            return
+
+        from app.services.nalogo_service import send_nalogo_receipt_notifications
+
+        await send_nalogo_receipt_notifications(
+            bot=self._bot,
+            nalogo_service=self._nalogo_service,
+            receipt_uuid=receipt_uuid,
+            amount_kopeks=int(round(amount * 100)),
+            telegram_user_id=telegram_user_id,
+            context_label='Источник: отложенная очередь NaloGO',
+            user_email=user_email,
+        )
 
     async def _process_queue_loop(self) -> None:
         """Основной цикл обработки очереди."""
@@ -176,6 +202,7 @@ class NalogoQueueService:
                 # Восстанавливаем описание из сохранённых данных
                 telegram_user_id = receipt_data.get('telegram_user_id')
                 amount_kopeks = receipt_data.get('amount_kopeks')
+                user_email = receipt_data.get('user_email')
 
                 # Извлекаем время оплаты из очереди (чтобы чек был с правильным временем)
                 operation_time = None
@@ -229,6 +256,15 @@ class NalogoQueueService:
                         payment_id=payment_id,
                         attempts=attempts + 1,
                     )
+
+                    # Отправляем чек пользователю (если есть telegram_id) и дублируем в админ-топик
+                    if self._bot:
+                        await self._send_receipt_to_user(
+                            telegram_user_id=telegram_user_id,
+                            receipt_uuid=receipt_uuid,
+                            amount=amount,
+                            user_email=user_email,
+                        )
                 else:
                     # Вернуть в очередь с увеличенным счетчиком попыток
                     await self._nalogo_service.requeue_receipt(receipt_data)

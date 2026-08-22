@@ -7,6 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete, select
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -105,6 +106,26 @@ def _require_device_limit(params: BulkActionParams) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _known_subscriptions(user: User, fallback: Subscription | None = None) -> list[Subscription]:
+    """Подписки пользователя, если они уже в сессии; иначе — только целевая.
+
+    В режиме «по подписке» пользователь приходит из ``sub.user``, а его
+    коллекция подписок в этот запрос не грузится. В async-сессии обращение
+    к незагруженной коллекции не подтягивает её лениво, а роняет
+    MissingGreenlet — на удалении подписки это падало прямо в ответ админу.
+    """
+    try:
+        subs = getattr(user, 'subscriptions', None)
+    except MissingGreenlet:
+        subs = None
+    if subs is None:
+        # Коллекция недоступна — отдаём хотя бы целевую подписку.
+        return [fallback] if fallback is not None else []
+    # Загруженный пустой список — это ответ «подписок нет», а не пробел
+    # в данных: подставлять сюда целевую было бы враньём.
+    return list(subs)
+
+
 def _resolve_subscription(user: User, override: Subscription | None = None) -> Subscription | None:
     """Return the first active subscription or most recent one (multi/single tariff).
 
@@ -175,6 +196,7 @@ async def _do_cancel_subscription(
 
     sub.status = SubscriptionStatus.EXPIRED.value
     sub.end_date = datetime.now(UTC)
+    sub.grace_suppressed_until = sub.end_date
     # For daily tariffs: mark as paused to prevent auto-resume by DailySubscriptionService
     if sub.tariff and getattr(sub.tariff, 'is_daily', False):
         sub.is_daily_paused = True
@@ -365,13 +387,15 @@ async def _do_add_traffic(
     await _sync_subscription_to_panel(db, user, sub)
 
     # Explicitly enable user on panel (PATCH may not clear LIMITED status)
-    _enable_uuid = sub.remnawave_uuid if settings.is_multi_tariff_enabled() else getattr(user, 'remnawave_uuid', None)
-    if _enable_uuid and sub.status == 'active':
+    _enable_panel_user_id = (
+        sub.remnawave_id if settings.is_multi_tariff_enabled() else getattr(user, 'remnawave_id', None)
+    )
+    if _enable_panel_user_id and sub.status == 'active':
         try:
             from app.services.subscription_service import SubscriptionService
 
             subscription_service = SubscriptionService()
-            await subscription_service.enable_remnawave_user(_enable_uuid)
+            await subscription_service.enable_remnawave_user(_enable_panel_user_id)
         except Exception:
             pass  # "User already enabled" is expected for active subscriptions
 
@@ -510,7 +534,7 @@ async def _do_delete_subscription(
             success=False,
             message=f'Skipped: {tariff_name} is active and paid (enable force_delete_active_paid to override)',
             username=user.username,
-            subscriptions=_build_subscription_info(getattr(user, 'subscriptions', None) or []),
+            subscriptions=_build_subscription_info(_known_subscriptions(user, sub)),
         )
 
     if dry_run:
@@ -521,14 +545,58 @@ async def _do_delete_subscription(
             username=user.username,
         )
 
+    from app.services.grace_access_runtime import (
+        GraceAccessDeletionBlocked,
+        ensure_no_open_grace_for_subscriptions,
+    )
+
+    blocked_user_id = user.id
+    blocked_username = user.username
+    blocked_subscriptions = _build_subscription_info(_known_subscriptions(user, sub))
+    try:
+        await ensure_no_open_grace_for_subscriptions(db, (sub.id,))
+    except GraceAccessDeletionBlocked:
+        return BulkUserResult(
+            user_id=blocked_user_id,
+            success=False,
+            message=f'Skipped: {tariff_name} has open grace access; drain/restore it first',
+            username=blocked_username,
+            subscriptions=blocked_subscriptions,
+        )
+
+    # Best-effort: stop Platega SBP autopay before the row disappears — the
+    # platega_subscriptions record CASCADE-deletes with it, so cancelling
+    # after the delete would find nothing to cancel on Platega's side.
+    # NOTE: this commits its own transaction internally, which releases the
+    # grace-guard's Postgres advisory lock acquired just above. It therefore
+    # runs BEFORE any irreversible panel/DB step, and the guard is
+    # re-acquired immediately below — closing that window before anything
+    # that can't be undone happens.
+    from app.services.payment.lava import cancel_lava_recurring_for_subscription_safe
+    from app.services.payment.platega import cancel_platega_recurring_for_subscription_safe
+
+    await cancel_platega_recurring_for_subscription_safe(db, sub.id)
+
+    await cancel_lava_recurring_for_subscription_safe(db, sub.id)
+    try:
+        await ensure_no_open_grace_for_subscriptions(db, (sub.id,))
+    except GraceAccessDeletionBlocked:
+        return BulkUserResult(
+            user_id=blocked_user_id,
+            success=False,
+            message=f'Skipped: {tariff_name} has open grace access; drain/restore it first',
+            username=blocked_username,
+            subscriptions=blocked_subscriptions,
+        )
+
     # Deactivate in RemnaWave panel first
-    _sub_uuid = sub.remnawave_uuid if settings.is_multi_tariff_enabled() else getattr(user, 'remnawave_uuid', None)
-    if _sub_uuid:
+    _sub_panel_user_id = sub.remnawave_id if settings.is_multi_tariff_enabled() else getattr(user, 'remnawave_id', None)
+    if _sub_panel_user_id:
         try:
             from app.services.subscription_service import SubscriptionService
 
             subscription_service = SubscriptionService()
-            await subscription_service.disable_remnawave_user(_sub_uuid)
+            await subscription_service.disable_remnawave_user(_sub_panel_user_id, db=db)
         except Exception as e:
             logger.warning('Failed to disable user in RemnaWave during subscription delete', error=e)
 
@@ -821,8 +889,7 @@ async def _execute_for_user(
 
         # Attach subscription info to result when not already set
         if result.subscriptions is None:
-            subs = getattr(user, 'subscriptions', None) or []
-            result.subscriptions = _build_subscription_info(subs)
+            result.subscriptions = _build_subscription_info(_known_subscriptions(user))
 
         return result
 
@@ -914,6 +981,13 @@ async def bulk_execute(
     params = request.params
     dry_run = request.dry_run
 
+    # Идентичность админа снимаем ДО работы: любой откат внутри цикла
+    # (ensure_no_open_grace_for_subscriptions, обработчик ошибок _execute_for_*)
+    # экспайрит все объекты сессии, включая самого админа, и следующее чтение
+    # admin.id уронило бы MissingGreenlet весь запрос — вместе с уже
+    # закоммиченными результатами. Та же дисциплина, что в _do_delete_subscription.
+    admin_id = admin.id
+
     # Delete user requires elevated permission
     if action == BulkActionType.DELETE_USER:
         from app.services.permission_service import PermissionService
@@ -941,7 +1015,7 @@ async def bulk_execute(
 
         if stream:
             return StreamingResponse(
-                _stream_bulk_execute_subscriptions(db, sub_ids, action, params, tariff, dry_run, admin),
+                _stream_bulk_execute_subscriptions(db, sub_ids, action, params, tariff, dry_run, admin_id),
                 media_type='text/event-stream',
             )
 
@@ -964,7 +1038,7 @@ async def bulk_execute(
 
         logger.info(
             'Bulk action completed (subscription mode)',
-            admin_id=admin.id,
+            admin_id=admin_id,
             action=action,
             total=len(sub_ids),
             success_count=success_count,
@@ -988,7 +1062,7 @@ async def bulk_execute(
 
     if stream:
         return StreamingResponse(
-            _stream_bulk_execute(db, user_ids, action, params, tariff, dry_run, admin),
+            _stream_bulk_execute(db, user_ids, action, params, tariff, dry_run, admin_id),
             media_type='text/event-stream',
         )
 
@@ -998,7 +1072,7 @@ async def bulk_execute(
     skipped_count = 0
 
     for uid in user_ids:
-        result = await _execute_for_user(db, uid, action, params, tariff, dry_run, admin_id=admin.id)
+        result = await _execute_for_user(db, uid, action, params, tariff, dry_run, admin_id=admin_id)
 
         results.append(result)
         if result.message == 'User not found':
@@ -1010,7 +1084,7 @@ async def bulk_execute(
 
     logger.info(
         'Bulk action completed',
-        admin_id=admin.id,
+        admin_id=admin_id,
         action=action,
         total=len(user_ids),
         success_count=success_count,
@@ -1042,7 +1116,7 @@ async def _stream_bulk_execute(
     params: BulkActionParams,
     tariff: Tariff | None,
     dry_run: bool,
-    admin: User,
+    admin_id: int,
 ):
     """Yield SSE events for each processed user, then a final summary."""
     total = len(user_ids)
@@ -1051,7 +1125,7 @@ async def _stream_bulk_execute(
     skipped_count = 0
 
     for i, uid in enumerate(user_ids):
-        result = await _execute_for_user(db, uid, action, params, tariff, dry_run, admin_id=admin.id)
+        result = await _execute_for_user(db, uid, action, params, tariff, dry_run, admin_id=admin_id)
 
         if result.message == 'User not found':
             skipped_count += 1
@@ -1075,7 +1149,7 @@ async def _stream_bulk_execute(
 
     logger.info(
         'Bulk action completed (streamed)',
-        admin_id=admin.id,
+        admin_id=admin_id,
         action=action,
         total=total,
         success_count=success_count,
@@ -1103,7 +1177,7 @@ async def _stream_bulk_execute_subscriptions(
     params: BulkActionParams,
     tariff: Tariff | None,
     dry_run: bool,
-    admin: User,
+    admin_id: int,
 ):
     """Yield SSE events for each processed subscription, then a final summary."""
     total = len(sub_ids)
@@ -1136,7 +1210,7 @@ async def _stream_bulk_execute_subscriptions(
 
     logger.info(
         'Bulk action completed (streamed, subscription mode)',
-        admin_id=admin.id,
+        admin_id=admin_id,
         action=action,
         total=total,
         success_count=success_count,

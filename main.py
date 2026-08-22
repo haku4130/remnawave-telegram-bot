@@ -22,6 +22,7 @@ from app.services.ban_notification_service import ban_notification_service
 from app.services.broadcast_service import broadcast_service
 from app.services.contest_rotation_service import contest_rotation_service
 from app.services.daily_subscription_service import daily_subscription_service
+from app.services.grace_access_runtime import grace_access_runtime
 from app.services.log_rotation_service import log_rotation_service
 from app.services.maintenance_service import maintenance_service
 from app.services.monitoring_service import monitoring_service
@@ -308,6 +309,10 @@ async def main():
             settings.BOT_USERNAME = bot_user.username
             logger.info('BOT_USERNAME auto-detected', bot_username=bot_user.username)
 
+        from app.utils.chat_menu_button import configure_chat_menu_button
+
+        await configure_chat_menu_button(bot)
+
         monitoring_service.bot = bot
         maintenance_service.set_bot(bot)
         broadcast_service.set_bot(bot)
@@ -448,6 +453,18 @@ async def main():
             except Exception as e:
                 stage.warning(f'Ошибка запуска автосинхронизации: {e}')
                 logger.error('❌ Ошибка запуска автосинхронизации RemnaWave', error=e)
+
+        async with timeline.stage(
+            'Grace-доступ для продления',
+            '🛟',
+            success_message='Сервис grace-доступа готов',
+        ) as stage:
+            try:
+                await grace_access_runtime.start()
+                stage.log(f'Режим: {grace_access_runtime.mode.value}')
+            except Exception as e:
+                stage.warning(f'Grace-доступ безопасно отключён из-за ошибки конфигурации: {e}')
+                logger.error('Ошибка запуска grace-доступа; основной бот продолжает работу', error=e)
 
         # Разовая фоновая чистка накопившихся дублей тарифных подписок (multi-tariff):
         # лишние истёкшие дубли удаляются из БД и панели вместе, как штатное удаление.
@@ -815,8 +832,16 @@ async def main():
                                 daily_subscription_service.start_traffic_reset_monitoring()
                             )
 
-                if auto_verification_active and not auto_payment_verification_service.is_running():
-                    logger.warning('Сервис автопроверки пополнений остановился, пробуем перезапустить...')
+                # Не завязываемся на auto_verification_active: он защёлкивал
+                # результат ПЕРВОЙ попытки. Если на старте ни один поддерживаемый
+                # провайдер не был включён, start() выходил не создав задачу, и
+                # сторож её больше никогда не поднимал — включённая позже платёжка
+                # оставалась и без вебхука (до этого фикса), и без опроса статусов.
+                if (
+                    settings.is_payment_verification_auto_check_enabled()
+                    and not auto_payment_verification_service.is_running()
+                ):
+                    logger.warning('Сервис автопроверки пополнений не запущен, пробуем поднять...')
                     await auto_payment_verification_service.start()
                     auto_verification_active = auto_payment_verification_service.is_running()
 
@@ -900,6 +925,12 @@ async def main():
             await referral_contest_service.stop()
         except Exception as e:
             logger.error('Ошибка остановки сервиса конкурсов', error=e)
+
+        logger.info('ℹ️ Остановка сервиса grace-доступа...')
+        try:
+            await grace_access_runtime.stop()
+        except Exception as e:
+            logger.error('Ошибка остановки grace-доступа', error=e)
 
         logger.info('ℹ️ Остановка сервиса автосинхронизации RemnaWave...')
         try:

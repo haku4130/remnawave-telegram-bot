@@ -35,6 +35,7 @@ class SortByEnum(StrEnum):
     LAST_ACTIVITY = 'last_activity'
     TOTAL_SPENT = 'total_spent'
     PURCHASE_COUNT = 'purchase_count'
+    SUBSCRIPTION_END_DATE = 'subscription_end_date'
 
 
 # === User Subscription Info ===
@@ -69,6 +70,11 @@ class UserSubscriptionInfo(BaseModel):
     days_remaining: int = 0
     purchased_traffic_gb: int = 0
     traffic_purchases: list[TrafficPurchaseItem] = []
+
+    # Platega SBP auto-renewal (admin view only — populated by the async
+    # builder; the sync builder leaves both at their None default).
+    sbp_recurring_status: str | None = None
+    sbp_recurring_id: int | None = None
 
 
 class UserPromoGroupInfo(BaseModel):
@@ -148,6 +154,14 @@ class UsersListResponse(BaseModel):
     total: int
     offset: int = 0
     limit: int = 50
+
+
+class UserByRemnawaveResponse(BaseModel):
+    """Subscription-level owner resolved from an exact Remnawave user id."""
+
+    user_id: int
+    subscription_id: int
+    matched_remnawave_id: int | None = None
 
 
 # === User Detail ===
@@ -266,8 +280,8 @@ class UserDetailResponse(BaseModel):
     # Recent transactions
     recent_transactions: list[UserTransactionItem] = []
 
-    # Remnawave UUID
-    remnawave_uuid: str | None = None
+    # Remnawave panel user id
+    remnawave_id: int | None = None
 
 
 # === Panel Info ===
@@ -396,6 +410,21 @@ class UpdateUserStatusResponse(BaseModel):
     success: bool
     old_status: str
     new_status: str
+    message: str
+
+
+class SendUserMessageRequest(BaseModel):
+    """Request to send a direct Telegram message to a user (parity with the
+    bot's «Отправить сообщение» action in the admin user card)."""
+
+    # 4096 — лимит Telegram на текст сообщения
+    text: str = Field(..., min_length=1, max_length=4096, description='Message text (HTML)')
+
+
+class SendUserMessageResponse(BaseModel):
+    """Response after sending a direct message."""
+
+    success: bool
     message: str
 
 
@@ -657,7 +686,7 @@ class UserAvailableTariffsResponse(BaseModel):
 class PanelUserInfo(BaseModel):
     """User info from panel."""
 
-    uuid: str | None = None
+    id: int
     short_uuid: str | None = None
     username: str | None = None
     status: str | None = None
@@ -705,7 +734,7 @@ class SyncToPanelResponse(BaseModel):
     success: bool
     message: str
     action: str = ''  # created, updated, no_changes
-    panel_uuid: str | None = None
+    panel_user_id: int | None = None
     changes: dict[str, Any] = {}
     errors: list[str] = []
 
@@ -715,7 +744,7 @@ class PanelSyncStatusResponse(BaseModel):
 
     user_id: int
     telegram_id: int | None = None
-    remnawave_uuid: str | None = None
+    remnawave_id: int | None = None
     last_sync: datetime | None = None
 
     # Multi-tariff context

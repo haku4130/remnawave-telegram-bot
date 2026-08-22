@@ -52,6 +52,47 @@ GIFT_TOKEN_MIN_PREFIX_LENGTH = 48
 _TELEGRAM_USERNAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{4,31}$')
 
 
+async def _attribute_purchase_campaign(
+    db: AsyncSession,
+    purchase: GuestPurchase,
+    user: User,
+) -> None:
+    """Attribute a delivered guest purchase to its advertising campaign.
+
+    MUST be called only after the caller's final ``commit()``. The balance
+    bonus commits on its own (``add_user_balance``), which would otherwise
+    release the ``FOR UPDATE`` lock ``fulfill_purchase`` holds on the purchase
+    row halfway through delivery.
+
+    Gifts are deliberately skipped: the user created on this path is the
+    recipient, while the campaign brought in the buyer. A guest buyer has no
+    account at all, so there is nobody to attribute — the slug still stays on
+    the purchase row for reporting.
+    """
+    if not purchase.campaign_slug or purchase.is_gift:
+        return
+
+    try:
+        from app.services.campaign_service import AdvertisingCampaignService
+
+        service = AdvertisingCampaignService()
+        result = await service.attribute_campaign(db, user, purchase.campaign_slug)
+        if result and result.success:
+            logger.info(
+                'Guest purchase attributed to campaign',
+                purchase_id=purchase.id,
+                user_id=user.id,
+                campaign_slug=purchase.campaign_slug,
+                bonus_type=result.bonus_type,
+            )
+    except Exception:
+        logger.exception(
+            'Failed to attribute guest purchase to campaign',
+            purchase_id=purchase.id,
+            campaign_slug=purchase.campaign_slug,
+        )
+
+
 async def _send_admin_notification(
     purchase: GuestPurchase,
     tariff_name: str,
@@ -156,6 +197,7 @@ async def create_purchase(
     source: str = 'landing',
     subid: str | None = None,
     referrer: str | None = None,
+    campaign_slug: str | None = None,
     buyer_user_id: int | None = None,
     commit: bool = True,
 ) -> GuestPurchase:
@@ -165,6 +207,7 @@ async def create_purchase(
         commit=commit,
         subid=subid,
         referrer=referrer,
+        campaign_slug=campaign_slug,
         landing_id=landing.id if landing else None,
         tariff_id=tariff.id,
         period_days=period_days,
@@ -246,13 +289,17 @@ async def _create_nalogo_receipt_for_purchase(
         # Не передаём telegram_user_id в описание чека — privacy (VPN-сервис)
         receipt_name = settings.get_balance_payment_description(purchase.amount_kopeks)
 
+        # Адресат чека — покупатель, а не одаряемый (см. _get_receipt_contact)
+        receipt_telegram_id, receipt_email = _get_receipt_contact(purchase, user)
+
         receipt_uuid = await nalogo_service.create_receipt(
             name=receipt_name,
             amount=amount_rubles,
             quantity=1,
             payment_id=purchase.payment_id,
-            telegram_user_id=user.telegram_id,
+            telegram_user_id=receipt_telegram_id,
             amount_kopeks=purchase.amount_kopeks,
+            user_email=receipt_email,
         )
 
         if receipt_uuid:
@@ -276,6 +323,29 @@ async def _create_nalogo_receipt_for_purchase(
                     'Failed to save receipt_uuid to purchase/transaction',
                     purchase_id=purchase.id,
                     receipt_uuid=receipt_uuid,
+                )
+
+            # Отправляем чек покупателю (Telegram или почта) и дублируем в админ-топик
+            try:
+                from app.bot_factory import create_bot
+                from app.services.nalogo_service import send_nalogo_receipt_notifications
+
+                async with create_bot() as bot:
+                    await send_nalogo_receipt_notifications(
+                        bot=bot,
+                        nalogo_service=nalogo_service,
+                        receipt_uuid=receipt_uuid,
+                        amount_kopeks=purchase.amount_kopeks,
+                        telegram_user_id=receipt_telegram_id,
+                        context_label=f'Источник: гостевая покупка с лендинга (purchase_id={purchase.id})',
+                        user_email=receipt_email,
+                    )
+            except Exception as notify_error:
+                logger.warning(
+                    'Failed to send NaloGO receipt notifications for guest purchase',
+                    purchase_id=purchase.id,
+                    receipt_uuid=receipt_uuid,
+                    error=notify_error,
                 )
     except Exception as exc:
         from app.utils.proxy import sanitize_proxy_error
@@ -398,6 +468,8 @@ async def fulfill_purchase(
             if purchase.cabinet_password:
                 purchase.cabinet_password = None
                 await db.commit()
+
+            await _attribute_purchase_campaign(db, purchase, user)
 
             logger.info(
                 'Guest purchase held for activation (existing subscription)',
@@ -569,6 +641,8 @@ async def fulfill_purchase(
         if purchase.cabinet_password:
             purchase.cabinet_password = None
             await db.commit()
+
+        await _attribute_purchase_campaign(db, purchase, user)
 
         logger.info(
             'Guest purchase fulfilled',
@@ -861,6 +935,31 @@ def _get_recipient_contact(purchase: GuestPurchase) -> tuple[str, str]:
     if purchase.is_gift and purchase.gift_recipient_type and purchase.gift_recipient_value:
         return purchase.gift_recipient_type, purchase.gift_recipient_value
     return purchase.contact_type, purchase.contact_value
+
+
+def _get_receipt_contact(purchase: GuestPurchase, user: User) -> tuple[int | None, str | None]:
+    """Return (telegram_id, email) для адресата чека НПД — это ПОКУПАТЕЛЬ.
+
+    Для обычных покупок покупатель и получатель — одно лицо, и user подходит.
+    Для подарочных user — это одаряемый (см. _get_recipient_contact), а чек
+    остаётся финансовым документом дарителя: слать чек получателю нельзя —
+    он раскрывает третьему лицу уплаченную сумму (в подарочном письме
+    GUEST_GIFT_RECEIVED суммы нет), а до самого покупателя чек по 422-ФЗ всё
+    равно обязан дойти.
+    """
+    if not purchase.is_gift:
+        return user.telegram_id, user.email
+
+    buyer = purchase.buyer
+    if buyer is not None:
+        return buyer.telegram_id, buyer.email
+
+    # Гостевой подарок с лендинга: аккаунта покупателя нет, но его собственный
+    # контакт лежит в contact_type/contact_value самой покупки. Telegram-контакт
+    # там — username, отправить чек по нему нельзя, остаётся только почта.
+    if purchase.contact_type == 'email':
+        return None, purchase.contact_value
+    return None, None
 
 
 async def _send_telegram_gift_notification(

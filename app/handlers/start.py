@@ -96,6 +96,93 @@ def _split_start_param_subid(param: str | None) -> tuple[str | None, str | None]
     return head, tail
 
 
+async def answer_menu_with_media(message, text: str, keyboard, db) -> None:
+    """Отвечает меню с медиа-шапкой на входящее сообщение (например, /start).
+
+    Отличается от :func:`send_menu_with_media` тем, что при отсутствии видео
+    делегирует обычному ``message.answer`` — а он патчится
+    ``message_patch._answer_with_photo`` и несёт всю накопленную обработку
+    (фото-логотип, лимит подписи, топики форумов, privacy-restricted). Поэтому
+    без настроенного видео поведение остаётся ровно прежним.
+    """
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    if not caption_exceeds_telegram_limit(text):
+        from app.services.start_media_service import get_start_video_file_id
+
+        video_file_id = await get_start_video_file_id(db)
+        if video_file_id:
+            try:
+                await message.answer_video(
+                    video=video_file_id,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode='HTML',
+                )
+                return
+            except Exception as video_error:
+                logger.warning(
+                    'Не удалось отправить видео меню — уходим на стандартный путь',
+                    error=str(video_error),
+                )
+
+    await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
+
+
+async def send_menu_with_media(
+    bot,
+    chat_id: int,
+    text: str,
+    keyboard,
+    db,
+) -> None:
+    """Отправляет меню с медиа-шапкой: видео → фото-логотип → обычный текст.
+
+    Видео стартового меню загружается администратором через кабинет и хранится
+    как Telegram file_id. Если оно задано и подпись влезает в лимит Telegram —
+    меню уходит видеосообщением; иначе работает прежнее поведение
+    (``ENABLE_LOGO_MODE`` с фото-логотипом, иначе текст).
+
+    Сбой отправки видео не должен лишать пользователя меню: падаем на фото/текст.
+    """
+    from app.utils.message_patch import _cache_logo_file_id, caption_exceeds_telegram_limit, get_logo_media
+
+    caption_fits = not caption_exceeds_telegram_limit(text)
+
+    if caption_fits:
+        from app.services.start_media_service import get_start_video_file_id
+
+        video_file_id = await get_start_video_file_id(db)
+        if video_file_id:
+            try:
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=video_file_id,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode='HTML',
+                )
+                return
+            except Exception as video_error:
+                logger.warning(
+                    'Не удалось отправить видео стартового меню — уходим на фото/текст',
+                    error=str(video_error),
+                )
+
+    if settings.ENABLE_LOGO_MODE and caption_fits:
+        _result = await bot.send_photo(
+            chat_id=chat_id,
+            photo=get_logo_media(),
+            caption=text,
+            reply_markup=keyboard,
+            parse_mode='HTML',
+        )
+        _cache_logo_file_id(_result)
+        return
+
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard, parse_mode='HTML')
+
+
 async def _persist_pending_subid_after_registration(
     db: AsyncSession,
     state: FSMContext,
@@ -235,6 +322,7 @@ _COUPON_ERROR_TEXTS = {
     'invalid': '❌ Купон не найден или уже использован.',
     'expired': '⌛ Срок действия купона истёк.',
     'already_redeemed_by_you': 'ℹ️ Вы уже активировали этот купон.',
+    'per_user_limit': 'ℹ️ Вы уже использовали свой лимит купонов из этой раздачи.',
     'internal': '❌ Произошла ошибка при активации купона. Попробуйте позже или обратитесь в поддержку.',
 }
 
@@ -304,6 +392,7 @@ async def _activate_pending_trial(
     state: FSMContext,
     user: 'User',
     answer_func: Callable[..., Any],
+    bot: 'Bot | None' = None,
 ) -> None:
     """Активирует БЕСПЛАТНЫЙ триал по диплинку /start trial (rich-меню).
 
@@ -384,6 +473,20 @@ async def _activate_pending_trial(
                 user_id=user.id,
                 subscription_id=subscription.id,
             )
+
+        # Админ-уведомление об активации (оно же пишет SubscriptionEvent для
+        # таймлайна активности) — как в activate_trial бота и cabinet POST /trial.
+        if bot is not None:
+            try:
+                from app.services.admin_notification_service import AdminNotificationService
+
+                await AdminNotificationService(bot).send_trial_activation_notification(db, user, subscription)
+            except Exception as notify_error:
+                logger.warning(
+                    'Не удалось отправить админ-уведомление об активации триала по диплинку',
+                    error=str(notify_error),
+                    user_id=user.id,
+                )
     except Exception:
         logger.exception('Не удалось активировать триал по диплинку', user_id=getattr(user, 'id', None))
         return
@@ -531,22 +634,22 @@ async def _merge_phantom_into_active_user(
         # Transfer ALL subscriptions from phantom to active user
         for sub in phantom_subs:
             sub.user_id = active_user.id
-        # Transfer remnawave_uuid (clear first to avoid unique constraint violation on flush)
+        # Transfer remnawave_id (clear first to avoid unique constraint violation on flush)
         if settings.is_multi_tariff_enabled():
-            # In multi-tariff, transfer user-level UUID only if no subscription-level UUIDs exist
-            if phantom.remnawave_uuid and not active_user.remnawave_uuid:
+            # In multi-tariff, transfer user-level panel id only if no subscription-level ids exist
+            if phantom.remnawave_id and not active_user.remnawave_id:
                 phantom_subs = getattr(phantom, 'subscriptions', []) or []
-                has_sub_uuids = any(getattr(s, 'remnawave_uuid', None) for s in phantom_subs)
-                if not has_sub_uuids:
-                    uuid_to_transfer = phantom.remnawave_uuid
-                    phantom.remnawave_uuid = None
+                has_sub_ids = any(getattr(s, 'remnawave_id', None) for s in phantom_subs)
+                if not has_sub_ids:
+                    panel_id_to_transfer = phantom.remnawave_id
+                    phantom.remnawave_id = None
                     await db.flush()
-                    active_user.remnawave_uuid = uuid_to_transfer
-        elif phantom.remnawave_uuid and not active_user.remnawave_uuid:
-            uuid_to_transfer = phantom.remnawave_uuid
-            phantom.remnawave_uuid = None
+                    active_user.remnawave_id = panel_id_to_transfer
+        elif phantom.remnawave_id and not active_user.remnawave_id:
+            panel_id_to_transfer = phantom.remnawave_id
+            phantom.remnawave_id = None
             await db.flush()
-            active_user.remnawave_uuid = uuid_to_transfer
+            active_user.remnawave_id = panel_id_to_transfer
         await db.flush()
         logger.info(
             'Transferred subscriptions from phantom to active user',
@@ -559,10 +662,10 @@ async def _merge_phantom_into_active_user(
             phantom_subscription_ids=[sub.id for sub in phantom_subs],
             active_subscription_ids=[sub.id for sub in active_user_subs],
         )
-        if phantom.remnawave_uuid:
+        if phantom.remnawave_id:
             try:
                 subscription_service = SubscriptionService()
-                await subscription_service.disable_remnawave_user(phantom.remnawave_uuid)
+                await subscription_service.disable_remnawave_user(phantom.remnawave_id)
             except Exception as exc:
                 logger.warning('Failed to disable phantom Remnawave user', error=str(exc))
         for sub in phantom_subs:
@@ -572,7 +675,7 @@ async def _merge_phantom_into_active_user(
     # and constraint violations. Preserve record for audit trail.
     phantom.status = UserStatus.DELETED.value
     phantom.username = None
-    phantom.remnawave_uuid = None
+    phantom.remnawave_id = None
     phantom.referral_code = None
     await db.flush()
 
@@ -1282,7 +1385,7 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
         if user:
             await _activate_pending_gift_after_registration(db, state, user, message.answer)
             await _redeem_pending_coupon(db, state, user, message.answer)
-            await _activate_pending_trial(db, state, user, message.answer)
+            await _activate_pending_trial(db, state, user, message.answer, message.bot)
             await _persist_pending_subid_after_registration(db, state, user)
             await state.update_data(
                 pending_gift_token=None, pending_coupon_token=None, pending_subid=None, pending_trial=None
@@ -1330,7 +1433,7 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
         )
         if not await try_answer_rich_main_menu(message, user, texts, db, keyboard):
             menu_text = await get_main_menu_text(user, texts, db)
-            await message.answer(menu_text, reply_markup=keyboard, parse_mode='HTML')
+            await answer_menu_with_media(message, menu_text, keyboard, db)
 
         if pinned_message and not pinned_message.send_before_menu:
             await _send_pinned_message(message.bot, db, user, pinned_message)
@@ -1415,7 +1518,7 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             # Keep status=DELETED so complete_registration properly handles
             # referral assignment and status change (not the "already active" branch)
             user.balance_kopeks = 0
-            user.remnawave_uuid = None
+            user.remnawave_id = None
             user.has_had_paid_subscription = False
             user.referred_by_id = None
 
@@ -1990,7 +2093,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                 await _send_pinned_message(callback.bot, db, existing_user, pinned_message)
             if not await try_answer_rich_main_menu(callback.message, existing_user, texts, db, keyboard):
                 menu_text = await get_main_menu_text(existing_user, texts, db)
-                await callback.message.answer(menu_text, reply_markup=keyboard, parse_mode='HTML')
+                await answer_menu_with_media(callback.message, menu_text, keyboard, db)
             if pinned_message and not pinned_message.send_before_menu:
                 await _send_pinned_message(callback.bot, db, existing_user, pinned_message)
         except Exception as e:
@@ -2249,7 +2352,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                 await _send_pinned_message(callback.bot, db, user, pinned_message)
             if not await try_answer_rich_main_menu(callback.message, user, texts, db, keyboard):
                 menu_text = await get_main_menu_text(user, texts, db)
-                await callback.message.answer(menu_text, reply_markup=keyboard, parse_mode='HTML')
+                await answer_menu_with_media(callback.message, menu_text, keyboard, db)
             if pinned_message and not pinned_message.send_before_menu:
                 await _send_pinned_message(callback.bot, db, user, pinned_message)
             logger.info('✅ Главное меню показано пользователю', telegram_id=user.telegram_id)
@@ -2322,7 +2425,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
                 await _send_pinned_message(message.bot, db, existing_user, pinned_message)
             if not await try_answer_rich_main_menu(message, existing_user, texts, db, keyboard):
                 menu_text = await get_main_menu_text(existing_user, texts, db)
-                await message.answer(menu_text, reply_markup=keyboard, parse_mode='HTML')
+                await answer_menu_with_media(message, menu_text, keyboard, db)
             if pinned_message and not pinned_message.send_before_menu:
                 await _send_pinned_message(message.bot, db, existing_user, pinned_message)
         except Exception as e:
@@ -2616,7 +2719,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
                 await _send_pinned_message(message.bot, db, user, pinned_message)
             if not await try_answer_rich_main_menu(message, user, texts, db, keyboard):
                 menu_text = await get_main_menu_text(user, texts, db)
-                await message.answer(menu_text, reply_markup=keyboard, parse_mode='HTML')
+                await answer_menu_with_media(message, menu_text, keyboard, db)
             logger.info('✅ Главное меню показано пользователю', telegram_id=user.telegram_id)
             if pinned_message and not pinned_message.send_before_menu:
                 await _send_pinned_message(message.bot, db, user, pinned_message)
@@ -2819,8 +2922,8 @@ async def required_sub_channel_check(
                 subscription_service = SubscriptionService()
                 for sub in _subs:
                     if sub.is_trial and sub.status == SubscriptionStatus.ACTIVE.value:
-                        remnawave_uuid = getattr(sub, 'remnawave_uuid', None) or user.remnawave_uuid
-                        if remnawave_uuid:
+                        panel_user_id = getattr(sub, 'remnawave_id', None) or user.remnawave_id
+                        if panel_user_id:
                             await subscription_service.update_remnawave_user(db, sub)
                         else:
                             await subscription_service.create_remnawave_user(db, sub)
@@ -2839,7 +2942,7 @@ async def required_sub_channel_check(
                                 subscription_id=sub.id,
                                 user_id=sub.user_id,
                                 action='update'
-                                if (getattr(sub, 'remnawave_uuid', None) or user.remnawave_uuid)
+                                if (getattr(sub, 'remnawave_id', None) or user.remnawave_id)
                                 else 'create',
                             )
 
@@ -2893,22 +2996,7 @@ async def required_sub_channel_check(
 
             if not await try_send_rich_main_menu(bot, query.from_user.id, user, texts, db, keyboard):
                 menu_text = await get_main_menu_text(user, texts, db)
-                if settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
-                    _result = await bot.send_photo(
-                        chat_id=query.from_user.id,
-                        photo=get_logo_media(),
-                        caption=menu_text,
-                        reply_markup=keyboard,
-                        parse_mode='HTML',
-                    )
-                    _cache_logo_file_id(_result)
-                else:
-                    await bot.send_message(
-                        chat_id=query.from_user.id,
-                        text=menu_text,
-                        reply_markup=keyboard,
-                        parse_mode='HTML',
-                    )
+                await send_menu_with_media(bot, query.from_user.id, menu_text, keyboard, db)
             if pinned_message and not pinned_message.send_before_menu:
                 await _send_pinned_message(bot, db, user, pinned_message)
         else:
@@ -3061,22 +3149,7 @@ async def required_sub_channel_check(
 
                     if not await try_send_rich_main_menu(bot, query.from_user.id, user, texts, db, keyboard):
                         menu_text = await get_main_menu_text(user, texts, db)
-                        if settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
-                            _result = await bot.send_photo(
-                                chat_id=query.from_user.id,
-                                photo=get_logo_media(),
-                                caption=menu_text,
-                                reply_markup=keyboard,
-                                parse_mode='HTML',
-                            )
-                            _cache_logo_file_id(_result)
-                        else:
-                            await bot.send_message(
-                                chat_id=query.from_user.id,
-                                text=menu_text,
-                                reply_markup=keyboard,
-                                parse_mode='HTML',
-                            )
+                        await send_menu_with_media(bot, query.from_user.id, menu_text, keyboard, db)
                     if pinned_message and not pinned_message.send_before_menu:
                         await _send_pinned_message(bot, db, user, pinned_message)
                 else:

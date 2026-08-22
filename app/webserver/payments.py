@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -23,6 +24,41 @@ from app.services.tribute_service import TributeService
 
 
 logger = structlog.get_logger(__name__)
+
+# Strong refs to fire-and-forget webhook background tasks so they are not
+# garbage-collected mid-execution (per asyncio.create_task docs).
+_webhook_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_webhook_bg(coro) -> None:
+    task = asyncio.create_task(coro)
+    _webhook_bg_tasks.add(task)
+    task.add_done_callback(_webhook_bg_tasks.discard)
+
+
+async def drain_webhook_bg_tasks(timeout: float = 30.0) -> None:
+    """Дождаться фоновых обработчиков вебхуков перед остановкой процесса.
+
+    Вебхук отвечает 200 сразу после проверки подписи, то есть провайдер уже
+    считает коллбек доставленным и повторять его не будет. Уйти в shutdown с
+    незавершёнными задачами значит потерять зачисление: деньги у провайдера
+    прошли, у нас — нет, и никто об этом не узнает.
+
+    Ждём с потолком, чтобы застрявшая задача не держала выкат бесконечно;
+    что не успело — пишем ошибкой, по ней платёж можно найти руками.
+    """
+    pending = [task for task in _webhook_bg_tasks if not task.done()]
+    if not pending:
+        return
+
+    logger.info('Дожидаемся фоновой обработки вебхуков перед остановкой', count=len(pending))
+    _, still_pending = await asyncio.wait(pending, timeout=timeout)
+    if still_pending:
+        logger.error(
+            'Фоновая обработка вебхуков не завершилась за отведённое время — '
+            'зачисление могло не примениться, проверьте платежи вручную',
+            count=len(still_pending),
+        )
 
 
 def _create_cors_response() -> Response:
@@ -115,25 +151,45 @@ def _verify_mulenpay_signature(request: Request, raw_body: bytes) -> bool:
     return False
 
 
+# Bound concurrent payment-callback processing. Each callback holds a DB session
+# for its whole processing duration (incl. external calls to the panel/provider).
+# A burst of provider webhooks (e.g. a daily recurring-charge run firing 100+
+# callbacks/min) would otherwise open a session per callback and exhaust the
+# connection pool, starving the cabinet/admin API. Excess callbacks wait for a
+# slot (without holding a DB connection); providers retry on timeout and
+# processing is idempotent per order id.
+_WEBHOOK_CALLBACK_CONCURRENCY = 16
+_webhook_callback_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_webhook_callback_semaphore() -> asyncio.Semaphore:
+    # Lazily created inside the running loop to avoid binding to the wrong loop.
+    global _webhook_callback_semaphore
+    if _webhook_callback_semaphore is None:
+        _webhook_callback_semaphore = asyncio.Semaphore(_WEBHOOK_CALLBACK_CONCURRENCY)
+    return _webhook_callback_semaphore
+
+
 async def _process_payment_service_callback(
     payment_service: PaymentService,
     payload: dict,
     method_name: str,
 ) -> bool:
-    db_generator = get_db()
-    try:
-        db = await db_generator.__anext__()
-    except StopAsyncIteration:  # pragma: no cover - defensive guard
-        return False
-
-    try:
-        process_callback = getattr(payment_service, method_name)
-        return await process_callback(db, payload)
-    finally:
+    async with _get_webhook_callback_semaphore():
+        db_generator = get_db()
         try:
-            await db_generator.__anext__()
-        except StopAsyncIteration:
-            pass
+            db = await db_generator.__anext__()
+        except StopAsyncIteration:  # pragma: no cover - defensive guard
+            return False
+
+        try:
+            process_callback = getattr(payment_service, method_name)
+            return await process_callback(db, payload)
+        finally:
+            try:
+                await db_generator.__anext__()
+            except StopAsyncIteration:
+                pass
 
 
 async def _parse_pal24_payload(request: Request) -> dict[str, str]:
@@ -162,16 +218,32 @@ async def _parse_pal24_payload(request: Request) -> dict[str, str]:
 
 
 def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRouter | None:
+    """Роутер вебхуков платёжных провайдеров.
+
+    Маршруты монтируются по ``is_X_configured()`` — по наличию учётных данных,
+    а НЕ по флагу включения. Флаг переключают из админки в рантайме
+    (``setattr(settings, ...)``), меню оплаты его перечитывает на каждой
+    отрисовке, а маршруты FastAPI фиксируются один раз на старте процесса.
+    Из-за этого провайдер, выключенный в момент перезапуска, после включения
+    появлялся в меню и принимал оплату, но его вебхук отвечал 404: платёж
+    проходил, зачисления не было и в логах бота не было ничего — запрос до
+    него не доходил.
+
+    Учётные данные при этом никуда не деваются, пока оператор щёлкает
+    тумблером, так что маршрут остаётся живым. Побочно чинится и обратное:
+    коллбек по платежу, начатому до выключения провайдера, теперь доезжает,
+    а не теряется вместе с деньгами.
+    """
     router = APIRouter()
     routes_registered = False
 
-    if settings.is_apple_iap_enabled():
+    if settings.is_apple_iap_configured():
         from app.webserver.apple_iap import create_apple_iap_router
 
         router.include_router(create_apple_iap_router(bot))
         routes_registered = True
 
-    if settings.TRIBUTE_ENABLED:
+    if settings.is_tribute_configured():
         tribute_service = TributeService(bot)
         tribute_api = TributeAPI()
 
@@ -237,7 +309,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_mulenpay_enabled():
+    if settings.is_mulenpay_configured():
 
         @router.options(settings.MULENPAY_WEBHOOK_PATH)
         async def mulenpay_options() -> Response:
@@ -288,7 +360,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_cryptobot_enabled():
+    if settings.is_cryptobot_configured():
 
         @router.options(settings.CRYPTOBOT_WEBHOOK_PATH)
         async def cryptobot_options() -> Response:
@@ -360,7 +432,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_yookassa_enabled():
+    if settings.is_yookassa_configured():
 
         @router.options(settings.YOOKASSA_WEBHOOK_PATH)
         async def yookassa_options() -> Response:
@@ -385,28 +457,32 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         @router.post(settings.YOOKASSA_WEBHOOK_PATH)
         async def yookassa_webhook(request: Request) -> JSONResponse:
-            header_ip_candidates = yookassa_webhook_module.collect_yookassa_ip_candidates(
-                request.headers.get('X-Forwarded-For'),
-                request.headers.get('X-Real-IP'),
-                request.headers.get('Cf-Connecting-Ip'),
-            )
-            remote_ip = request.client.host if request.client else None
-            client_ip = yookassa_webhook_module.resolve_yookassa_ip(
-                header_ip_candidates,
-                remote=remote_ip,
-            )
-
-            if client_ip is None:
-                return JSONResponse(
-                    {'status': 'error', 'reason': 'unknown_ip'},
-                    status_code=status.HTTP_403_FORBIDDEN,
+            # IP-гейт можно отключить (YOOKASSA_SKIP_IP_CHECK) для схем за Anti-DDoS/прокси,
+            # который не пробрасывает реальный IP отправителя. В этом режиме подлинность
+            # платежа гарантирует fail-closed API-проверка в process_yookassa_webhook.
+            if not settings.YOOKASSA_SKIP_IP_CHECK:
+                header_ip_candidates = yookassa_webhook_module.collect_yookassa_ip_candidates(
+                    request.headers.get('X-Forwarded-For'),
+                    request.headers.get('X-Real-IP'),
+                    request.headers.get('Cf-Connecting-Ip'),
+                )
+                remote_ip = request.client.host if request.client else None
+                client_ip = yookassa_webhook_module.resolve_yookassa_ip(
+                    header_ip_candidates,
+                    remote=remote_ip,
                 )
 
-            if not yookassa_webhook_module.is_yookassa_ip_allowed(client_ip):
-                return JSONResponse(
-                    {'status': 'error', 'reason': 'forbidden_ip'},
-                    status_code=status.HTTP_403_FORBIDDEN,
-                )
+                if client_ip is None:
+                    return JSONResponse(
+                        {'status': 'error', 'reason': 'unknown_ip'},
+                        status_code=status.HTTP_403_FORBIDDEN,
+                    )
+
+                if not yookassa_webhook_module.is_yookassa_ip_allowed(client_ip):
+                    return JSONResponse(
+                        {'status': 'error', 'reason': 'forbidden_ip'},
+                        status_code=status.HTTP_403_FORBIDDEN,
+                    )
 
             body_bytes = await request.body()
             if not body_bytes:
@@ -466,7 +542,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_wata_enabled():
+    if settings.is_wata_configured():
         wata_handler = WataWebhookHandler(payment_service)
 
         @router.options(settings.WATA_WEBHOOK_PATH)
@@ -537,7 +613,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_heleket_enabled():
+    if settings.is_heleket_configured():
         heleket_handler = HeleketWebhookHandler(payment_service)
 
         @router.options(settings.HELEKET_WEBHOOK_PATH)
@@ -601,7 +677,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_pal24_enabled():
+    if settings.is_pal24_configured():
         pal24_service = Pal24Service()
 
         @router.options(settings.PAL24_WEBHOOK_PATH)
@@ -672,7 +748,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_platega_enabled():
+    if settings.is_platega_configured():
 
         @router.get(settings.PLATEGA_WEBHOOK_PATH)
         async def platega_health() -> JSONResponse:
@@ -709,7 +785,29 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Platega sends both one-off payment callbacks and recurring СБП-subscription
+            # callbacks (charge + status-change) to this same endpoint. Subscription
+            # payloads carry paymentMethod 6, a subscriptionId, or a SUBSCRIPTION_-prefixed
+            # status — matched case-insensitively, because the live charge callback
+            # arrives in camelCase while the spec examples are PascalCase.
+            from app.services.platega_recurrent import is_subscription_callback
+
+            is_subscription = is_subscription_callback(payload)
+
             try:
+                if is_subscription:
+                    # process_platega_subscription_callback self-handles errors/logging
+                    # and always returns None — it is NOT a success flag like the other
+                    # handlers, so the response must not be gated on its return value.
+                    # Per spec, subscription callbacks always get HTTP 200 unless
+                    # dispatch itself raises (caught below → 400, Platega retries).
+                    await _process_payment_service_callback(
+                        payment_service,
+                        payload,
+                        'process_platega_subscription_callback',
+                    )
+                    return JSONResponse({'status': 'ok'})
+
                 success = await _process_payment_service_callback(
                     payment_service,
                     payload,
@@ -721,7 +819,13 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                 transaction_id = (
                     payload.get('id') or payload.get('transactionId') or payload.get('transaction_id') or 'unknown'
                 )
-                logger.error('Platega webhook processing failed', transaction_id=transaction_id)
+                # Ключи (не значения) в логе: по ним видно, в какой форме пришёл
+                # коллбек, если он снова не совпадёт с ожидаемой.
+                logger.error(
+                    'Platega webhook processing failed',
+                    transaction_id=transaction_id,
+                    payload_keys=sorted(payload) if isinstance(payload, dict) else None,
+                )
                 return JSONResponse(
                     {'status': 'error', 'reason': 'not_processed'},
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -735,7 +839,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_cloudpayments_enabled():
+    if settings.is_cloudpayments_configured():
         from app.services.cloudpayments_service import CloudPaymentsService
 
         cloudpayments_service = CloudPaymentsService()
@@ -948,7 +1052,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
-    if settings.is_freekassa_enabled():
+    if settings.is_freekassa_configured():
 
         @router.options(settings.FREEKASSA_WEBHOOK_PATH)
         async def freekassa_options() -> Response:
@@ -1040,7 +1144,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # KassaAI webhook
-    if settings.is_kassa_ai_enabled():
+    if settings.is_kassa_ai_configured():
 
         @router.get(settings.KASSA_AI_WEBHOOK_PATH)
         async def kassa_ai_health() -> JSONResponse:
@@ -1115,7 +1219,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # RioPay webhook
-    if settings.is_riopay_enabled():
+    if settings.is_riopay_configured():
 
         @router.get(settings.RIOPAY_WEBHOOK_PATH)
         async def riopay_health() -> JSONResponse:
@@ -1188,7 +1292,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # SeverPay webhook
-    if settings.is_severpay_enabled():
+    if settings.is_severpay_configured():
 
         @router.get(settings.SEVERPAY_WEBHOOK_PATH)
         async def severpay_health() -> JSONResponse:
@@ -1234,7 +1338,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # PayPear webhook
-    if settings.is_paypear_enabled():
+    if settings.is_paypear_configured():
 
         @router.get(settings.PAYPEAR_WEBHOOK_PATH)
         async def paypear_health() -> JSONResponse:
@@ -1284,7 +1388,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # RollyPay webhook
-    if settings.is_rollypay_enabled():
+    if settings.is_rollypay_configured():
 
         @router.get(settings.ROLLYPAY_WEBHOOK_PATH)
         async def rollypay_health() -> JSONResponse:
@@ -1334,7 +1438,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # Overpay webhook
-    if settings.is_overpay_enabled():
+    if settings.is_overpay_configured():
 
         @router.get(settings.OVERPAY_WEBHOOK_PATH)
         async def overpay_health() -> JSONResponse:
@@ -1409,7 +1513,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # AuraPay webhook
-    if settings.is_aurapay_enabled():
+    if settings.is_aurapay_configured():
 
         @router.get(settings.AURAPAY_WEBHOOK_PATH)
         async def aurapay_health() -> JSONResponse:
@@ -1458,7 +1562,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # Etoplatezhi webhook
-    if settings.is_etoplatezhi_enabled():
+    if settings.is_etoplatezhi_configured():
 
         @router.get(settings.ETOPLATEZHI_WEBHOOK_PATH)
         async def etoplatezhi_health() -> JSONResponse:
@@ -1486,26 +1590,34 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                 logger.warning('Etoplatezhi webhook: invalid signature')
                 return JSONResponse({'status': False}, status_code=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                success = await _process_payment_service_callback(
-                    payment_service,
-                    payload,
-                    'process_etoplatezhi_callback',
-                )
-                if not success:
-                    logger.error(
-                        'Etoplatezhi webhook processing failed',
-                        data=payload.get('payment', {}).get('id'),
+            # ACK instantly, process in background. Under callback bursts the
+            # synchronous processing made EtoPlatezhi's client time out
+            # (499/408) before we responded, triggering retries. The processor
+            # opens its own DB session and row-locks per payment, so concurrent
+            # callbacks stay safe. EtoPlatezhi still retries on non-200/timeout.
+            async def _process_etoplatezhi_bg() -> None:
+                try:
+                    success = await _process_payment_service_callback(
+                        payment_service,
+                        payload,
+                        'process_etoplatezhi_callback',
                     )
-            except Exception as e:
-                logger.exception('Etoplatezhi webhook processing error', error=e)
+                    if not success:
+                        logger.error(
+                            'Etoplatezhi webhook processing failed',
+                            data=payload.get('payment', {}).get('id'),
+                        )
+                except Exception as e:
+                    logger.exception('Etoplatezhi webhook processing error', error=e)
+
+            _spawn_webhook_bg(_process_etoplatezhi_bg())
             # Always return 200 — Etoplatezhi expects 200 for valid signature
             return JSONResponse({'status': True}, status_code=status.HTTP_200_OK)
 
         routes_registered = True
 
     # Antilopay webhook
-    if settings.is_antilopay_enabled():
+    if settings.is_antilopay_configured():
 
         @router.get(settings.ANTILOPAY_WEBHOOK_PATH)
         async def antilopay_health() -> JSONResponse:
@@ -1553,7 +1665,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # Jupiter webhook (FPGate P2P v2.1)
-    if settings.is_jupiter_enabled():
+    if settings.is_jupiter_configured():
 
         @router.get(settings.JUPITER_WEBHOOK_PATH)
         async def jupiter_health() -> JSONResponse:
@@ -1599,7 +1711,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         routes_registered = True
 
     # Lava webhook (Lava Business)
-    if settings.is_lava_enabled():
+    if settings.is_lava_configured():
 
         @router.get(settings.LAVA_WEBHOOK_PATH)
         async def lava_health() -> JSONResponse:
@@ -1627,17 +1739,29 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                 logger.warning('Lava webhook: invalid signature')
                 return JSONResponse({'status': 'error'}, status_code=status.HTTP_400_BAD_REQUEST)
 
+            # Списания по рекуррентной подписке приходят обычным инвойс-вебхуком:
+            # отличаем их по префиксу нашего orderId и уводим в ветку подписок —
+            # там продление подписки, а не начисление на баланс.
+            from app.services.lava_recurrent import is_recurrent_order_id
+
+            callback_method = (
+                'process_lava_subscription_callback'
+                if is_recurrent_order_id(payload.get('order_id'))
+                else 'process_lava_callback'
+            )
+
             try:
                 success = await _process_payment_service_callback(
                     payment_service,
                     payload,
-                    'process_lava_callback',
+                    callback_method,
                 )
                 if not success:
                     logger.error(
                         'Lava webhook processing failed',
                         order_id=payload.get('order_id'),
                         invoice_id=payload.get('invoice_id'),
+                        handler=callback_method,
                     )
             except Exception as e:
                 logger.exception('Lava webhook processing error', error=e)
@@ -1646,8 +1770,63 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
+    # cisPay webhook (api.cispay.app)
+    if settings.is_cispay_configured():
+
+        @router.get(settings.CISPAY_WEBHOOK_PATH)
+        async def cispay_health() -> JSONResponse:
+            return JSONResponse(
+                {
+                    'status': 'ok',
+                    'service': 'cispay_webhook',
+                    'enabled': settings.is_cispay_enabled(),
+                }
+            )
+
+        @router.post(settings.CISPAY_WEBHOOK_PATH)
+        async def cispay_webhook(request: Request) -> JSONResponse:
+            raw_body = await request.body()
+
+            from app.services.cispay_service import cispay_service
+
+            # X-Signature — HMAC-SHA256 от сырого тела запроса, ключ — X-Api-Key магазина
+            received_signature = request.headers.get('X-Signature')
+            if not cispay_service.verify_webhook_signature(raw_body, received_signature):
+                logger.warning('cisPay webhook: invalid signature')
+                return JSONResponse({'status': 'error'}, status_code=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                payload = json.loads(raw_body)
+            except Exception as parse_error:
+                logger.error('cisPay webhook: failed to parse JSON', parse_error=parse_error)
+                return JSONResponse({'status': 'error'}, status_code=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                success = await _process_payment_service_callback(
+                    payment_service,
+                    payload,
+                    'process_cispay_callback',
+                )
+            except Exception as e:
+                logger.exception('cisPay webhook processing error', error=e)
+                success = False
+
+            if not success:
+                logger.error(
+                    'cisPay webhook processing failed',
+                    order_id=payload.get('order_id'),
+                    payment_id=payload.get('id'),
+                )
+                # Не-2xx заставит cisPay повторить вебхук по расписанию
+                # (через 1 мин, 5 мин, 15 мин, 1 час — всего 5 попыток)
+                return JSONResponse({'status': 'error'}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return JSONResponse({'status': 'ok'}, status_code=status.HTTP_200_OK)
+
+        routes_registered = True
+
     # Donut webhook (Donut P2P)
-    if settings.is_donut_enabled():
+    if settings.is_donut_configured():
 
         @router.get(settings.DONUT_WEBHOOK_PATH)
         async def donut_health() -> JSONResponse:
@@ -1722,6 +1901,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                     'jupiter_enabled': settings.is_jupiter_enabled(),
                     'donut_enabled': settings.is_donut_enabled(),
                     'lava_enabled': settings.is_lava_enabled(),
+                    'cispay_enabled': settings.is_cispay_enabled(),
                 }
             )
 
