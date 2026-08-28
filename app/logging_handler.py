@@ -81,6 +81,7 @@ def _mark_error_event(event_uid: str | None, status: str, error: Any = None) -> 
     except Exception:
         pass
 
+
 # Logger name prefixes we never want notifications from
 # (noisy transport-level loggers).
 IGNORED_LOGGER_PREFIXES: Final[tuple[str, ...]] = (
