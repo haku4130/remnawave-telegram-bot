@@ -116,6 +116,8 @@ class EmailService:
         body_text: str | None = None,
         attachments: list[tuple[str, bytes, str]] | None = None,
         unsubscribe_url: str | None = None,
+        queue_on_failure: bool = True,
+        log_failure: bool = True,
     ) -> bool:
         """
         Send an email.
@@ -129,9 +131,19 @@ class EmailService:
             unsubscribe_url: One-click unsubscribe URL. Задаётся ТОЛЬКО для
                 маркетинговых писем — на транзакционных (код входа, чек об
                 оплате) List-Unsubscribe не ставят.
+            queue_on_failure: при ошибке отправки положить письмо в очередь
+                повторных попыток (``email_retry_service``). Выключается для
+                массовых рассылок — иначе один обрыв SMTP забьёт очередь
+                тысячами писем — и для самих повторов из очереди.
+            log_failure: логировать провал на уровне error. Очередь повторов
+                выключает это у себя: иначе каждая из десяти попыток поднимала
+                бы отдельную ошибку в админ-чат. Ошибку там поднимают ровно
+                один раз — когда попытки исчерпаны и письмо потеряно.
 
         Returns:
-            True if email was sent successfully, False otherwise
+            True if email was sent successfully, False otherwise.
+            Постановка в очередь НЕ считается успехом: семантика для
+            вызывающего кода не меняется, письмо просто дойдёт позже.
         """
         if not self.is_configured():
             logger.warning('SMTP is not configured, cannot send email')
@@ -218,7 +230,32 @@ class EmailService:
             return True
 
         except Exception as e:
-            logger.error('Failed to send email to', to_email=to_email, error=e)
+            if queue_on_failure:
+                from app.services.email_retry_service import email_retry_service
+
+                queued = email_retry_service.enqueue(
+                    to_email=to_email,
+                    subject=subject,
+                    body_html=body_html,
+                    body_text=body_text,
+                    attachments=attachments,
+                    unsubscribe_url=unsubscribe_url,
+                )
+                if queued:
+                    # Не error: письмо ещё не потеряно, его повторят. Ошибку
+                    # уровня error поднимет email_retry_service, когда
+                    # исчерпает все попытки — тогда это действительно потеря.
+                    logger.warning(
+                        'Отправка письма не удалась, письмо отложено в очередь повторов',
+                        to_email=to_email,
+                        error=str(e)[:200],
+                    )
+                    return False
+
+            if log_failure:
+                logger.error('Failed to send email to', to_email=to_email, error=e)
+            else:
+                logger.warning('Failed to send email to', to_email=to_email, error=str(e)[:200])
             return False
 
     def _render_default_template(
