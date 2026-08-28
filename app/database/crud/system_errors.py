@@ -125,3 +125,25 @@ async def get_error_summary(db: AsyncSession) -> dict[str, Any]:
             {'error_type': error_type, 'event': event, 'count': count} for error_type, event, count in top_rows
         ],
     }
+
+
+async def mark_delivery_result(
+    db: AsyncSession,
+    event: SystemErrorEvent,
+    *,
+    delivered: bool,
+    error: str | None = None,
+) -> SystemErrorEvent:
+    """Записать исход ручной повторной доставки."""
+    event.delivery_attempts = (event.delivery_attempts or 0) + 1
+    event.last_attempt_at = datetime.now(tz=UTC)
+    if delivered:
+        event.delivery_status = 'sent'
+        event.delivered_at = datetime.now(tz=UTC)
+        event.delivery_error = None
+    else:
+        event.delivery_status = 'failed'
+        event.delivery_error = (error or '')[:1000] or None
+    await db.commit()
+    await db.refresh(event)
+    return event

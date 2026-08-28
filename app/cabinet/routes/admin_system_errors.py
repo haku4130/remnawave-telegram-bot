@@ -7,20 +7,26 @@ Telegram лежат, ошибки всё равно видно здесь.
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 from typing import Any
 
 import structlog
+from aiogram import Bot
+from aiogram.types import BufferedInputFile
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot_factory import create_bot
+from app.config import settings
 from app.database.crud.system_errors import (
     get_error_event,
     get_error_summary,
     list_error_events,
+    mark_delivery_result,
 )
-from app.database.models import User
+from app.database.models import SystemErrorEvent, User
 
 from ..dependencies import get_cabinet_db, require_permission
 
@@ -75,6 +81,71 @@ class SystemErrorSummary(BaseModel):
 
 
 # ============ Helpers ============
+
+_cached_bot: Bot | None = None
+
+# Telegram режет caption у документа на 1024 символах — длинный трейсбек
+# уезжает в приложенный файл, как и в обычном отчёте об ошибке.
+CAPTION_LIMIT = 900
+
+
+def _get_bot() -> Bot:
+    global _cached_bot
+    if _cached_bot is None:
+        _cached_bot = create_bot()
+    return _cached_bot
+
+
+def _build_retry_message(event: SystemErrorEvent) -> str:
+    created = event.created_at.isoformat() if event.created_at else '—'
+    parts = [
+        '<b>Повторная отправка ошибки</b>',
+        '',
+        f'<b>Тип:</b> <code>{html.escape(event.error_type or "—")}</code>',
+        f'<b>Логгер:</b> <code>{html.escape(event.logger_name or "—")}</code>',
+        f'<b>Когда:</b> {html.escape(created)}',
+        '',
+        f'<code>{html.escape(event.event or "")[:CAPTION_LIMIT]}</code>',
+    ]
+    return '\n'.join(parts)
+
+
+async def _resend_to_admin_chat(event: SystemErrorEvent) -> None:
+    """Отправить сохранённую ошибку в админ-чат. Бросает при неудаче."""
+    chat_id = getattr(settings, 'ADMIN_NOTIFICATIONS_CHAT_ID', None)
+    if not chat_id:
+        raise RuntimeError('ADMIN_NOTIFICATIONS_CHAT_ID не настроен')
+
+    topic_id = getattr(settings, 'ADMIN_NOTIFICATIONS_ERRORS_TOPIC_ID', None) or getattr(
+        settings, 'ADMIN_NOTIFICATIONS_TOPIC_ID', None
+    )
+    kwargs: dict[str, Any] = {'chat_id': chat_id, 'parse_mode': 'HTML'}
+    if topic_id:
+        kwargs['message_thread_id'] = topic_id
+
+    bot = _get_bot()
+    text = _build_retry_message(event)
+
+    if event.traceback:
+        document = BufferedInputFile(
+            file=event.traceback.encode('utf-8'),
+            filename=f'error_{event.id}.txt',
+        )
+        await bot.send_document(document=document, caption=text, **kwargs)
+    else:
+        await bot.send_message(text=text, disable_web_page_preview=True, **kwargs)
+
+
+def _to_detail(event: SystemErrorEvent) -> SystemErrorDetail:
+    base = _to_list_item(event)
+    return SystemErrorDetail(
+        **base.model_dump(),
+        traceback=event.traceback,
+        context=event.context,
+        last_attempt_at=event.last_attempt_at,
+        delivery_error=event.delivery_error,
+        dedup_hash=event.dedup_hash,
+    )
 
 
 def _to_list_item(event) -> SystemErrorListItem:
@@ -153,12 +224,37 @@ async def get_system_error(
     if not event:
         raise HTTPException(status_code=404, detail='Error event not found')
 
-    base = _to_list_item(event)
-    return SystemErrorDetail(
-        **base.model_dump(),
-        traceback=event.traceback,
-        context=event.context,
-        last_attempt_at=event.last_attempt_at,
-        delivery_error=event.delivery_error,
-        dedup_hash=event.dedup_hash,
-    )
+    return _to_detail(event)
+
+
+@router.post('/{event_id}/retry', response_model=SystemErrorDetail)
+async def retry_system_error_delivery(
+    event_id: int,
+    admin: User = Depends(require_permission('system_errors:manage')),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Повторно отправить сохранённую ошибку в админ-чат.
+
+    В отличие от автоматического пути, здесь нет троттлинга и дедупликации —
+    админ жмёт кнопку осознанно.
+    """
+    event = await get_error_event(db, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail='Error event not found')
+
+    try:
+        await _resend_to_admin_chat(event)
+    except Exception as e:
+        # ВАЖНО: warning, не error. logger.error отсюда уйдёт в
+        # TelegramNotifierProcessor и породит новую запись об ошибке
+        # прямо во время разбора старой.
+        logger.warning(
+            'Повторная отправка ошибки в админ-чат не удалась',
+            event_id=event_id,
+            error=str(e)[:200],
+        )
+        await mark_delivery_result(db, event, delivered=False, error=str(e))
+        return _to_detail(event)
+
+    await mark_delivery_result(db, event, delivered=True)
+    return _to_detail(event)
