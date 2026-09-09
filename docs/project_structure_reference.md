@@ -67,11 +67,9 @@
 
 ### .github/workflows
 
+- `.github/workflows/ci.yml` — файл
 - `.github/workflows/codeql.yml` — файл
-- `.github/workflows/docker-hub.yml` — файл
-- `.github/workflows/docker-registry.yml` — файл
 - `.github/workflows/lint.yml` — файл
-- `.github/workflows/release-please.yml` — файл
 - `.github/workflows/release.yml` — файл
 - `.github/workflows/security-audit.yml` — файл
 - `.github/workflows/tests.yml` — файл
@@ -86,7 +84,7 @@
   Функции: `create_bot` — Create a Bot instance with SOCKS5 proxy and/or custom Telegram API server.
 - `app/cabinet/`
 - `app/config.py` — Python-модуль
-  Классы: `Settings` (397 методов)
+  Классы: `Settings` (398 методов)
   Функции: `transliterate_cyrillic` — Заменяет кириллические буквы латинскими, сохраняя регистр («Шмель» → «Shmel»)., `set_period_prices_from_db` — Устанавливает периоды/цены из БД., `get_db_period_prices` — Возвращает периоды/цены из БД если они загружены., `clear_db_period_prices` — Очищает кеш цен из тарифов (при переключении в classic mode)., `refresh_period_prices` — Rebuild cached period price mapping., `refresh_classic_period_prices` — Rebuild CLASSIC_PERIOD_PRICES from current settings., `get_traffic_prices`, `refresh_traffic_prices`
 - `app/database/`
 - `app/external/`
@@ -1367,7 +1365,7 @@
   Классы: нет
   Функции: `compute_auth_methods` — Вычисляет список методов авторизации пользователя., `get_merge_preview` — Возвращает превью данных обоих аккаунтов для подтверждения мержа., `flush_remnawave_deletions` — Удаляет (или деактивирует как fallback) пользователей RemnaWave., `execute_merge` — Выполняет атомарный мерж двух аккаунтов. Caller отвечает за commit/rollback.
 - `app/services/admin_notification_service.py` — Python-модуль
-  Классы: `NotificationCategory`, `AdminNotificationService` (48 методов)
+  Классы: `NotificationCategory`, `AdminNotificationService` (49 методов)
   Функции: нет
 - `app/services/antilopay_service.py` — Python-модуль
   Классы: `AntilopayAPIError` (1 методов), `AntilopayService` (12 методов)
@@ -2376,6 +2374,7 @@
 - `docs/persistent_cart_system.md` — файл
 - `docs/project_structure_reference.md` — файл
 - `docs/referral_program_setting.md` — файл
+- `docs/superpowers/`
 - `docs/web-admin-integration-guide.md` — файл
 - `docs/web-admin-integration.md` — файл
 - `docs/websocket-and-webhooks.md` — файл
@@ -2384,6 +2383,19 @@
 
 - `docs/handoffs/handoff-2026-08-31-1659.md` — файл
 - `docs/handoffs/handoff-2026-08-31-1944.md` — файл
+
+### docs/superpowers
+
+- `docs/superpowers/plans/`
+- `docs/superpowers/specs/`
+
+#### docs/superpowers/plans
+
+- `docs/superpowers/plans/2026-08-22-remnawave-major-upgrade.md` — файл
+
+#### docs/superpowers/specs
+
+- `docs/superpowers/specs/2026-08-22-remnawave-major-upgrade-design.md` — файл
 
 ## migrations
 
@@ -2765,6 +2777,8 @@
 - `scripts/generate_structure_reference.py` — Python-модуль
   Классы: нет
   Функции: `tracked_paths` — Файлы проекта: отслеживаемые плюс новые, которые git не игнорирует., `describe_module` — Строки «Классы:» и «Функции:» для модуля., `render_entries`, `render`, `build`, `main`
+- `scripts/install-warp-memory-watchdog.sh` — файл
+- `scripts/sync-env-to-server.sh` — файл
 
 ## tests
 
