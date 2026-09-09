@@ -282,10 +282,8 @@ async def view_admin_ticket(
             nav_row.append(
                 types.InlineKeyboardButton(text='➡️', callback_data=f'admin_ticket_page_{ticket_id}_{page + 1}')
             )
-        try:
+        if getattr(keyboard, 'inline_keyboard', None) is not None:
             keyboard.inline_keyboard.insert(0, nav_row)
-        except Exception:
-            pass
 
     page_text = pages[page - 1]
 
@@ -1001,10 +999,10 @@ async def _notify_ticket_reply_by_email(user: User, ticket: Ticket, reply_text: 
     """
     if not getattr(user, 'email', None) or not getattr(user, 'email_verified', False):
         logger.warning(
-            'Cannot notify ticket user without telegram_id',
+            'Cannot notify ticket user: no telegram_id and no verified email',
             ticket_id=ticket.id,
-            getattr=getattr(user, 'username', None),
-            getattr_2=getattr(user, 'auth_type', None),
+            username=getattr(user, 'username', None),
+            auth_type=getattr(user, 'auth_type', None),
         )
         return
 
