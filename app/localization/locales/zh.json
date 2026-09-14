@@ -1775,6 +1775,11 @@
   "REFERRAL_WITHDRAWAL_STATS_PENDING": "⏳ 审核中：<b>{amount}</b>",
   "AUTO_PURCHASE_DEVICES_SUCCESS": "✅ <b>已自动添加设备！</b>\n\n📱 新增：{devices_to_add} 台设备\n📊 新上限：{new_limit} 台设备\n💰 已扣款：{price}",
   "AUTO_PURCHASE_TRAFFIC_SUCCESS": "✅ <b>已自动添加流量！</b>\n\n📈 新增：{traffic_gb} GB\n📊 新上限：{new_limit} GB\n💰 已扣款：{price}",
+  "ADDON_CART_STILL_INSUFFICIENT": "❌ 余额仍然不足\n\n需要：{required}\n您有：{balance}\n还差：{missing}",
+  "ADDON_CART_COMPLETED": "✅ 完成！",
+  "ADDON_CART_FAILED": "❌ 无法完成购买。请重试或联系客服。",
+  "ADDON_PURCHASE_TRAFFIC_SUCCESS": "✅ <b>流量已添加！</b>\n\n📈 已添加：{traffic_gb} GB\n📊 新上限：{new_limit} GB\n💰 已扣款：{price}",
+  "ADDON_PURCHASE_DEVICES_SUCCESS": "✅ <b>设备已添加！</b>\n\n📱 已添加：{devices_to_add} 台设备\n📊 新上限：{new_limit} 台设备\n💰 已扣款：{price}",
   "BTN_RENEW_SUBSCRIPTION": "⏰ 续订订阅",
   "BTN_TOPUP_BALANCE": "💳 充值余额",
   "PAYMENT_SUCCESS_CLOUDPAYMENTS": "✅ <b>已收到付款！</b>\n\n💰 金额：{amount}₽\n💳 方式：CloudPayments\n💵 余额：{balance}₽\n\n感谢您的充值！",
@@ -2275,5 +2280,8 @@
   "GIFT_COPY_TEXT_HINT": "点击下方文本即可整段复制，然后发送给接收者。",
   "GIFT_COPY_TEXT_BODY": "🎁 送你一份 {tariff_name} 订阅，为期 {period_days} 天。\n\n激活：{claim_link}\n\n如果链接打不开，请在机器人中输入代码：{public_code}",
   "GIFT_ITEM_NOT_CLAIMABLE": "该礼物已被激活——没有可分享的内容。",
-  "GIFT_MY_BACK_TO_CARD": "◀️ 返回礼物"
+  "GIFT_MY_BACK_TO_CARD": "◀️ 返回礼物",
+  "GRACE_ACCESS_GRANTED_EXPIRED": "🛟 <b>订阅{tariff_label}已到期，但未完全断开</b>\n\n在 {hours} 小时内仅可使用：{allowed}。此期间有 {traffic_gb} GB 流量，以便续订。续订前其他一切不可用。\n\n⏳ 有效至 {until}。",
+  "GRACE_ACCESS_GRANTED_LIMITED": "🛟 <b>订阅{tariff_label}的流量已用完，但未完全断开</b>\n\n在 {hours} 小时内仅可使用：{allowed}。此期间有 {traffic_gb} GB 流量，以便加购流量或续订。付款前其他一切不可用。\n\n⏳ 有效至 {until}。",
+  "GRACE_ACCESS_ENDED": "⌛ <b>临时访问已结束</b>\n\n订阅{tariff_label}未续订，临时访问已关闭。此前保留的部分现已不可用：{allowed}。请续订以恢复 VPN。"
 }
