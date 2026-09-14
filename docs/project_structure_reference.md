@@ -1383,7 +1383,7 @@
   Классы: нет
   Функции: `compute_auth_methods` — Вычисляет список методов авторизации пользователя., `get_merge_preview` — Возвращает превью данных обоих аккаунтов для подтверждения мержа., `flush_remnawave_deletions` — Удаляет (или деактивирует как fallback) пользователей RemnaWave., `execute_merge` — Выполняет атомарный мерж двух аккаунтов. Caller отвечает за commit/rollback.
 - `app/services/admin_notification_service.py` — Python-модуль
-  Классы: `NotificationCategory`, `AdminNotificationService` (49 методов)
+  Классы: `NotificationCategory`, `AdminNotificationService` (50 методов)
   Функции: нет
 - `app/services/antilopay_service.py` — Python-модуль
   Классы: `AntilopayAPIError` (1 методов), `AntilopayService` (12 методов)
