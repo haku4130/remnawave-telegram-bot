@@ -1208,7 +1208,7 @@ async def update_user_subscription(
         days = request.days or 30
         is_trial = request.is_trial or False
         traffic_limit = request.traffic_limit_gb or 100
-        device_limit = request.device_limit or 1
+        device_limit = request.device_limit or settings.DEFAULT_DEVICE_LIMIT
         connected_squads = []
 
         # Get tariff for settings if provided

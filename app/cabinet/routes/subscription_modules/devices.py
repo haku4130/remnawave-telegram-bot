@@ -455,8 +455,8 @@ async def purchase_devices(
         devices_discount_percent = discount_result['percent']
         discount_value = discount_result['discount']
 
-        # Ensure minimum price after discount (except for 100% discount)
-        if devices_discount_percent < 100:
+        # Ensure minimum price after discount (except for 100% discount and free slots)
+        if devices_discount_percent < 100 and price_kopeks > 0:
             price_kopeks = max(100, price_kopeks)
 
         # Check balance (skip for 100% discount)
