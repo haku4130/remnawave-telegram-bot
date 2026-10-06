@@ -108,8 +108,10 @@ services:
       - traefik.http.routers.remnawave-bot-webhook-https.tls=true
       - traefik.http.routers.remnawave-bot-webhook-https.tls.certresolver=le
       - traefik.http.routers.remnawave-bot-webhook-https.service=remnawave-bot
+    # Снаружи API доступен только через traefik (bot.zanity.net, cabinet.zanity.net/api);
+    # порт на хосте — только для локальной отладки, иначе он торчит в интернет по голому HTTP.
     ports:
-      - '${WEB_API_PORT:?}:${WEB_API_PORT:?}'
+      - '127.0.0.1:${WEB_API_PORT:?}:${WEB_API_PORT:?}'
     healthcheck:
       test:
         [
