@@ -169,6 +169,7 @@ services:
 
   xray-checker:
     image: kutovoys/xray-checker
+    restart: unless-stopped
     environment:
       - SUBSCRIPTION_URL=${SUBSCRIPTION_URL}#ZanityVPN
       - WEB_PUBLIC=true
