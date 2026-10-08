@@ -26,16 +26,18 @@ def _enable_rich(monkeypatch):
 
 
 class TestBuildHtml:
-    def test_first_line_becomes_heading_like_in_the_menu(self):
-        """Стиль меню: заголовок в <h4>, под ним разделитель, дальше содержимое."""
+    def test_first_line_becomes_bold_heading_paragraph(self):
+        """Заголовок — жирный абзац: <h4> мобильный Telegram набирает шрифтом с засечками."""
         html = build_notification_rich_html('⚠️ Подписка истекает\n\nОсталось 3 дня')
 
-        assert html == '<h4>⚠️ Подписка истекает</h4><hr/><p>Осталось 3 дня</p>'
+        assert html == '<p><b>⚠️ Подписка истекает</b></p><p>Осталось 3 дня</p>'
+        assert '<h4>' not in html
+        assert '<hr/>' not in html
 
     def test_single_newline_inside_body_becomes_br(self):
         html = build_notification_rich_html('Заголовок\nпервая\nвторая')
 
-        assert html == '<h4>Заголовок</h4><hr/><p>первая<br>вторая</p>'
+        assert html == '<p><b>Заголовок</b></p><p>первая<br>вторая</p>'
 
     def test_lone_line_stays_paragraph_without_heading(self):
         """Заголовок без содержимого под ним — это уже не заголовок."""
@@ -46,25 +48,30 @@ class TestBuildHtml:
 
         html = build_notification_rich_html(f'{long_line}\nвторая')
 
-        assert '<h4>' not in html
-        assert html.startswith('<p>')
+        assert '<b>' not in html
+        assert html.startswith('<p>Э')
 
     def test_heading_length_counts_text_not_markup(self):
         """Разметка не должна съедать лимит: <b> — это ноль видимых символов."""
         html = build_notification_rich_html('<b>Короткий заголовок</b>\nтело')
 
-        assert html.startswith('<h4><b>Короткий заголовок</b></h4>')
+        assert html.startswith('<p><b>Короткий заголовок</b></p><p>тело')
+
+    def test_already_bold_heading_is_not_wrapped_twice(self):
+        html = build_notification_rich_html('‼️ <b>ОБНОВИТЕ ПОДПИСКУ</b> ‼️\n\nтело')
+
+        assert html == '<p>‼️ <b>ОБНОВИТЕ ПОДПИСКУ</b> ‼️</p><p>тело</p>'
 
     def test_several_blank_lines_do_not_make_empty_paragraphs(self):
         html = build_notification_rich_html('Заголовок\n\nа\n\n\n\nб')
 
-        assert html == '<h4>Заголовок</h4><hr/><p>а</p><p>б</p>'
+        assert html == '<p><b>Заголовок</b></p><p>а</p><p>б</p>'
         assert '<p></p>' not in html
 
     def test_logo_leads_the_message_like_in_the_menu(self):
         html = build_notification_rich_html('Заголовок\nтело', logo_url='https://cdn.example/logo.png')
 
-        assert html.startswith('<img src="https://cdn.example/logo.png"/><h4>Заголовок</h4><hr/>')
+        assert html.startswith('<img src="https://cdn.example/logo.png"/><p><b>Заголовок</b></p>')
 
     def test_inline_markup_survives(self):
         html = build_notification_rich_html('<b>Подписка</b> истекает <a href="https://t.me">тут</a>')
@@ -103,7 +110,7 @@ class TestSend:
 
         assert sent is True
         html = bot.send_rich_message.await_args.kwargs['rich_message'].html
-        assert html == '<h4>Подписка истекает</h4><hr/><p>Продлите её</p>'
+        assert html == '<p><b>Подписка истекает</b></p><p>Продлите её</p>'
 
     async def test_disabled_setting_falls_back(self, monkeypatch):
         monkeypatch.setattr(settings, 'USER_NOTIFICATIONS_RICH_ENABLED', False, raising=False)

@@ -62,10 +62,11 @@ _BLANK_LINE_RE = re.compile(r'\n\s*\n+')
 _TAG_RE = re.compile(r'<[^<>]+>')
 
 # Первая строка уведомления почти всегда служит заголовком («⚠️ <b>Подписка
-# истекает</b>»), и в стиле меню ей место в <h4>. Но если строка длинная, это уже
-# не заголовок, а первый абзац текста — делать из него огромный заголовок хуже,
-# чем оставить абзацем.
+# истекает</b>») и выделяется жирным отдельным абзацем. Не <h4>: мобильный Telegram
+# рисует rich-заголовки шрифтом с засечками, в рассылках это смотрелось чужеродно.
+# Если строка длинная, это уже не заголовок, а первый абзац текста.
 _TITLE_MAX_LENGTH = 80
+_BOLD_RE = re.compile(r'<(?:b|strong)\b', re.IGNORECASE)
 
 
 def _visible_length(value: str) -> int:
@@ -82,9 +83,9 @@ def _paragraphs_html(lines: list[str]) -> list[str]:
 def build_notification_rich_html(text: str, *, logo_url: str = '') -> str | None:
     """Текст уведомления → rich-разметка в стиле главного меню.
 
-    Повторяет визуальный язык ``build_main_menu_rich_html``: шапка с логотипом,
-    заголовок в ``<h4>``, ``<hr/>`` под ним и абзацы содержимого. Так уведомление
-    выглядит частью того же интерфейса, а не чужеродным текстом.
+    Шапка с логотипом, как у ``build_main_menu_rich_html``, затем заголовок жирным
+    абзацем и абзацы содержимого. Без ``<h4>`` и ``<hr/>``: на телефоне заголовок
+    rich-сообщения набирается шрифтом с засечками.
 
     ``None`` — превратить в rich нельзя, вызывающий шлёт классическое сообщение.
     """
@@ -110,13 +111,13 @@ def build_notification_rich_html(text: str, *, logo_url: str = '') -> str | None
     title = lines[first_index].strip()
     rest = lines[first_index + 1 :]
     if _visible_length(title) <= _TITLE_MAX_LENGTH and any(line.strip() for line in rest):
-        blocks.append(f'<h4>{title}</h4>')
-        blocks.append('<hr/>')
+        # Уже размеченный жирным заголовок не оборачиваем второй раз.
+        blocks.append(f'<p>{title}</p>' if _BOLD_RE.search(title) else f'<p><b>{title}</b></p>')
         blocks.extend(_paragraphs_html(rest))
     else:
         blocks.extend(_paragraphs_html(lines[first_index:]))
 
-    if not any(block.startswith(('<h4>', '<p>')) for block in blocks):
+    if not any(block.startswith('<p>') for block in blocks):
         return None
 
     return ''.join(blocks)
