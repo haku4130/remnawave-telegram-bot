@@ -1373,6 +1373,9 @@
 - `app/middlewares/maintenance.py` — Python-модуль
   Классы: `MaintenanceMiddleware` (1 методов)
   Функции: нет
+- `app/middlewares/premium_theme.py` — Python-модуль
+  Классы: `PremiumThemeMiddleware` (1 методов)
+  Функции: `to_plain`, `restore_escaped`, `theme_button`, `theme_markup`
 - `app/middlewares/stale_callback_answer.py` — Python-модуль
   Классы: `StaleCallbackAnswerMiddleware` (1 методов)
   Функции: нет
@@ -3908,6 +3911,9 @@
 - `tests/middlewares/test_maintenance_expected_errors.py` — Python-модуль
   Классы: нет
   Функции: `test_stale_callback_logged_quietly`, `test_blocked_bot_logged_quietly`, `test_unexpected_bad_request_stays_error`
+- `tests/middlewares/test_premium_theme.py` — Python-модуль
+  Классы: нет
+  Функции: `theme_on`, `test_leading_tag_becomes_icon`, `test_leading_unicode_from_catalog_becomes_icon`, `test_unicode_outside_catalog_is_left_alone`, `test_emoji_only_label_is_not_emptied`, `test_explicit_style_and_icon_win`, `test_inner_tags_fall_back_to_unicode`, `test_source_markup_is_not_mutated`, `test_send_message_markup_themed_and_html_text_kept`, `test_plain_text_message_gets_fallback`, `test_text_with_entities_is_left_untouched`, `test_escaped_tag_is_restored_in_html`, `test_caption_is_handled_like_text`, `test_callback_alert_gets_fallback`, `test_reply_keyboard_is_not_touched`, `test_disabled_flag_passes_through`, `test_theme_error_does_not_block_sending`, `test_registered_in_bot_factory`
 - `tests/middlewares/test_rich_error_report.py` — Python-модуль
   Классы: нет
   Функции: `test_rich_error_report_structure`, `test_rich_error_report_none_when_oversized`, `test_send_error_uses_rich_and_clears_buffer`, `test_send_error_falls_back_to_document_when_rich_unavailable`, `test_rich_error_report_renders_a_plain_note_without_code_block` — Запись без трейса (например, «сообщение некуда доставить») — обычный абзац,
