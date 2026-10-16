@@ -475,3 +475,70 @@ async def test_purchase_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in PURCHASE_TITLES)
+
+
+BALANCE_TITLES = (
+    'Баланс',
+    'Баланс — история',
+    'Баланс — способы пополнения',
+    'Пополнение — ввод суммы',
+    'Пополнение — ссылка на оплату',
+    'Пополнение — оплата прошла',
+    'Пополнение — через поддержку',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_balance_screens_present(theme_on, monkeypatch, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    monkeypatch.setattr(settings, 'TELEGRAM_STARS_ENABLED', False)
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in BALANCE_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.startswith('<b>'), title
+        assert '<blockquote' not in screen.text, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        assert screen.text.count('<tg-emoji') <= 2, title
+        buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+        assert sum(1 for button in buttons if button.style == 'success') <= 1, title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', screen.text.replace('₽', '')), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text.replace('₽', '')) for button in buttons), title
+
+    def callbacks(title):
+        return [b.callback_data for row in screens[title].markup.inline_keyboard for b in row]
+
+    assert 'balance_topup' in callbacks('Баланс')
+    assert callbacks('Баланс — способы пополнения')[:2] == ['topup_rollypay', 'topup_support']
+    assert 'topup_amount|rollypay|50000' in callbacks('Пополнение — ввод суммы')
+    pay = screens['Пополнение — ссылка на оплату'].markup.inline_keyboard[0][0]
+    assert pay.url and pay.style == 'success'
+    assert 'К оплате 500 ₽' in screens['Пополнение — ссылка на оплату'].text or 'To pay: 500 ₽' in (
+        screens['Пополнение — ссылка на оплату'].text
+    )
+    for title in (
+        'Баланс',
+        'Баланс — способы пополнения',
+        'Пополнение — ссылка на оплату',
+        'Пополнение — оплата прошла',
+    ):
+        buttons = [b for row in theme_markup(screens[title].markup).inline_keyboard for b in row]
+        assert sum(1 for button in buttons if button.style == 'success') == 1, title
+    assert 'Транзакц' not in screens['Пополнение — оплата прошла'].text
+
+
+@pytest.mark.asyncio
+async def test_balance_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in BALANCE_TITLES)

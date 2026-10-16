@@ -20,6 +20,7 @@ from app.config import settings
 from app.database.crud.user import get_user_by_telegram_id
 from app.database.database import AsyncSessionLocal, get_db
 from app.database.models import Subscription
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 from app.services.subscription_checkout_service import (
     has_subscription_checkout_draft,
@@ -30,8 +31,46 @@ from app.utils.miniapp_buttons import build_main_menu_button, build_miniapp_or_c
 from app.utils.payment_logger import payment_logger as logger
 
 
+def _as_main_action(button: InlineKeyboardButton) -> InlineKeyboardButton:
+    """Главная кнопка экрана — зелёная, если код или таблица цветов не задали ей цвет иначе."""
+    if button.style is None and button.callback_data:
+        return button.model_copy(update={'style': 'success'})
+    return button
+
+
 class PaymentCommonMixin:
     """Mixin с базовой логикой, которую используют остальные платёжные блоки."""
+
+    async def refresh_topup_success_keyboard(
+        self,
+        user: Any,
+        message: Any | None,
+        sent_keyboard: InlineKeyboardMarkup | None,
+    ) -> None:
+        """Под темой форка обновляет кнопки сообщения «Пополнение успешно» после автопокупки.
+
+        Клавиатуру приходится строить до автопокупки, чтобы сообщения шли по порядку «пополнение → подписка»;
+        если корзину уже израсходовали, кнопка «Вернуться к оформлению» вела бы в «Корзина не найдена».
+        Кнопки строятся заново и меняются, только если отличаются. Без темы ничего не делает.
+        """
+        if not settings.PREMIUM_THEME_ENABLED or message is None or sent_keyboard is None:
+            return
+        bot = getattr(self, 'bot', None)
+        if bot is None:
+            return
+        try:
+            fresh = await self.build_topup_success_keyboard(user)
+            if fresh.model_dump(exclude_none=True) == sent_keyboard.model_dump(exclude_none=True):
+                return
+            await bot.edit_message_reply_markup(
+                chat_id=message.chat.id, message_id=message.message_id, reply_markup=fresh
+            )
+        except Exception as error:
+            logger.warning(
+                'Не удалось обновить кнопки сообщения о пополнении после автопокупки',
+                user_id=getattr(user, 'id', None),
+                error=error,
+            )
 
     async def build_topup_success_keyboard(self, user: Any) -> InlineKeyboardMarkup:
         """Формирует клавиатуру по завершении платежа, подстраиваясь под пользователя."""
@@ -86,10 +125,16 @@ class PaymentCommonMixin:
                 )
 
         # Создаем основную кнопку: если есть активная подписка - продлить, иначе купить
+        if has_active_subscription:
+            first_text = fork_text(texts, 'FORK_BUTTON_EXTEND', texts.MENU_EXTEND_SUBSCRIPTION)
+        else:
+            first_text = fork_text(texts, 'FORK_BUTTON_BUY_SUBSCRIPTION', texts.MENU_BUY_SUBSCRIPTION)
         first_button = build_miniapp_or_callback_button(
-            text=(texts.MENU_EXTEND_SUBSCRIPTION if has_active_subscription else texts.MENU_BUY_SUBSCRIPTION),
+            text=first_text,
             callback_data=('subscription_extend' if has_active_subscription else 'menu_buy'),
         )
+        if settings.PREMIUM_THEME_ENABLED:
+            first_button = _as_main_action(first_button)
 
         keyboard_rows: list[list[InlineKeyboardButton]] = [
             [first_button],
@@ -110,13 +155,12 @@ class PaymentCommonMixin:
             if cart_data:
                 cart_mode = cart_data.get('cart_mode')
                 if cart_mode == 'gift_purchase':
+                    gift_button = build_miniapp_or_callback_button(
+                        text=texts.t('GIFT_RETURN_TO_CART_BUTTON', '🎁 Вернуться к подарку'),
+                        callback_data='return_to_gift_cart',
+                    )
                     keyboard_rows.append(
-                        [
-                            build_miniapp_or_callback_button(
-                                text=texts.t('GIFT_RETURN_TO_CART_BUTTON', '🎁 Вернуться к подарку'),
-                                callback_data='return_to_gift_cart',
-                            )
-                        ]
+                        [_as_main_action(gift_button) if settings.PREMIUM_THEME_ENABLED else gift_button]
                     )
                 else:
                     keyboard_rows.append(
@@ -138,6 +182,11 @@ class PaymentCommonMixin:
                             )
                         ]
                     )
+
+        if settings.PREMIUM_THEME_ENABLED and len(keyboard_rows) > 1:
+            # Вернуться к оформлению — то, ради чего человек пополнял баланс; вторая зелёная кнопка рядом
+            # («Продлить»/«Купить») ему не нужна.
+            keyboard_rows = keyboard_rows[1:]
 
         # «Мой баланс» направляется в соответствующий раздел кабинета
         # в MAIN_MENU_MODE=cabinet (через build_miniapp_or_callback_button),

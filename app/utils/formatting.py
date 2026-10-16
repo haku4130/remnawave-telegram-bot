@@ -47,3 +47,12 @@ def format_period(days: int) -> str:
     else:
         word = 'дней'
     return f'{days} {word}'
+
+
+def shorten_text(text: str, limit: int) -> str:
+    """Обрезает по границе слова и ставит «…»; экранировать нужно уже результат."""
+    text = ' '.join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(' ', 1)[0] or text[: limit - 1]
+    return cut.rstrip(' ,.;:—-') + '…'

@@ -2078,7 +2078,10 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('PAYMENT_ROLLYPAY', f'💳 {rollypay_name}'),
+                    text=texts.t(
+                        'PAYMENT_ROLLYPAY',
+                        fork_text(texts, 'FORK_BUTTON_PAY_VIA', f'💳 {rollypay_name}').replace('{name}', rollypay_name),
+                    ),
                     callback_data=_build_callback('rollypay'),
                 )
             ]

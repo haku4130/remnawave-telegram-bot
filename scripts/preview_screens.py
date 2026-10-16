@@ -20,19 +20,22 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import NamedTuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, WebAppInfo
 
 from app.bot_factory import create_bot
 from app.config import settings
+from app.handlers.balance import main as balance_main, rollypay as rollypay_handler
 from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
     get_back_keyboard,
+    get_balance_keyboard,
     get_change_devices_keyboard,
     get_confirm_change_devices_keyboard,
     get_devices_management_keyboard,
     get_insufficient_balance_keyboard,
+    get_payment_methods_keyboard,
     get_subscription_keyboard,
     get_updated_subscription_settings_keyboard,
 )
@@ -41,7 +44,9 @@ from app.localization.fork_text import fork_period
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
-from app.utils import fork_onboarding, rich_menu
+from app.services.payment import rollypay as rollypay_service
+from app.services.payment.common import PaymentCommonMixin
+from app.utils import fork_onboarding, payment_utils, rich_menu
 from app.utils.pagination import paginate_list
 
 
@@ -480,6 +485,109 @@ def _purchase_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+async def _balance_screens(language: str) -> list[PreviewScreen]:
+    """Баланс и оплата RollyPay: теми же текстами, клавиатурами и обработчиками, что у бота (без БД и сети)."""
+    texts = get_texts(language)
+    ru = language == 'ru'
+    user = SimpleNamespace(
+        id=0,
+        language=language,
+        telegram_id=42,
+        email=None,
+        balance_kopeks=_SUBSCRIBER_BALANCE_KOPEKS,
+        restriction_topup=False,
+        restriction_reason=None,
+    )
+    now = datetime.now(UTC)
+    operations = [
+        SimpleNamespace(
+            type='deposit',
+            amount_kopeks=50000,
+            description='Пополнение через RollyPay' if ru else 'Top-up via RollyPay',
+            created_at=now,
+        ),
+        SimpleNamespace(
+            type='subscription_payment',
+            amount_kopeks=-19900,
+            description='Покупка тарифа Стандартный на 30 дней' if ru else 'Standard tariff for 30 days',
+            created_at=now - timedelta(days=2),
+        ),
+        SimpleNamespace(
+            type='referral_reward',
+            amount_kopeks=4975,
+            description='Реферальное вознаграждение' if ru else 'Referral reward',
+            created_at=now - timedelta(days=5),
+        ),
+    ]
+
+    async def quick_amounts(*args, **kwargs):
+        return [10000, 30000, 50000, 100000]
+
+    # Единственный платёжный провайдер прода — RollyPay; остальные в окружении предпросмотра выключены.
+    with (
+        patch.object(type(settings), 'is_rollypay_enabled', lambda self: True),
+        patch.object(type(settings), 'is_support_topup_enabled', lambda self: True),
+        patch('app.keyboards.topup_amounts._load_quick_amounts', quick_amounts),
+    ):
+        methods_markup = balance_main._with_primary_payment_method(get_payment_methods_keyboard(0, language))
+        amount_markup = await rollypay_handler.get_topup_amount_keyboard('rollypay', language)
+
+        service = MagicMock()
+        service.create_rollypay_payment = AsyncMock(return_value={'payment_url': 'https://pay.example.com/checkout'})
+        link_message = MagicMock()
+        link_message.answer = AsyncMock()
+        with patch.object(rollypay_handler, 'PaymentService', lambda: service):
+            await rollypay_handler._create_rollypay_payment_and_respond(link_message, user, MagicMock(), 50000)
+        link_call = link_message.answer.await_args
+
+        support_callback = MagicMock()
+        support_callback.message.edit_text = AsyncMock()
+        support_callback.answer = AsyncMock()
+        await balance_main.request_support_topup(support_callback, user)
+        support_call = support_callback.message.edit_text.await_args
+
+    # Сообщение об оплате уходит без корзины в Redis: пользователь просто пополнил баланс.
+    with (
+        patch('app.services.payment.common.user_cart_service.get_user_cart', AsyncMock(return_value=None)),
+        patch('app.services.payment.common.has_subscription_checkout_draft', AsyncMock(return_value=False)),
+    ):
+        success_markup = await PaymentCommonMixin().build_topup_success_keyboard(
+            SimpleNamespace(id=0, language=language, subscriptions=[])
+        )
+
+    return [
+        PreviewScreen(
+            'Баланс',
+            texts.BALANCE_INFO.format(balance=texts.format_price(user.balance_kopeks)),
+            get_balance_keyboard(language),
+        ),
+        PreviewScreen(
+            'Баланс — история',
+            balance_main._history_text(texts, operations),
+            InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=texts.BACK, callback_data='menu_balance')]]
+            ),
+        ),
+        PreviewScreen('Баланс — способы пополнения', payment_utils.fork_payment_methods_text(texts), methods_markup),
+        PreviewScreen(
+            'Пополнение — ввод суммы',
+            texts.ROLLYPAY_ENTER_AMOUNT.format(
+                name=settings.get_rollypay_display_name_html(),
+                min_amount=settings.ROLLYPAY_MIN_AMOUNT_KOPEKS // 100,
+                max_amount=f'{settings.ROLLYPAY_MAX_AMOUNT_KOPEKS // 100:,}'.replace(',', ' '),
+            ),
+            amount_markup,
+        ),
+        PreviewScreen('Пополнение — ссылка на оплату', link_call.args[0], link_call.kwargs['reply_markup']),
+        PreviewScreen(
+            'Пополнение — оплата прошла',
+            rollypay_service._topup_success_text(user, 50000, settings.get_rollypay_display_name(), 1),
+            success_markup,
+        ),
+        PreviewScreen('Пополнение — через поддержку', support_call.args[0], support_call.kwargs['reply_markup']),
+    ]
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -488,6 +596,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_device_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_extend_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_purchase_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _balance_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

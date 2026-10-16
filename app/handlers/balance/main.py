@@ -17,14 +17,19 @@ from app.keyboards.inline import (
     get_pagination_keyboard,
     get_payment_methods_keyboard,
 )
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 from app.states import BalanceStates
 from app.utils.decorators import error_handler
+from app.utils.formatting import shorten_text
+from app.utils.payment_utils import topup_restriction_keyboard, topup_restriction_text
 
 
 logger = structlog.get_logger(__name__)
 
 TRANSACTIONS_PER_PAGE = 10
+# Описание операции в истории: 10 строк делят подпись к логотипу (1024 знака) с заголовком.
+_HISTORY_DESCRIPTION_LIMIT = 50
 
 CREDIT_TRANSACTION_TYPES: frozenset[str] = frozenset(
     {
@@ -269,6 +274,41 @@ async def show_balance_menu(callback: types.CallbackQuery, db_user: User, db: As
     await callback.answer()
 
 
+def _history_text(texts, transactions) -> str:
+    """Страница истории операций.
+
+    Под темой: заголовок и по строке на операцию «сумма · описание · дата» (описание укорочено, без времени);
+    без темы — три строки на операцию, как у апстрима.
+    """
+    if settings.PREMIUM_THEME_ENABLED:
+        lines = [texts.FORK_HISTORY_TITLE, '']
+        for transaction in transactions:
+            is_credit = transaction.type in CREDIT_TRANSACTION_TYPES
+            sign, amount = ('+', transaction.amount_kopeks) if is_credit else ('−', abs(transaction.amount_kopeks))
+            parts = [f'<b>{sign}{texts.format_price(amount)}</b>']
+            description = shorten_text(transaction.description or '', _HISTORY_DESCRIPTION_LIMIT)
+            if description:
+                parts.append(html.escape(description))
+            parts.append(transaction.created_at.strftime('%d.%m.%Y'))
+            lines.append(' · '.join(parts))
+        return '\n'.join(lines)
+
+    text = '📊 <b>История операций</b>\n\n'
+    for transaction in transactions:
+        is_credit = transaction.type in CREDIT_TRANSACTION_TYPES
+        emoji = '💰' if is_credit else '💸'
+        amount_text = (
+            f'+{texts.format_price(transaction.amount_kopeks)}'
+            if is_credit
+            else f'-{texts.format_price(abs(transaction.amount_kopeks))}'
+        )
+
+        text += f'{emoji} {amount_text}\n'
+        text += f'📝 {html.escape(transaction.description or "")}\n'
+        text += f'📅 {transaction.created_at.strftime("%d.%m.%Y %H:%M")}\n\n'
+    return text
+
+
 @error_handler
 async def show_balance_history(callback: types.CallbackQuery, db_user: User, db: AsyncSession, page: int = 1):
     texts = get_texts(db_user.language)
@@ -303,24 +343,14 @@ async def show_balance_history(callback: types.CallbackQuery, db_user: User, db:
             total_unique += 1
 
     if not unique_transactions:
-        await callback.message.edit_text('📊 История операций пуста', reply_markup=get_back_keyboard(db_user.language))
+        await callback.message.edit_text(
+            fork_text(texts, 'FORK_HISTORY_EMPTY', '📊 История операций пуста'),
+            reply_markup=get_back_keyboard(db_user.language),
+        )
         await callback.answer()
         return
 
-    text = '📊 <b>История операций</b>\n\n'
-
-    for transaction in unique_transactions:
-        is_credit = transaction.type in CREDIT_TRANSACTION_TYPES
-        emoji = '💰' if is_credit else '💸'
-        amount_text = (
-            f'+{texts.format_price(transaction.amount_kopeks)}'
-            if is_credit
-            else f'-{texts.format_price(abs(transaction.amount_kopeks))}'
-        )
-
-        text += f'{emoji} {amount_text}\n'
-        text += f'📝 {html.escape(transaction.description or "")}\n'
-        text += f'📅 {transaction.created_at.strftime("%d.%m.%Y %H:%M")}\n\n'
+    text = _history_text(texts, unique_transactions)
 
     keyboard = []
     total_pages = (total_unique + TRANSACTIONS_PER_PAGE - 1) // TRANSACTIONS_PER_PAGE
@@ -343,6 +373,22 @@ async def handle_balance_history_pagination(callback: types.CallbackQuery, db_us
     await show_balance_history(callback, db_user, db, page)
 
 
+def _with_primary_payment_method(keyboard: types.InlineKeyboardMarkup) -> types.InlineKeyboardMarkup:
+    """Главное действие экрана способов оплаты — первый платёжный способ: он единственная зелёная кнопка.
+
+    Таблица цветов кнопке ``topup_*`` цвета не даёт (способов много, провайдер у каждого свой), поэтому
+    зелёной её делает экран. «Через поддержку» — запасной вариант, он остаётся без цвета.
+    """
+    rows = [list(row) for row in keyboard.inline_keyboard]
+    for row in rows:
+        for index, button in enumerate(row):
+            data = button.callback_data or ''
+            if data.startswith('topup_') and data != 'topup_support' and button.style is None:
+                row[index] = button.model_copy(update={'style': 'success'})
+                return types.InlineKeyboardMarkup(inline_keyboard=rows)
+    return keyboard
+
+
 @error_handler
 async def show_payment_methods(callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext):
     from app.config import settings
@@ -352,17 +398,13 @@ async def show_payment_methods(callback: types.CallbackQuery, db_user: User, db:
 
     # Проверка ограничения на пополнение
     if getattr(db_user, 'restriction_topup', False):
-        reason = html.escape(getattr(db_user, 'restriction_reason', None) or 'Действие ограничено администратором')
-        support_url = settings.get_support_contact_url()
-        keyboard = []
-        if support_url:
-            keyboard.append([types.InlineKeyboardButton(text='🆘 Обжаловать', url=support_url)])
-        keyboard.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_balance')])
-
         await callback.message.edit_text(
-            f'🚫 <b>Пополнение ограничено</b>\n\n{reason}\n\n'
-            'Если вы считаете это ошибкой, вы можете обжаловать решение.',
-            reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard),
+            topup_restriction_text(
+                texts,
+                db_user,
+                '🚫 <b>Пополнение ограничено</b>\n\n{reason}\n\nЕсли вы считаете это ошибкой, вы можете обжаловать решение.',
+            ),
+            reply_markup=topup_restriction_keyboard(texts),
         )
         await callback.answer()
         return
@@ -385,6 +427,8 @@ async def show_payment_methods(callback: types.CallbackQuery, db_user: User, db:
     full_text = payment_text
 
     keyboard = get_payment_methods_keyboard(amount_kopeks, db_user.language)
+    if settings.PREMIUM_THEME_ENABLED:
+        keyboard = _with_primary_payment_method(keyboard)
 
     # Если сообщение недоступно, отправляем новое
     if isinstance(callback.message, InaccessibleMessage):
@@ -482,22 +526,14 @@ async def handle_successful_topup_with_cart(user_id: int, amount_kopeks: int, bo
         logger.error('Ошибка обработки успешного пополнения с корзиной', error=e)
 
 
-@error_handler
-async def request_support_topup(callback: types.CallbackQuery, db_user: User):
-    texts = get_texts(db_user.language)
-
-    if not settings.is_support_topup_enabled():
-        await callback.answer(
-            texts.t(
-                'SUPPORT_TOPUP_DISABLED',
-                'Пополнение через поддержку отключено. Попробуйте другой способ оплаты.',
-            ),
-            show_alert=True,
-        )
-        return
-
+def _support_topup_text(texts, db_user: User) -> str:
+    """Пополнение через поддержку: куда писать и что указать."""
     user_id_display = db_user.telegram_id or db_user.email or f'#{db_user.id}'
-    support_text = f"""
+    if settings.PREMIUM_THEME_ENABLED:
+        return texts.FORK_SUPPORT_TOPUP.replace('{contact}', settings.get_support_contact_display_html()).replace(
+            '{user_id}', html.escape(str(user_id_display))
+        )
+    return f"""
 🛠️ <b>Пополнение через поддержку</b>
 
 Для пополнения баланса обратитесь в техподдержку:
@@ -516,19 +552,46 @@ async def request_support_topup(callback: types.CallbackQuery, db_user: User):
 • Другие платежные системы
 """
 
+
+@error_handler
+async def request_support_topup(callback: types.CallbackQuery, db_user: User):
+    texts = get_texts(db_user.language)
+
+    if not settings.is_support_topup_enabled():
+        await callback.answer(
+            texts.t(
+                'SUPPORT_TOPUP_DISABLED',
+                'Пополнение через поддержку отключено. Попробуйте другой способ оплаты.',
+            ),
+            show_alert=True,
+        )
+        return
+
+    support_text = _support_topup_text(texts, db_user)
+
+    write_button = types.InlineKeyboardButton(
+        text=fork_text(texts, 'FORK_BUTTON_WRITE_SUPPORT', '💬 Написать в поддержку'),
+        url=settings.get_support_contact_url() or 'https://t.me/',
+    )
+    if settings.PREMIUM_THEME_ENABLED:
+        # URL-кнопке цвет по таблице не достаётся; главное действие экрана — написать в поддержку.
+        write_button = write_button.model_copy(update={'style': 'success'})
     keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                types.InlineKeyboardButton(
-                    text='💬 Написать в поддержку', url=settings.get_support_contact_url() or 'https://t.me/'
-                )
-            ],
+            [write_button],
             [types.InlineKeyboardButton(text=texts.BACK, callback_data='balance_topup')],
         ]
     )
 
     await callback.message.edit_text(support_text, reply_markup=keyboard, parse_mode='HTML')
     await callback.answer()
+
+
+def _amount_limit_text(texts, key: str, placeholder: str, value, upstream: str) -> str:
+    """Предел суммы пополнения: под темой — тот же короткий шаблон, что и у RollyPay, иначе строка апстрима."""
+    if settings.PREMIUM_THEME_ENABLED:
+        return texts.get(key).format(**{placeholder: value})
+    return upstream
 
 
 @error_handler
@@ -556,14 +619,18 @@ async def process_topup_amount(message: types.Message, db_user: User, state: FSM
 
         if amount_rubles < 1:
             await message.answer(
-                'Минимальная сумма пополнения: 1 ₽',
+                _amount_limit_text(
+                    texts, 'PAYMENT_AMOUNT_TOO_LOW', 'min_amount', 1, 'Минимальная сумма пополнения: 1 ₽'
+                ),
                 reply_markup=get_back_keyboard(db_user.language, callback_data='balance_topup'),
             )
             return
 
         if amount_rubles > 50000:
             await message.answer(
-                'Максимальная сумма пополнения: 50,000 ₽',
+                _amount_limit_text(
+                    texts, 'PAYMENT_AMOUNT_TOO_HIGH', 'max_amount', '50 000', 'Максимальная сумма пополнения: 50,000 ₽'
+                ),
                 reply_markup=get_back_keyboard(db_user.language, callback_data='balance_topup'),
             )
             return

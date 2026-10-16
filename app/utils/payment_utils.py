@@ -1,4 +1,9 @@
+import html
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from app.config import settings
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 
 
@@ -532,6 +537,38 @@ def get_available_payment_methods() -> list[dict[str, str]]:
     return methods
 
 
+def topup_restriction_text(texts, db_user, upstream_template: str) -> str:
+    """Текст «Пополнение ограничено» с причиной из профиля пользователя.
+
+    ``upstream_template`` — текст апстрима с ``{reason}`` (у экрана способов оплаты и у RollyPay он разный);
+    под темой форка вместо него один общий ключ FORK_TOPUP_RESTRICTED.
+    """
+    default_reason = fork_text(texts, 'FORK_RESTRICTION_DEFAULT_REASON', 'Действие ограничено администратором')
+    reason = html.escape(getattr(db_user, 'restriction_reason', None) or default_reason)
+    return fork_text(texts, 'FORK_TOPUP_RESTRICTED', upstream_template).replace('{reason}', reason)
+
+
+def topup_restriction_keyboard(texts) -> InlineKeyboardMarkup:
+    """«Обжаловать» (если есть куда писать) и «Назад» под сообщением об ограничении пополнения."""
+    keyboard = []
+    support_url = settings.get_support_contact_url()
+    if support_url:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=fork_text(texts, 'FORK_BUTTON_APPEAL', '\U0001f198 Обжаловать'), url=support_url
+                )
+            ]
+        )
+    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='menu_balance')])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def fork_payment_methods_text(texts) -> str:
+    """Экран способов оплаты под темой: заголовок и одна подсказка — способы и так видны на кнопках."""
+    return f'{texts.PAYMENT_METHODS_TITLE}\n{texts.PAYMENT_METHODS_PROMPT}'
+
+
 def get_payment_methods_text(language: str) -> str:
     """
     Генерирует текст с описанием доступных способов оплаты
@@ -560,6 +597,9 @@ def get_payment_methods_text(language: str) -> str:
 
 Выберите способ пополнения:""",
         )
+
+    if settings.PREMIUM_THEME_ENABLED:
+        return fork_payment_methods_text(texts)
 
     text = (
         texts.t(

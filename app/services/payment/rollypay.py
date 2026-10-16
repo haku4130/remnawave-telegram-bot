@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import uuid
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import PaymentMethod, TransactionType
+from app.localization.texts import get_texts
 from app.services.rollypay_service import rollypay_service
 from app.utils.payment_logger import payment_logger as logger
 from app.utils.user_utils import format_referrer_info
@@ -25,6 +27,22 @@ ROLLYPAY_STATUS_MAP: dict[str, tuple[str, bool]] = {
     'canceled': ('canceled', False),
     'chargeback': ('chargeback', False),
 }
+
+
+def _topup_success_text(user: Any, amount_kopeks: int, display_name: str, transaction_id: int) -> str:
+    """Сообщение «Пополнение успешно». Под темой форка — короткое, без номера транзакции, на языке пользователя."""
+    if settings.PREMIUM_THEME_ENABLED:
+        texts = get_texts(getattr(user, 'language', None) or 'ru')
+        return texts.FORK_TOPUP_SUCCESS.replace('{amount}', settings.format_price(amount_kopeks)).replace(
+            '{method}', html.escape(display_name)
+        )
+    return (
+        '\u2705 <b>Пополнение успешно!</b>\n\n'
+        f'\U0001f4b0 Сумма: {settings.format_price(amount_kopeks)}\n'
+        f'\U0001f4b3 Способ: {display_name}\n'
+        f'\U0001f194 Транзакция: {transaction_id}\n\n'
+        'Баланс пополнен автоматически!'
+    )
 
 
 class RollyPayPaymentMixin:
@@ -466,20 +484,16 @@ class RollyPayPaymentMixin:
             except Exception as error:
                 logger.error('Ошибка отправки админ уведомления RollyPay', error=error)
 
+        success_message = None
+        success_keyboard = None
         if getattr(self, 'bot', None) and user.telegram_id and settings.is_notifications_enabled():
             try:
-                keyboard = await self.build_topup_success_keyboard(user)
-                await self.bot.send_message(
+                success_keyboard = await self.build_topup_success_keyboard(user)
+                success_message = await self.bot.send_message(
                     user.telegram_id,
-                    (
-                        '\u2705 <b>Пополнение успешно!</b>\n\n'
-                        f'\U0001f4b0 Сумма: {settings.format_price(payment.amount_kopeks)}\n'
-                        f'\U0001f4b3 Способ: {display_name}\n'
-                        f'\U0001f194 Транзакция: {transaction.id}\n\n'
-                        'Баланс пополнен автоматически!'
-                    ),
+                    _topup_success_text(user, payment.amount_kopeks, display_name, transaction.id),
                     parse_mode='HTML',
-                    reply_markup=keyboard,
+                    reply_markup=success_keyboard,
                 )
             except Exception as error:
                 logger.error('Ошибка отправки уведомления пользователю RollyPay', error=error)
@@ -495,6 +509,9 @@ class RollyPayPaymentMixin:
                 error=error,
                 exc_info=True,
             )
+
+        # Автопокупка могла израсходовать корзину уже после того, как кнопки были отправлены.
+        await self.refresh_topup_success_keyboard(user, success_message, success_keyboard)
 
         metadata['balance_change'] = {
             'old_balance': old_balance,

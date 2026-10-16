@@ -30,7 +30,7 @@ from app.services.subscription_service import SubscriptionService
 from app.services.tariff_switch_policy import remaining_days_for_switch, should_reset_used_traffic
 from app.services.user_cart_service import user_cart_service
 from app.utils.decorators import error_handler
-from app.utils.formatting import format_period, format_price_kopeks, format_traffic
+from app.utils.formatting import format_period, format_price_kopeks, format_traffic, shorten_text as _shorten
 from app.utils.promo_offer import get_user_active_promo_discount_percent
 from app.utils.timezone import format_local_datetime
 
@@ -63,15 +63,6 @@ def _discounted_price_text(texts, price: int, percent: int) -> str:
 # тарифов оно короткое, на экране одного тарифа — подлиннее.
 _LIST_DESCRIPTION_LIMIT = 100
 _INFO_DESCRIPTION_LIMIT = 300
-
-
-def _shorten(text: str, limit: int) -> str:
-    """Обрезает по границе слова и ставит «…»; экранировать нужно уже результат."""
-    text = ' '.join(text.split())
-    if len(text) <= limit:
-        return text
-    cut = text[: limit - 1].rsplit(' ', 1)[0] or text[: limit - 1]
-    return cut.rstrip(' ,.;:—-') + '…'
 
 
 async def _persist_failed_refund(

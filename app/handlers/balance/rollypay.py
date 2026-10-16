@@ -1,7 +1,5 @@
 """Handler for RollyPay balance top-up."""
 
-import html
-
 import structlog
 from aiogram import types
 from aiogram.fsm.context import FSMContext
@@ -16,22 +14,33 @@ from app.localization.texts import get_texts
 from app.services.payment_service import PaymentService
 from app.states import BalanceStates
 from app.utils.decorators import error_handler
+from app.utils.payment_utils import topup_restriction_keyboard, topup_restriction_text
 
 
 logger = structlog.get_logger(__name__)
+
+
+_RESTRICTION_TEMPLATE = '\U0001f6ab <b>Пополнение ограничено</b>\n\n{reason}'
 
 
 def _check_topup_restriction(db_user: User, texts) -> InlineKeyboardMarkup | None:
     """Проверяет ограничение на пополнение. Возвращает клавиатуру если ограничен, иначе None."""
     if not getattr(db_user, 'restriction_topup', False):
         return None
+    return topup_restriction_keyboard(texts)
 
-    keyboard = []
-    support_url = settings.get_support_contact_url()
-    if support_url:
-        keyboard.append([InlineKeyboardButton(text='\U0001f198 Обжаловать', url=support_url)])
-    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='menu_balance')])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def _rubles(amount_kopeks: int) -> str:
+    """Сумма в рублях для шаблонов форка: «500» или «500.50», без «.00»."""
+    if amount_kopeks % 100 == 0:
+        return str(amount_kopeks // 100)
+    return f'{amount_kopeks / 100:.2f}'
+
+
+def _limit_rubles(amount_kopeks: int) -> int | str:
+    """Предел суммы в рублях: под темой с пробелом между тысячами («100 000»), иначе целое, как у апстрима."""
+    rubles = amount_kopeks // 100
+    return f'{rubles:,}'.replace(',', ' ') if settings.PREMIUM_THEME_ENABLED else rubles
 
 
 async def _create_rollypay_payment_and_respond(
@@ -83,20 +92,27 @@ async def _create_rollypay_payment_and_respond(
         return
 
     payment_url = result.get('payment_url')
-    display_name = settings.get_rollypay_display_name()
+    themed = settings.PREMIUM_THEME_ENABLED
+    display_name = settings.get_rollypay_display_name_html() if themed else settings.get_rollypay_display_name()
+    # Под темой сумма без «.00» («500»), а не «500.00»; кнопка — не «500» от округления копеек.
+    button_amount = _rubles(amount_kopeks) if themed else f'{amount_rub:.0f}'
+    text_amount = _rubles(amount_kopeks) if themed else f'{amount_rub:.2f}'
+
+    pay_button = InlineKeyboardButton(
+        text=texts.t(
+            'PAY_BUTTON',
+            '\U0001f4b3 Оплатить {amount}\u20bd',
+        ).format(amount=button_amount),
+        url=payment_url,
+    )
+    if themed:
+        # URL-кнопке цвет по таблице не достаётся; оплатить — главное действие экрана.
+        pay_button = pay_button.model_copy(update={'style': 'success'})
 
     # Create keyboard with payment button
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=texts.t(
-                        'PAY_BUTTON',
-                        '\U0001f4b3 Оплатить {amount}\u20bd',
-                    ).format(amount=f'{amount_rub:.0f}'),
-                    url=payment_url,
-                )
-            ],
+            [pay_button],
             [
                 InlineKeyboardButton(
                     text=texts.t('BACK_BUTTON', '\u25c0\ufe0f Назад'),
@@ -112,7 +128,7 @@ async def _create_rollypay_payment_and_respond(
         'Сумма: <b>{amount}\u20bd</b>\n\n'
         'Нажмите кнопку ниже для оплаты.\n'
         'После успешной оплаты баланс будет пополнен автоматически.',
-    ).format(name=display_name, amount=f'{amount_rub:.2f}')
+    ).format(name=display_name, amount=text_amount)
 
     if edit_message:
         await message_or_callback.edit_text(
@@ -145,9 +161,8 @@ async def process_rollypay_payment_amount(
 
     restriction_kb = _check_topup_restriction(db_user, texts)
     if restriction_kb:
-        reason = html.escape(getattr(db_user, 'restriction_reason', None) or 'Действие ограничено администратором')
         await message.answer(
-            f'\U0001f6ab <b>Пополнение ограничено</b>\n\n{reason}',
+            topup_restriction_text(texts, db_user, _RESTRICTION_TEMPLATE),
             parse_mode='HTML',
             reply_markup=restriction_kb,
         )
@@ -163,7 +178,7 @@ async def process_rollypay_payment_amount(
             texts.t(
                 'PAYMENT_AMOUNT_TOO_LOW',
                 'Минимальная сумма пополнения: {min_amount}\u20bd',
-            ).format(min_amount=min_amount // 100),
+            ).format(min_amount=_limit_rubles(min_amount)),
             reply_markup=get_back_keyboard(db_user.language),
             parse_mode='HTML',
         )
@@ -174,7 +189,7 @@ async def process_rollypay_payment_amount(
             texts.t(
                 'PAYMENT_AMOUNT_TOO_HIGH',
                 'Максимальная сумма пополнения: {max_amount}\u20bd',
-            ).format(max_amount=max_amount // 100),
+            ).format(max_amount=_limit_rubles(max_amount)),
             reply_markup=get_back_keyboard(db_user.language),
             parse_mode='HTML',
         )
@@ -205,9 +220,8 @@ async def start_rollypay_topup(
 
     restriction_kb = _check_topup_restriction(db_user, texts)
     if restriction_kb:
-        reason = html.escape(getattr(db_user, 'restriction_reason', None) or 'Действие ограничено администратором')
         await callback.message.edit_text(
-            f'\U0001f6ab <b>Пополнение ограничено</b>\n\n{reason}',
+            topup_restriction_text(texts, db_user, _RESTRICTION_TEMPLATE),
             parse_mode='HTML',
             reply_markup=restriction_kb,
         )
@@ -218,7 +232,11 @@ async def start_rollypay_topup(
 
     min_amount = settings.ROLLYPAY_MIN_AMOUNT_KOPEKS // 100
     max_amount = settings.ROLLYPAY_MAX_AMOUNT_KOPEKS // 100
-    display_name = settings.get_rollypay_display_name()
+    display_name = (
+        settings.get_rollypay_display_name_html()
+        if settings.PREMIUM_THEME_ENABLED
+        else settings.get_rollypay_display_name()
+    )
 
     keyboard = await get_topup_amount_keyboard('rollypay', db_user.language)
 
