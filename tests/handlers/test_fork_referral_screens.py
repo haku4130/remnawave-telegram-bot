@@ -924,3 +924,44 @@ async def test_theme_on_notifications_go_in_the_language_of_the_recipient(theme_
     (welcome_to, welcome), (new_to, new_referral) = _sent_messages(referral_world)
     assert welcome_to == 200 and 'Добро пожаловать' in welcome
     assert new_to == 100 and 'New referral' in new_referral and 'Приглашённый' not in new_referral
+
+
+# --- Сбой текста под темой не мешает начислению ------------------------------------------
+
+_FORK_BUILDERS = (
+    '_fork_welcome_notification',
+    '_fork_new_referral_notification',
+    '_fork_first_topup_bonus_notification',
+    '_fork_first_topup_reward_notification',
+    '_fork_commission_notification',
+)
+
+
+async def _all_scenarios(world) -> list[tuple[int, str]]:
+    messages = await register(world)
+    world.send.reset_mock()
+    messages += await first_topup(world)
+    world.send.reset_mock()
+    messages += await next_topup(world)
+    world.send.reset_mock()
+    return messages
+
+
+@pytest.mark.asyncio
+async def test_broken_fork_text_falls_back_to_upstream_and_still_credits(theme_on, referral_world, monkeypatch):
+    def broken(*args, **kwargs):
+        raise KeyError('placeholder')
+
+    for name in _FORK_BUILDERS:
+        monkeypatch.setattr(ref_service, name, broken)
+    themed = await _all_scenarios(referral_world)
+
+    credited = [call.args[1].id for call in ref_service.add_user_balance.await_args_list]
+    # Первое пополнение: бонус другу (20) и награда пригласившему (10); следующее — комиссия пригласившему.
+    assert credited == [20, 10, 10]
+    reasons = [call.kwargs['reason'] for call in ref_service.create_referral_earning.await_args_list]
+    assert reasons[-2:] == ['referral_first_topup', 'referral_commission_topup']
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    assert themed == await _all_scenarios(referral_world)

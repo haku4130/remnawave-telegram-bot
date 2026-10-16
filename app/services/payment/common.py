@@ -46,12 +46,16 @@ class PaymentCommonMixin:
         user: Any,
         message: Any | None,
         sent_keyboard: InlineKeyboardMarkup | None,
+        *,
+        db: AsyncSession | None = None,
     ) -> None:
         """Под темой форка обновляет кнопки сообщения «Пополнение успешно» после автопокупки.
 
         Клавиатуру приходится строить до автопокупки, чтобы сообщения шли по порядку «пополнение → подписка»;
         если корзину уже израсходовали, кнопка «Вернуться к оформлению» вела бы в «Корзина не найдена».
-        Кнопки строятся заново и меняются, только если отличаются. Без темы ничего не делает.
+        Подписки пользователя перечитываются из `db` (автопокупка могла оформить первую — тогда кнопка
+        «Продлить», а не «Купить»). Кнопки строятся заново и меняются, только если отличаются; любая
+        ошибка только пишется в лог. Без темы ничего не делает.
         """
         if not settings.PREMIUM_THEME_ENABLED or message is None or sent_keyboard is None:
             return
@@ -59,6 +63,8 @@ class PaymentCommonMixin:
         if bot is None:
             return
         try:
+            if db is not None and user is not None:
+                await db.refresh(user, attribute_names=['subscriptions'])
             fresh = await self.build_topup_success_keyboard(user)
             if fresh.model_dump(exclude_none=True) == sent_keyboard.model_dump(exclude_none=True):
                 return

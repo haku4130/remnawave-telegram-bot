@@ -21,7 +21,7 @@ from app.keyboards.inline import (
     get_ticket_reply_cancel_keyboard,
     get_ticket_view_keyboard,
 )
-from app.localization.fork_text import fork_text
+from app.localization.fork_text import fork_text, has_fork_text
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.utils.cache import RateLimitCache, cache, cache_key
@@ -550,15 +550,26 @@ async def show_my_tickets(callback: types.CallbackQuery, db_user: User, db: Asyn
             text=texts.t('VIEW_CLOSED_TICKETS', '🟢 Закрытые тикеты'), callback_data='my_tickets_closed'
         )
     ]
+    caption = texts.t('MY_TICKETS_TITLE', '📋 Ваши тикеты:')
     if not settings.PREMIUM_THEME_ENABLED:
         keyboard.inline_keyboard.insert(0, closed_row)
     elif has_closed_any:
         # Под темой переход к закрытым стоит под списком, перед «Назад», и есть только когда есть что открывать.
         keyboard.inline_keyboard.insert(len(keyboard.inline_keyboard) - 1, closed_row)
+    if settings.PREMIUM_THEME_ENABLED and not open_tickets:
+        # Открытых нет, есть только закрытые: главное действие — создать обращение (как на экране поддержки).
+        create_button = types.InlineKeyboardButton(
+            text=texts.t('CREATE_TICKET_BUTTON', '🎫 Создать тикет'), callback_data='create_ticket'
+        )
+        keyboard.inline_keyboard.insert(0, [_green(create_button)])
+        if has_fork_text(texts, 'FORK_TICKET_LIST_NO_OPEN'):
+            # Заголовок списка без подсказки «выберите обращение» — выбирать нечего.
+            title_line = caption.split('\n', 1)[0]
+            caption = f'{title_line}\n{texts.FORK_TICKET_LIST_NO_OPEN}'
     # Всегда используем фото-рендер с логотипом (утилита сама сделает фоллбек при необходимости)
     await edit_or_answer_photo(
         callback=callback,
-        caption=texts.t('MY_TICKETS_TITLE', '📋 Ваши тикеты:'),
+        caption=caption,
         keyboard=keyboard,
         parse_mode='HTML',
     )

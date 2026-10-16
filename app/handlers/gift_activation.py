@@ -9,7 +9,7 @@ from aiogram.types import InaccessibleMessage
 from app.config import settings
 from app.database.crud.user import get_user_by_telegram_id
 from app.database.database import AsyncSessionLocal
-from app.localization.fork_text import fork_period, fork_text
+from app.localization.fork_text import fork_period, fork_text, has_fork_text
 from app.localization.texts import get_texts
 from app.services.gift_claim_service import (
     GiftClaimAlreadyOwnedError,
@@ -40,13 +40,14 @@ def _guess_language(callback: types.CallbackQuery) -> str:
 def gift_activated_text(texts, tariff_name: str, period_days: int | None, *, callback_variant: bool) -> str:
     """Сообщение «Подарок активирован».
 
-    Без темы — шаблон апстрима с прежней подстановкой («Тариф — N дн.»). Под темой — шаблон форка
-    и срок с правильным склонением на языке пользователя. `tariff_name` уже экранирован.
+    Без темы (и для языка без слоя форка) — шаблон апстрима с прежней подстановкой («Тариф — N дн.»).
+    Под темой — шаблон форка и срок с правильным склонением на языке пользователя. `tariff_name` уже
+    экранирован.
     """
-    if settings.PREMIUM_THEME_ENABLED:
+    if has_fork_text(texts, 'FORK_GIFT_ACTIVATED'):
         period = fork_period(texts, period_days) if period_days else ''
         tariff_text = f'{tariff_name} · {period}' if tariff_name and period else (tariff_name or period)
-        return fork_text(texts, 'FORK_GIFT_ACTIVATED', '').format(tariff_text=tariff_text)
+        return texts.FORK_GIFT_ACTIVATED.format(tariff_text=tariff_text)
     if callback_variant:
         period_text = f'{period_days} дн.' if period_days else ''
         tariff_text = f'{tariff_name} — {period_text}' if tariff_name else period_text

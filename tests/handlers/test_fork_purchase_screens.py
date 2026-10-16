@@ -1065,3 +1065,16 @@ def test_rewritten_texts_follow_the_visual_language(theme_on, key, language):
 def test_success_template_keeps_a_single_date_placeholder(theme_on, language):
     value = get_texts(language).get('FORK_PURCHASE_SUCCESS')
     assert value.count('{date}') == 1
+
+
+@pytest.mark.parametrize(
+    ('language', 'money_line'),
+    [
+        ('ru', 'Если деньги списались, они вернутся на баланс.'),
+        ('en', 'If you were charged, the money will be returned to your balance.'),
+    ],
+)
+def test_already_active_text_does_not_promise_a_finished_refund(theme_on, language, money_line):
+    # Возврат может не пройти и уйти в очередь — текст не утверждает, что деньги уже вернулись.
+    value = get_texts(language).get('TARIFF_PURCHASE_ALREADY_ACTIVE_SUB')
+    assert value.split('\n')[1:] == [money_line]

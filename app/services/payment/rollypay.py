@@ -510,9 +510,6 @@ class RollyPayPaymentMixin:
                 exc_info=True,
             )
 
-        # Автопокупка могла израсходовать корзину уже после того, как кнопки были отправлены.
-        await self.refresh_topup_success_keyboard(user, success_message, success_keyboard)
-
         metadata['balance_change'] = {
             'old_balance': old_balance,
             'new_balance': user.balance_kopeks,
@@ -521,6 +518,10 @@ class RollyPayPaymentMixin:
         metadata['balance_credited'] = True
         payment.metadata_json = metadata
         await db.commit()
+
+        # Автопокупка могла израсходовать корзину уже после того, как кнопки были отправлены.
+        # Только после коммита выше: обновление кнопок не должно задерживать отметку о зачислении.
+        await self.refresh_topup_success_keyboard(user, success_message, success_keyboard, db=db)
 
         logger.info(
             'Обработан RollyPay платеж',

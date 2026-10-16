@@ -46,7 +46,7 @@ from app.database.models import (
     User,
     _aware,
 )
-from app.localization.fork_text import fork_period, fork_text
+from app.localization.fork_text import fork_period, has_fork_text
 from app.localization.texts import get_texts
 from app.services.registration_access_service import (
     RegistrationAccessContext,
@@ -1135,27 +1135,24 @@ def build_gift_received_message(
     safe_tariff = html_mod.escape(tariff_name) if tariff_name else ''
     callback_data = f'gift_activate:{purchase_id}'
 
-    if settings.PREMIUM_THEME_ENABLED:
-        texts = get_texts(language or settings.DEFAULT_LANGUAGE)
+    texts = get_texts(language or settings.DEFAULT_LANGUAGE) if settings.PREMIUM_THEME_ENABLED else None
+    # Язык без слоя форка (например, 'tr') получает прежний текст апстрима, а не пустое сообщение.
+    if texts is not None and has_fork_text(texts, 'FORK_GIFT_RECEIVED'):
         period = fork_period(texts, period_days) if period_days else ''
         tariff_text = f'{safe_tariff} · {period}' if safe_tariff and period else (safe_tariff or period)
-        text = fork_text(texts, 'FORK_GIFT_RECEIVED', '').format(
+        text = texts.FORK_GIFT_RECEIVED.format(
             tariff_text=tariff_text,
-            gift_from=fork_text(texts, 'FORK_GIFT_FROM', '').format(name=html_mod.escape(gift_from))
-            if gift_from
-            else '',
-            gift_message=fork_text(texts, 'FORK_GIFT_MESSAGE', '').format(message=html_mod.escape(gift_message))
-            if gift_message
-            else '',
+            gift_from=texts.FORK_GIFT_FROM.format(name=html_mod.escape(gift_from)) if gift_from else '',
+            gift_message=texts.FORK_GIFT_MESSAGE.format(message=html_mod.escape(gift_message)) if gift_message else '',
         )
         keyboard = None
         if is_pending_activation:
-            text += fork_text(texts, 'FORK_GIFT_PENDING', '')
+            text += texts.FORK_GIFT_PENDING
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text=fork_text(texts, 'FORK_GIFT_ACTIVATE_BUTTON', ''),
+                            text=texts.FORK_GIFT_ACTIVATE_BUTTON,
                             callback_data=callback_data,
                             style='success',
                         )

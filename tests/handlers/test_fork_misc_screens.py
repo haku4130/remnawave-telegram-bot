@@ -314,6 +314,7 @@ PROMO_ERROR_KEYS = (
     'PROMOCODE_TRIAL_PROVISIONING_FAILED',
     'PROMO_RATE_LIMITED',
     'PROMO_DAILY_LIMIT',
+    'FORK_PROMO_SERVER_ERROR',
 )
 
 
@@ -888,3 +889,102 @@ def test_new_texts_never_leave_unresolved_markers(theme_on):
 def test_language_keyboard_unchanged(theme_on, languages):
     markup = get_language_selection_keyboard('en', include_back=True, language='en')
     assert _labels(markup) == [['🇷🇺 Русский', '✅ 🇬🇧 English'], ['⬅️ Back']]
+
+
+# --- Язык без слоя форка (в базе есть пользователь с языком 'tr') ---------------------------
+
+
+def test_promocode_success_without_a_fork_locale_falls_back_to_upstream(theme_on):
+    text = promo_handler.build_promocode_success_text(get_texts('tr'), _success({'kind': 'balance', 'kopeks': 5000}))
+    assert text == get_texts('tr').PROMOCODE_SUCCESS.format(description='✅ Русское описание')
+    assert text
+
+
+def test_gift_activated_text_without_a_fork_locale_falls_back_to_upstream(theme_on):
+    tr = get_texts('tr')
+    assert gift_handler.gift_activated_text(tr, 'Про', 30, callback_variant=True) == (
+        '✅ <b>Подарок активирован!</b>\nПро — 30 дн.\n\nВаша подписка обновлена.'
+    )
+    assert gift_handler.gift_activated_text(tr, 'Про', 30, callback_variant=False) == (
+        '🎁 <b>Подарок активирован!</b>\nПро — 30 дн.\n\nВаша подписка обновлена.'
+    )
+
+
+def test_gift_notification_without_a_fork_locale_falls_back_to_upstream(theme_on):
+    text, markup = build_gift_received_message(
+        'tr',
+        tariff_name='Про',
+        period_days=30,
+        gift_from='Аня',
+        gift_message=None,
+        purchase_id=9,
+        is_pending_activation=True,
+    )
+    assert text.startswith('🎁 <b>Вам подарили VPN подписку!</b>\nПро — 30 дн.\nОт: Аня')
+    assert _labels(markup) == [['Активировать подарок']]
+    assert markup.inline_keyboard[0][0].callback_data == 'gift_activate:9'
+
+
+@pytest.mark.parametrize('language', ['tr', 'ua', 'zh'])
+def test_no_empty_texts_for_languages_without_a_fork_locale(theme_on, language):
+    texts = get_texts(language)
+    assert promo_handler.build_promocode_success_text(texts, _success({'kind': 'days', 'days': 3, 'tariff': ''}))
+    assert gift_handler.gift_activated_text(texts, 'Std', 3, callback_variant=True)
+    text, markup = build_gift_received_message(
+        language,
+        tariff_name='Std',
+        period_days=3,
+        gift_from=None,
+        gift_message=None,
+        purchase_id=1,
+        is_pending_activation=True,
+    )
+    assert text and all(button.text for button in _buttons(markup))
+
+
+# --- Промокод: ошибка сервера ----------------------------------------------------------------
+
+
+async def _promo_server_error(language: str) -> str:
+    message = _promo_message('SUMMER')
+    state = _state()
+    state.get_data = AsyncMock(return_value={'_prev_state': None, '_prev_data': {}})
+    await promo_handler.process_promocode(message, _user(language), state, MagicMock())
+    return message.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('language', 'expected'),
+    [
+        ('ru', '<b>{cross} Не получилось применить промокод</b>\nПопробуйте ещё раз чуть позже.'),
+        ('en', "<b>{cross} Couldn't apply the promo code</b>\nPlease try again a bit later."),
+    ],
+)
+async def test_promocode_server_error_under_theme(theme_on, monkeypatch, language, expected):
+    monkeypatch.setattr(
+        promo_handler,
+        'activate_promocode_for_registration',
+        AsyncMock(return_value={'success': False, 'error': 'server_error'}),
+    )
+    assert await _promo_server_error(language) == expected.format(cross=_tag('cross'))
+
+
+@pytest.mark.asyncio
+async def test_promocode_server_error_falls_back_to_the_common_error(theme_off, monkeypatch):
+    monkeypatch.setattr(
+        promo_handler,
+        'activate_promocode_for_registration',
+        AsyncMock(return_value={'success': False, 'error': 'server_error'}),
+    )
+    assert await _promo_server_error('ru') == '❌ Произошла ошибка'
+
+
+@pytest.mark.asyncio
+async def test_promocode_server_error_without_a_fork_locale(theme_on, monkeypatch):
+    monkeypatch.setattr(
+        promo_handler,
+        'activate_promocode_for_registration',
+        AsyncMock(return_value={'success': False, 'error': 'server_error'}),
+    )
+    assert await _promo_server_error('tr') == get_texts('tr').ERROR

@@ -880,9 +880,15 @@ def finalize_env(monkeypatch, cart):
 
     bot.send_message = AsyncMock(side_effect=send_message)
     bot.edit_message_reply_markup = AsyncMock(side_effect=edit_markup)
+
+    async def commit():
+        # Последний коммит платежа — тот, что записывает в метаданные `balance_credited`.
+        if (payment.metadata_json or {}).get('balance_credited'):
+            events.append('payment-committed')
+
     db = MagicMock()
     db.refresh = AsyncMock()
-    db.commit = AsyncMock()
+    db.commit = AsyncMock(side_effect=commit)
     return SimpleNamespace(events=events, user=user, payment=payment, bot=bot, db=db, cart=cart)
 
 
@@ -895,7 +901,8 @@ async def _finalize(env):
 async def test_theme_on_flow_sends_success_first_then_drops_the_spent_cart_button(theme_on, finalize_env):
     assert await _finalize(finalize_env) is True
 
-    assert finalize_env.events == ['success-message', 'auto-purchase', 'markup-refresh']
+    # Кнопки обновляются только после коммита, который отмечает платёж зачисленным.
+    assert finalize_env.events == ['success-message', 'auto-purchase', 'payment-committed', 'markup-refresh']
     sent = finalize_env.bot.send_message.await_args
     assert sent.args[1] == f'<b>{_tag("check")} Баланс пополнен на 500 ₽</b>\nСпособ: RollyPay'
     assert 'return_to_saved_cart' in _callbacks(sent.kwargs['reply_markup'])
@@ -913,14 +920,54 @@ async def test_theme_on_flow_keeps_the_return_button_when_auto_purchase_did_not_
 
     monkeypatch.setattr('app.services.payment.common.send_cart_notification_after_topup', no_purchase)
     await _finalize(finalize_env)
-    assert finalize_env.events == ['success-message', 'auto-purchase']
+    assert finalize_env.events == ['success-message', 'auto-purchase', 'payment-committed']
     finalize_env.bot.edit_message_reply_markup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_theme_on_flow_refresh_sees_the_subscription_bought_by_auto_purchase(theme_on, finalize_env):
+    async def refresh(obj, attribute_names=None):
+        # В базе после автопокупки у пользователя уже есть подписка; в памяти — ещё нет.
+        if attribute_names == ['subscriptions']:
+            obj.subscriptions = [SimpleNamespace(is_active=True, is_trial=False, actual_status='active')]
+
+    finalize_env.db.refresh = AsyncMock(side_effect=refresh)
+    await _finalize(finalize_env)
+
+    refreshed = finalize_env.bot.edit_message_reply_markup.await_args.kwargs['reply_markup']
+    assert _callbacks(refreshed) == ['subscription_extend', 'menu_balance', 'back_to_menu']
+    assert _greens(refreshed) == 1
+
+
+@pytest.mark.asyncio
+async def test_theme_on_refresh_reloads_subscriptions_and_survives_a_failed_reload(theme_on, cart):
+    bot = MagicMock()
+    bot.edit_message_reply_markup = AsyncMock()
+    service = _Service(bot)
+    user = _topup_user()
+    sent = await service.build_topup_success_keyboard(user)
+    cart['cart'] = None
+    message = SimpleNamespace(chat=SimpleNamespace(id=1), message_id=5)
+
+    async def refresh(obj, attribute_names=None):
+        obj.subscriptions = [SimpleNamespace(is_active=True, is_trial=False, actual_status='active')]
+
+    db = MagicMock()
+    db.refresh = AsyncMock(side_effect=refresh)
+    await service.refresh_topup_success_keyboard(user, message, sent, db=db)
+    db.refresh.assert_awaited_once_with(user, attribute_names=['subscriptions'])
+    assert _callbacks(bot.edit_message_reply_markup.await_args.kwargs['reply_markup'])[0] == 'subscription_extend'
+
+    db.refresh = AsyncMock(side_effect=RuntimeError('db is gone'))
+    bot.edit_message_reply_markup.reset_mock()
+    await service.refresh_topup_success_keyboard(_topup_user(), message, sent, db=db)
+    bot.edit_message_reply_markup.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_theme_off_flow_is_unchanged(theme_off, finalize_env):
     await _finalize(finalize_env)
-    assert finalize_env.events == ['success-message', 'auto-purchase']
+    assert finalize_env.events == ['success-message', 'auto-purchase', 'payment-committed']
     sent = finalize_env.bot.send_message.await_args
     assert sent.args[1].startswith('✅ <b>Пополнение успешно!</b>')
     assert '🆔 Транзакция: 77' in sent.args[1]

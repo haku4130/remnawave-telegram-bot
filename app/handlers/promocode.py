@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
 from app.keyboards.inline import get_back_keyboard
-from app.localization.fork_text import fork_period, fork_text, fork_traffic
+from app.localization.fork_text import fork_period, fork_text, fork_traffic, has_fork_text
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.promocode_service import PromoCodeService
@@ -22,42 +22,45 @@ logger = structlog.get_logger(__name__)
 
 
 def _promocode_effect_line(texts, effect: dict) -> str:
-    """Строка одного эффекта промокода на языке пользователя (только под темой форка)."""
+    """Строка одного эффекта промокода на языке пользователя.
+
+    Вызывается только для языка со слоем форка (см. `build_promocode_success_text`), поэтому ключи
+    FORK_PROMO_EFFECT_* читаются атрибутом — у такого языка они есть всегда.
+    """
     kind = effect.get('kind')
     if kind == 'discount':
         hours = int(effect.get('hours') or 0)
-        key = 'FORK_PROMO_EFFECT_DISCOUNT_HOURS' if hours > 0 else 'FORK_PROMO_EFFECT_DISCOUNT'
-        return fork_text(texts, key, '').format(percent=effect.get('percent', 0), hours=hours)
+        template = texts.FORK_PROMO_EFFECT_DISCOUNT_HOURS if hours > 0 else texts.FORK_PROMO_EFFECT_DISCOUNT
+        return template.format(percent=effect.get('percent', 0), hours=hours)
     if kind == 'days':
         days = fork_period(texts, int(effect.get('days') or 0))
         tariff = effect.get('tariff') or ''
         if tariff:
-            return fork_text(texts, 'FORK_PROMO_EFFECT_DAYS_TARIFF', '').format(tariff=html.escape(tariff), days=days)
-        return fork_text(texts, 'FORK_PROMO_EFFECT_DAYS', '').format(days=days)
+            return texts.FORK_PROMO_EFFECT_DAYS_TARIFF.format(tariff=html.escape(tariff), days=days)
+        return texts.FORK_PROMO_EFFECT_DAYS.format(days=days)
     if kind == 'traffic':
-        return fork_text(texts, 'FORK_PROMO_EFFECT_TRAFFIC', '').format(traffic=fork_traffic(texts, effect.get('gb')))
+        return texts.FORK_PROMO_EFFECT_TRAFFIC.format(traffic=fork_traffic(texts, effect.get('gb')))
     if kind == 'balance':
         amount = format_price_kopeks(int(effect.get('kopeks') or 0))
-        return fork_text(texts, 'FORK_PROMO_EFFECT_BALANCE', '').format(amount=amount)
+        return texts.FORK_PROMO_EFFECT_BALANCE.format(amount=amount)
     if kind == 'trial':
         days = fork_period(texts, int(effect.get('days') or 0))
-        return fork_text(texts, 'FORK_PROMO_EFFECT_TRIAL', '').format(days=days)
+        return texts.FORK_PROMO_EFFECT_TRIAL.format(days=days)
     if kind == 'promo_group':
-        return fork_text(texts, 'FORK_PROMO_EFFECT_GROUP', '').format(group=html.escape(str(effect.get('name') or '')))
+        return texts.FORK_PROMO_EFFECT_GROUP.format(group=html.escape(str(effect.get('name') or '')))
     return ''
 
 
 def build_promocode_success_text(texts, result: dict) -> str:
     """Текст об успешной активации промокода.
 
-    Без темы — как у апстрима (`PROMOCODE_SUCCESS` с русским описанием из сервиса). Под темой —
-    заголовок и по строке на каждый эффект, собранные из структурированных `result['effects']`
-    на языке пользователя (имена тарифа и промогруппы экранируются).
+    Без темы или для языка без слоя форка — как у апстрима (`PROMOCODE_SUCCESS` с русским описанием
+    из сервиса). Под темой — заголовок и по строке на каждый эффект, собранные из структурированных
+    `result['effects']` на языке пользователя (имена тарифа и промогруппы экранируются).
     """
-    title = fork_text(texts, 'FORK_PROMO_SUCCESS_TITLE', '')
-    if not title:
+    if not has_fork_text(texts, 'FORK_PROMO_SUCCESS_TITLE'):
         return texts.PROMOCODE_SUCCESS.format(description=result['description'])
-    lines = [title]
+    lines = [texts.FORK_PROMO_SUCCESS_TITLE]
     lines.extend(
         line for line in (_promocode_effect_line(texts, effect) for effect in result.get('effects') or []) if line
     )
@@ -277,7 +280,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
                 'PROMOCODE_TRIAL_PROVISIONING_FAILED',
                 '❌ Не удалось выдать триал прямо сейчас. Попробуйте позже.',
             ),
-            'server_error': texts.ERROR,
+            'server_error': fork_text(texts, 'FORK_PROMO_SERVER_ERROR', texts.ERROR),
         }
 
         error_text = error_messages.get(result['error'], texts.PROMOCODE_INVALID)

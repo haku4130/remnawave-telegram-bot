@@ -442,6 +442,46 @@ async def test_open_list_moves_closed_button_down_and_hides_it_when_empty(theme_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('language', 'caption'),
+    [
+        ('ru', '<b>{inbox} Ваши обращения</b>\nОткрытых обращений нет.'),
+        ('en', '<b>{inbox} Your requests</b>\nNo open requests.'),
+    ],
+)
+async def test_only_closed_tickets_offer_creation_first(theme_on, monkeypatch, language, caption):
+    text, markup = await show_list(monkeypatch, [], 2, language)
+    assert text == caption.format(inbox=_tag('inbox'))
+    assert [button.callback_data for button in _buttons(markup)] == [
+        'create_ticket',
+        'my_tickets_closed',
+        'menu_support',
+    ]
+    assert _greens(markup) == ['create_ticket']
+    # Та же подпись, что у «Создать обращение» на экране поддержки.
+    assert markup.inline_keyboard[0][0].text == get_texts(language).t('CREATE_TICKET_BUTTON')
+
+
+@pytest.mark.asyncio
+async def test_only_closed_tickets_without_a_fork_locale_keep_the_upstream_caption(theme_on, monkeypatch):
+    text, markup = await show_list(monkeypatch, [], 2, 'tr')
+    assert text == get_texts('tr').t('MY_TICKETS_TITLE')
+    assert text
+    assert [button.callback_data for button in _buttons(markup)] == [
+        'create_ticket',
+        'my_tickets_closed',
+        'menu_support',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_theme_off_only_closed_tickets_match_upstream(theme_off, monkeypatch):
+    text, markup = await show_list(monkeypatch, [], 2)
+    assert text == '📋 Ваши тикеты:'
+    assert _labels(markup) == [['🟢 Закрытые тикеты'], ['⬅️ Назад']]
+
+
+@pytest.mark.asyncio
 async def test_closed_list(theme_on, monkeypatch):
     text, markup = await show_closed(monkeypatch, [_ticket('closed')])
     assert text.startswith(f'<b>{_tag("check")} Закрытые обращения</b>')

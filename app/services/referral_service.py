@@ -640,6 +640,23 @@ def _fork_commission_notification(
     )
 
 
+def _fork_notification_or(upstream: str, builder, *args) -> str:
+    """Текст уведомления под темой; если сборка упала — текст апстрима.
+
+    Уведомление уходит посреди начисления бонусов: ошибка в тексте не должна оборвать начисление.
+    """
+    try:
+        return builder(*args)
+    except Exception as error:
+        logger.error(
+            'Не удалось собрать реферальное уведомление в стиле форка, отправляем текст апстрима',
+            builder=getattr(builder, '__name__', repr(builder)),
+            error=error,
+            exc_info=True,
+        )
+        return upstream
+
+
 async def send_referral_notification(
     bot: Bot,
     telegram_id: int | None,
@@ -857,7 +874,9 @@ async def process_referral_registration(db: AsyncSession, new_user_id: int, refe
                     f'вы получите бонус {settings.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS)}!'
                 )
             if settings.PREMIUM_THEME_ENABLED and not settings.is_referral_levels_scheme():
-                referral_notification = _fork_welcome_notification(new_user, referrer.full_name)
+                referral_notification = _fork_notification_or(
+                    referral_notification, _fork_welcome_notification, new_user, referrer.full_name
+                )
             await send_referral_notification(
                 bot,
                 new_user.telegram_id,
@@ -919,7 +938,13 @@ async def process_referral_registration(db: AsyncSession, new_user_id: int, refe
                     f'📈 С каждого последующего пополнения вы будете получать {commission_percent}% комиссии.'
                 )
             if settings.PREMIUM_THEME_ENABLED:
-                inviter_notification = _fork_new_referral_notification(referrer, new_user.full_name, commission_percent)
+                inviter_notification = _fork_notification_or(
+                    inviter_notification,
+                    _fork_new_referral_notification,
+                    referrer,
+                    new_user.full_name,
+                    commission_percent,
+                )
             await send_referral_notification(
                 bot,
                 referrer.telegram_id,
@@ -1175,8 +1200,14 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                                 f'💎 Средства зачислены на ваш баланс.'
                             )
                             if settings.PREMIUM_THEME_ENABLED:
-                                commission_notification = _fork_commission_notification(
-                                    referrer, user.full_name, topup_amount_kopeks, commission_amount, commission_percent
+                                commission_notification = _fork_notification_or(
+                                    commission_notification,
+                                    _fork_commission_notification,
+                                    referrer,
+                                    user.full_name,
+                                    topup_amount_kopeks,
+                                    commission_amount,
+                                    commission_percent,
                                 )
                             await send_referral_notification(
                                 bot,
@@ -1235,7 +1266,9 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                             f'💎 Средства зачислены на ваш баланс.'
                         )
                         if settings.PREMIUM_THEME_ENABLED:
-                            bonus_notification = _fork_first_topup_bonus_notification(user)
+                            bonus_notification = _fork_notification_or(
+                                bonus_notification, _fork_first_topup_bonus_notification, user
+                            )
                         await send_referral_notification(
                             bot,
                             user.telegram_id,
@@ -1302,7 +1335,9 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                                 f'{commission_percent}% комиссии.'
                             )
                         if settings.PREMIUM_THEME_ENABLED:
-                            inviter_bonus_notification = _fork_first_topup_reward_notification(
+                            inviter_bonus_notification = _fork_notification_or(
+                                inviter_bonus_notification,
+                                _fork_first_topup_reward_notification,
                                 referrer,
                                 user.full_name,
                                 topup_amount_kopeks,
@@ -1365,8 +1400,14 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                         f'💎 Средства зачислены на ваш баланс.'
                     )
                     if settings.PREMIUM_THEME_ENABLED:
-                        commission_notification = _fork_commission_notification(
-                            referrer, user.full_name, topup_amount_kopeks, commission_amount, commission_percent
+                        commission_notification = _fork_notification_or(
+                            commission_notification,
+                            _fork_commission_notification,
+                            referrer,
+                            user.full_name,
+                            topup_amount_kopeks,
+                            commission_amount,
+                            commission_percent,
                         )
                     await send_referral_notification(
                         bot,

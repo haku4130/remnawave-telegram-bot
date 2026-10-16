@@ -23,6 +23,15 @@ def fork_text(texts, key: str, default: str) -> str:
     return texts.get(key, default)
 
 
+def has_fork_text(texts, key: str) -> bool:
+    """Есть ли у языка `texts` ключ в слое форка (тема включена и у языка есть файл форка).
+
+    Для экранов, где текст форка и апстрима собираются по-разному: без ключа — ветка апстрима,
+    чтобы пользователь с языком без файла форка (например, 'tr') не получил пустое сообщение.
+    """
+    return key in fork_keys(texts.language)
+
+
 def _gb(texts, value: float) -> str:
     return texts.FORK_GB.replace('{n}', f'{value:g}')
 
