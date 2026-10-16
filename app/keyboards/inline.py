@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import PERIOD_PRICES, settings
 from app.database.models import User
+from app.localization.fork_text import fork_text
 from app.localization.loader import DEFAULT_LANGUAGE
 from app.localization.texts import get_texts
 from app.utils.miniapp_buttons import build_miniapp_or_callback_button
@@ -2993,11 +2994,15 @@ def get_change_devices_keyboard(
     start_range = max(min_devices, min(current_devices - 3, max_devices - 6))
     end_range = min(max_devices + 1, max(current_devices + 4, 7))
 
+    fork_theme = settings.PREMIUM_THEME_ENABLED
     for devices_count in range(start_range, end_range):
+        fork_label = None
         if devices_count == current_devices:
             emoji = '✅'
             action_text = ' (текущее)'
             price_text = ''
+            if fork_theme:
+                fork_label = texts.FORK_DEVICES_OPTION_CURRENT.format(count=devices_count)
         elif devices_count > current_devices:
             emoji = '➕'
 
@@ -3018,20 +3023,34 @@ def get_change_devices_keyboard(
                 if discount_percent > 0 and total_discount > 0:
                     price_text += f' (скидка {discount_percent}%: -{total_discount // 100}₽)'
                 action_text = ''
+                if fork_theme:
+                    # Срок «за N дн.» одинаков у всех кнопок — он в тексте экрана, не в подписи.
+                    # Цена — тем же форматом, что в подтверждении, чтобы кнопка и экран не расходились.
+                    fork_label = texts.FORK_DEVICES_OPTION_MORE.format(
+                        count=devices_count, price=texts.format_price(total_price)
+                    )
             else:
                 price_text = ' (бесплатно)'
                 action_text = ''
+                if fork_theme:
+                    fork_label = texts.FORK_DEVICES_OPTION_FREE.format(count=devices_count)
         else:
             emoji = '➖'
             action_text = ''
             price_text = ' (без возврата)'
+            if fork_theme:
+                fork_label = texts.FORK_DEVICES_OPTION_LESS.format(count=devices_count)
 
-        button_text = f'{emoji} {devices_count} устр.{action_text}{price_text}'
+        button_text = fork_label or f'{emoji} {devices_count} устр.{action_text}{price_text}'
 
         buttons.append([InlineKeyboardButton(text=button_text, callback_data=f'change_devices_{devices_count}')])
 
     if current_devices < start_range or current_devices >= end_range:
-        current_button = f'✅ {current_devices} устр. (текущее)'
+        current_button = (
+            texts.FORK_DEVICES_OPTION_CURRENT.format(count=current_devices)
+            if fork_theme
+            else f'✅ {current_devices} устр. (текущее)'
+        )
         buttons.insert(
             0, [InlineKeyboardButton(text=current_button, callback_data=f'change_devices_{current_devices}')]
         )
@@ -3048,6 +3067,8 @@ def get_confirm_change_devices_keyboard(
     back_callback: str = 'subscription_settings',
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
+    # Под темой подтверждение зелёное явно (в таблице темы для него правила нет), «Отмена» — без цвета и иконки.
+    fork_theme = settings.PREMIUM_THEME_ENABLED
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -3055,9 +3076,14 @@ def get_confirm_change_devices_keyboard(
                 InlineKeyboardButton(
                     text=texts.t('CONFIRM_CHANGE_BUTTON', '✅ Подтвердить изменение'),
                     callback_data=f'confirm_change_devices_{new_devices_count}_{price}',
+                    style='success' if fork_theme else None,
                 )
             ],
-            [InlineKeyboardButton(text=texts.CANCEL, callback_data=back_callback)],
+            [
+                InlineKeyboardButton(
+                    text=texts.FORK_BUTTON_CANCEL if fork_theme else texts.CANCEL, callback_data=back_callback
+                )
+            ],
         ]
     )
 
@@ -3533,13 +3559,14 @@ def get_devices_management_keyboard(
 
         # Ряд: pencil-кнопка переименования (компактная иконка) + сброс
         # устройства с его лейблом (исторический callback).
+        reset_label = fork_text(texts, 'FORK_BUTTON_DEVICE_RESET', '🔄 {device}').format(device=device_info)
         keyboard.append(
             [
                 InlineKeyboardButton(
                     text=texts.t('DEVICE_RENAME_BUTTON', '✏️'),
                     callback_data=f'device_rename_{i}_{pagination.page}',
                 ),
-                InlineKeyboardButton(text=f'🔄 {device_info}', callback_data=f'reset_device_{i}_{pagination.page}'),
+                InlineKeyboardButton(text=reset_label, callback_data=f'reset_device_{i}_{pagination.page}'),
             ]
         )
 
@@ -3571,6 +3598,8 @@ def get_devices_management_keyboard(
             InlineKeyboardButton(
                 text=texts.t('RESET_ALL_DEVICES_BUTTON', '🔄 Сбросить все устройства'),
                 callback_data='reset_all_devices',
+                # Необратимое действие: под темой красная явно (в таблице темы для него правила нет).
+                style='danger' if settings.PREMIUM_THEME_ENABLED else None,
             )
         ]
     )
@@ -3665,7 +3694,9 @@ def get_updated_subscription_settings_keyboard(
             ]
         )
 
-    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')])
+    # menu_subscription таблица темы красит в синий, а «Назад» должен быть без цвета — алиас back_*.
+    back_callback = 'back_to_subscription' if settings.PREMIUM_THEME_ENABLED else 'menu_subscription'
+    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data=back_callback)])
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

@@ -32,6 +32,11 @@ def _check_revoke_cooldown(subscription: Subscription) -> int | None:
     return None
 
 
+def _back_to_subscription_callback() -> str:
+    """«Назад» к экрану подписки. Под темой — back_*: menu_subscription таблица темы красит в синий."""
+    return 'back_to_subscription' if settings.PREMIUM_THEME_ENABLED else 'menu_subscription'
+
+
 def _build_revoke_confirm_keyboard(
     language: str,
     multi_tariff: bool = False,
@@ -45,6 +50,8 @@ def _build_revoke_confirm_keyboard(
                 InlineKeyboardButton(
                     text=texts.t('SUBSCRIPTION_REVOKE_CONFIRM_BTN', '✅ Подтвердить'),
                     callback_data='subscription_revoke_confirm',
+                    # Необратимое действие: под темой красная явно (в таблице темы для него правила нет).
+                    style='danger' if settings.PREMIUM_THEME_ENABLED else None,
                 ),
             ],
             [
@@ -63,13 +70,14 @@ def _build_revoke_success_keyboard(
 ) -> InlineKeyboardMarkup:
     """Build success keyboard with connect and back buttons."""
     texts = get_texts(language)
-    back_callback = 'my_subscriptions' if multi_tariff else 'menu_subscription'
+    back_callback = 'my_subscriptions' if multi_tariff else _back_to_subscription_callback()
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=texts.t('SUBSCRIPTION_REVOKE_CONNECT_BTN', '🔗 Подключиться'),
                     callback_data='subscription_connect',
+                    style='success' if settings.PREMIUM_THEME_ENABLED else None,
                 ),
             ],
             [
@@ -223,7 +231,7 @@ async def confirm_subscription_revoke(
             texts.t('SUBSCRIPTION_REVOKE_ERROR', '❌ Ошибка при перевыпуске подписки. Попробуйте позже.'),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')],
+                    [InlineKeyboardButton(text=texts.BACK, callback_data=_back_to_subscription_callback())],
                 ]
             ),
             parse_mode='HTML',

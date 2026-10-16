@@ -31,6 +31,7 @@ from app.keyboards.inline import (
     get_insufficient_balance_keyboard,
     get_specific_app_keyboard,
 )
+from app.localization.fork_text import fork_period, fork_text
 from app.localization.texts import get_texts
 from app.services.pricing_engine import PricingEngine
 from app.services.remnawave_service import RemnaWaveService
@@ -54,6 +55,22 @@ from .common import (
     render_guide_blocks,
 )
 from .countries import _get_available_countries
+
+
+def _build_fork_devices_text(texts, total: int, page: int, pages: int) -> str:
+    """Список устройств под темой: заголовок, сколько подключено, одна подсказка про кнопки.
+
+    Имена устройств в тексте не повторяются — они на кнопках. Страница — только если страниц больше одной.
+    """
+    count = texts.FORK_DEVICES_LIST_COUNT.format(total=total)
+    if pages > 1:
+        count += texts.FORK_DEVICES_LIST_PAGE.format(page=page, pages=pages)
+    return f'{texts.FORK_DEVICES_LIST_TITLE}\n{count}\n{texts.FORK_DEVICES_LIST_HINT}'
+
+
+def _build_fork_devices_confirm_text(texts, current: int, new: int, cost: str) -> str:
+    """Подтверждение смены лимита под темой: было → станет и стоимость; предупреждение дописывает вызывающий."""
+    return texts.FORK_DEVICES_CONFIRM.format(current=current, new=new, cost=cost)
 
 
 async def _resolve_subscription(callback, db_user, db, state=None):
@@ -385,21 +402,31 @@ async def confirm_change_devices(
         )
         price, charged_days = calculate_prorated_price(discounted_per_month, subscription.end_date)
         total_discount = int(discount_per_month * charged_days / 30)
-        period_label = f'{charged_days} дн.' if charged_days > 1 else '1 день'
+        if settings.PREMIUM_THEME_ENABLED:
+            period_label = fork_period(texts, charged_days)
+        else:
+            period_label = f'{charged_days} дн.' if charged_days > 1 else '1 день'
 
         if price > 0 and db_user.balance_kopeks < price:
             missing_kopeks = price - db_user.balance_kopeks
-            required_text = f'{texts.format_price(price)} (за {period_label})'
-            message_text = texts.t(
-                'ADDON_INSUFFICIENT_FUNDS_MESSAGE',
-                (
-                    '⚠️ <b>Недостаточно средств</b>\n\n'
-                    'Стоимость услуги: {required}\n'
-                    'На балансе: {balance}\n'
-                    'Не хватает: {missing}\n\n'
-                    'Выберите способ пополнения. Сумма подставится автоматически.'
-                ),
-            ).format(
+            if settings.PREMIUM_THEME_ENABLED:
+                required_text = texts.FORK_DEVICES_COST_FOR.format(
+                    amount=texts.format_price(price), period=period_label
+                )
+                insufficient_template = texts.FORK_DEVICES_INSUFFICIENT
+            else:
+                required_text = f'{texts.format_price(price)} (за {period_label})'
+                insufficient_template = texts.t(
+                    'ADDON_INSUFFICIENT_FUNDS_MESSAGE',
+                    (
+                        '⚠️ <b>Недостаточно средств</b>\n\n'
+                        'Стоимость услуги: {required}\n'
+                        'На балансе: {balance}\n'
+                        'Не хватает: {missing}\n\n'
+                        'Выберите способ пополнения. Сумма подставится автоматически.'
+                    ),
+                )
+            message_text = insufficient_template.format(
                 required=required_text,
                 balance=texts.format_price(db_user.balance_kopeks),
                 missing=texts.format_price(missing_kopeks),
@@ -491,22 +518,25 @@ async def confirm_change_devices(
         except Exception as e:
             logger.error('Ошибка проверки устройств', error=e)
 
-    confirm_text = texts.t(
-        'DEVICE_CHANGE_CONFIRMATION',
-        (
-            '📱 <b>Подтверждение изменения</b>\n\n'
-            'Текущее количество: {current} устройств\n'
-            'Новое количество: {new} устройств\n\n'
-            'Действие: {action}\n'
-            '💰 {cost}\n\n'
-            'Подтвердить изменение?'
-        ),
-    ).format(
-        current=current_devices,
-        new=new_devices_count,
-        action=action_text,
-        cost=cost_text,
-    )
+    if settings.PREMIUM_THEME_ENABLED:
+        confirm_text = _build_fork_devices_confirm_text(texts, current_devices, new_devices_count, cost_text)
+    else:
+        confirm_text = texts.t(
+            'DEVICE_CHANGE_CONFIRMATION',
+            (
+                '📱 <b>Подтверждение изменения</b>\n\n'
+                'Текущее количество: {current} устройств\n'
+                'Новое количество: {new} устройств\n\n'
+                'Действие: {action}\n'
+                '💰 {cost}\n\n'
+                'Подтвердить изменение?'
+            ),
+        ).format(
+            current=current_devices,
+            new=new_devices_count,
+            action=action_text,
+            cost=cost_text,
+        )
 
     if devices_warning:
         confirm_text += devices_warning
@@ -668,7 +698,9 @@ async def execute_change_devices(
                     refund_user.balance_kopeks += price
                     await db.commit()
                 await callback.answer(
-                    f'⚠️ Лимит устройств ({max_devices}) превышен. Баланс возвращён.',
+                    fork_text(
+                        texts, 'FORK_DEVICES_LIMIT_REFUNDED', '⚠️ Лимит устройств ({limit}) превышен. Баланс возвращён.'
+                    ).format(limit=max_devices),
                     show_alert=True,
                 )
                 return
@@ -684,7 +716,7 @@ async def execute_change_devices(
                 refund_user.balance_kopeks += price
                 await db.commit()
                 await callback.answer(
-                    '⚠️ Изменение уже применено. Баланс возвращён.',
+                    fork_text(texts, 'FORK_DEVICES_ALREADY_APPLIED', '⚠️ Изменение уже применено. Баланс возвращён.'),
                     show_alert=True,
                 )
                 return
@@ -846,10 +878,13 @@ async def handle_device_management(
                 devices_list = devices_info.get('devices', [])
 
                 if total_devices == 0:
-                    await callback.message.edit_text(
-                        texts.t('DEVICE_NONE_CONNECTED', 'ℹ️ У вас нет подключенных устройств'),
-                        reply_markup=get_back_keyboard(db_user.language),
-                    )
+                    if settings.PREMIUM_THEME_ENABLED:
+                        none_text = texts.FORK_DEVICES_NONE
+                        none_keyboard = get_back_keyboard(db_user.language, 'subscription_settings')
+                    else:
+                        none_text = texts.t('DEVICE_NONE_CONNECTED', 'ℹ️ У вас нет подключенных устройств')
+                        none_keyboard = get_back_keyboard(db_user.language)
+                    await callback.message.edit_text(none_text, reply_markup=none_keyboard)
                     await callback.answer()
                     return
 
@@ -906,6 +941,21 @@ async def show_devices_page(
     devices_list = await _enrich_devices_with_aliases(devices_list, db_user.id)
 
     pagination = paginate_list(devices_list, page=page, per_page=devices_per_page)
+
+    if settings.PREMIUM_THEME_ENABLED:
+        devices_text = _build_fork_devices_text(texts, len(devices_list), pagination.page, pagination.total_pages)
+        await callback.message.edit_text(
+            devices_text,
+            reply_markup=get_devices_management_keyboard(
+                pagination.items,
+                pagination,
+                db_user.language,
+                back_callback=f'sm:{sub_id}'
+                if settings.is_multi_tariff_enabled() and sub_id
+                else 'subscription_settings',
+            ),
+        )
+        return
 
     devices_text = texts.t(
         'DEVICE_MANAGEMENT_OVERVIEW',

@@ -26,13 +26,23 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 
 from app.bot_factory import create_bot
 from app.config import settings
-from app.handlers.subscription import purchase
-from app.keyboards.inline import get_subscription_keyboard
+from app.handlers.subscription import devices, purchase, revoke
+from app.keyboards.inline import (
+    get_back_keyboard,
+    get_change_devices_keyboard,
+    get_confirm_change_devices_keyboard,
+    get_devices_management_keyboard,
+    get_insufficient_balance_keyboard,
+    get_subscription_keyboard,
+    get_updated_subscription_settings_keyboard,
+)
 from app.localization.emoji_catalog import CATALOG, tag
+from app.localization.fork_text import fork_period
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
 from app.utils import fork_onboarding, rich_menu
+from app.utils.pagination import paginate_list
 
 
 # Лимит Telegram на текст сообщения — 4096 символов; тег эмодзи длинный, поэтому
@@ -262,11 +272,98 @@ def _subscription_screens(language: str) -> list[PreviewScreen]:
     return screens
 
 
+def _device_screens(language: str) -> list[PreviewScreen]:
+    """Настройки подписки, смена количества устройств, список устройств, перевыпуск — теми же сборщиками, что у бота."""
+    texts = get_texts(language)
+    price_per_month = 5500
+    tariff = SimpleNamespace(
+        name='Стандартный',
+        is_daily=False,
+        is_free=False,
+        device_limit=3,
+        max_device_limit=None,
+        device_price_kopeks=price_per_month,
+        can_topup_traffic=lambda: False,
+    )
+    subscription = _fake_subscription(30)
+    subscription.tariff = tariff
+    panel_devices = [
+        {'platform': 'macOS', 'deviceModel': 'MacBook Air'},
+        {'platform': 'iOS', 'deviceModel': 'iPhone 15'},
+        {'platform': 'Android', 'deviceModel': 'Pixel 8'},
+    ]
+    days_left = 8
+    price = price_per_month * days_left // 30
+    period = fork_period(texts, days_left)
+    extra_cost = texts.DEVICE_CHANGE_EXTRA_COST.format(amount=texts.format_price(price), period=period, months=period)
+    pagination = paginate_list(panel_devices, page=1, per_page=5)
+    end_date = datetime.now(UTC) + timedelta(days=days_left, hours=-1)
+    missing = price - 100
+
+    return [
+        PreviewScreen(
+            'Настройки подписки',
+            purchase._build_fork_settings_text(texts, subscription, show_devices=True, devices_used=len(panel_devices)),
+            get_updated_subscription_settings_keyboard(language, False, tariff=tariff, subscription=subscription),
+        ),
+        PreviewScreen(
+            'Устройства — выбор количества',
+            texts.CHANGE_DEVICES_PROMPT_TARIFF.format(
+                current_devices=subscription.device_limit, price=texts.format_price(price_per_month)
+            ),
+            get_change_devices_keyboard(subscription.device_limit, language, end_date, 0, tariff=tariff),
+        ),
+        PreviewScreen(
+            'Устройства — подтверждение (увеличить)',
+            devices._build_fork_devices_confirm_text(texts, subscription.device_limit, 4, extra_cost),
+            get_confirm_change_devices_keyboard(4, price, language),
+        ),
+        PreviewScreen(
+            'Устройства — подтверждение (уменьшить)',
+            devices._build_fork_devices_confirm_text(texts, 4, 3, texts.DEVICE_CHANGE_NO_REFUND)
+            + texts.DEVICE_CHANGE_RESET_WARNING.format(connected=4, new=3),
+            get_confirm_change_devices_keyboard(3, 0, language),
+        ),
+        PreviewScreen(
+            'Устройства — недостаточно средств',
+            texts.FORK_DEVICES_INSUFFICIENT.format(
+                required=texts.FORK_DEVICES_COST_FOR.format(amount=texts.format_price(price), period=period),
+                balance=texts.format_price(100),
+                missing=texts.format_price(missing),
+            ),
+            get_insufficient_balance_keyboard(language, amount_kopeks=missing, has_saved_cart=True),
+        ),
+        PreviewScreen(
+            'Устройства — готово',
+            texts.DEVICE_CHANGE_INCREASE_SUCCESS
+            + texts.DEVICE_CHANGE_RESULT_LINE.format(old=3, new=4)
+            + texts.DEVICE_CHANGE_CHARGED.format(amount=texts.format_price(price)),
+            get_back_keyboard(language),
+        ),
+        PreviewScreen(
+            'Устройства — список',
+            devices._build_fork_devices_text(texts, len(panel_devices), pagination.page, pagination.total_pages),
+            get_devices_management_keyboard(pagination.items, pagination, language),
+        ),
+        PreviewScreen(
+            'Перевыпуск — вопрос',
+            texts.SUBSCRIPTION_REVOKE_WARNING,
+            revoke._build_revoke_confirm_keyboard(language),
+        ),
+        PreviewScreen(
+            'Перевыпуск — готово',
+            texts.SUBSCRIPTION_REVOKE_SUCCESS,
+            revoke._build_revoke_success_keyboard(language),
+        ),
+    ]
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
         *(await _stage_two_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_subscription_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(_device_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

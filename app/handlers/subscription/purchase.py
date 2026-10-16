@@ -223,6 +223,33 @@ def _fork_period_line(texts, subscription, tariff) -> str | None:
     return period[:1].upper() + period[1:] if period else None
 
 
+def _fork_usage_line(texts, subscription, *, show_devices: bool, devices_used: str | int | None) -> str:
+    """«Трафик: 0 ГБ из ∞ · Устройства: 2 из 3»; устройства — только если выбор устройств включён."""
+    usage = [
+        texts.FORK_SUB_TRAFFIC_PART.format(
+            traffic=fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb)
+        )
+    ]
+    if show_devices:
+        if devices_used in (None, '', '—'):
+            # Панель не ответила — показываем только лимит, как rich-меню.
+            devices_value = Texts.format_device_limit(subscription.device_limit)
+        else:
+            devices_value = fork_devices(texts, devices_used, subscription.device_limit)
+        usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=devices_value))
+    return ' · '.join(usage)
+
+
+def _build_fork_settings_text(texts, subscription, *, show_devices: bool, devices_used: str | int | None) -> str:
+    """Экран «Настройки подписки» под темой: заголовок и одна строка с трафиком и устройствами.
+
+    Без «Стран» и без подсказки «Выберите, что изменить» — кнопки и так очевидны. Устройства
+    не показываются, если выбор устройств выключен (апстрим вырезает эту строку из шаблона).
+    """
+    usage = _fork_usage_line(texts, subscription, show_devices=show_devices, devices_used=devices_used)
+    return f'{texts.FORK_SUB_SETTINGS_TITLE}\n{usage}'
+
+
 def _build_fork_subscription_text(
     texts,
     subscription,
@@ -249,19 +276,7 @@ def _build_fork_subscription_text(
 
     in_use = (getattr(subscription, 'actual_status', None) or '') in ('active', 'trial', 'limited')
     if in_use:
-        usage = [
-            texts.FORK_SUB_TRAFFIC_PART.format(
-                traffic=fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb)
-            )
-        ]
-        if show_devices:
-            if devices_used in (None, ''):
-                # Панель не ответила — показываем только лимит, как rich-меню.
-                devices_value = Texts.format_device_limit(subscription.device_limit)
-            else:
-                devices_value = fork_devices(texts, devices_used, subscription.device_limit)
-            usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=devices_value))
-        lines.append(' · '.join(usage))
+        lines.append(_fork_usage_line(texts, subscription, show_devices=show_devices, devices_used=devices_used))
 
         if traffic_purchases:
             total_gb = sum(purchase.traffic_gb for purchase in traffic_purchases)
@@ -3145,6 +3160,20 @@ async def handle_subscription_settings(callback: types.CallbackQuery, db_user: U
     else:
         devices_used = 0
 
+    if settings.PREMIUM_THEME_ENABLED:
+        await callback.message.edit_text(
+            _build_fork_settings_text(texts, subscription, show_devices=show_devices, devices_used=devices_used),
+            reply_markup=get_updated_subscription_settings_keyboard(
+                db_user.language,
+                await _should_show_countries_management(db_user),
+                tariff=tariff,
+                subscription=subscription,
+            ),
+            parse_mode='HTML',
+        )
+        await callback.answer()
+        return
+
     settings_template = texts.t(
         'SUBSCRIPTION_SETTINGS_OVERVIEW',
         (
@@ -4312,6 +4341,8 @@ def register_handlers(dp: Dispatcher):
     update_traffic_prices()
 
     dp.callback_query.register(show_subscription_info, F.data == 'menu_subscription')
+    # «Назад» без цвета: menu_subscription таблица темы красит в синий, back_* — нет.
+    dp.callback_query.register(show_subscription_info, F.data == 'back_to_subscription')
 
     # Multi-tariff: "My subscriptions" list and detail views
     from app.handlers.subscription.my_subscriptions import show_my_subscriptions, show_subscription_detail
