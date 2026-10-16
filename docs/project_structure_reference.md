@@ -2062,6 +2062,9 @@
 - `app/utils/button_styles_cache.py` — Python-модуль
   Классы: нет
   Функции: `get_cached_button_styles` — Return the current merged config (DB overrides + defaults)., `load_button_styles_cache` — Load button styles from DB and refresh the module cache.
+- `app/utils/button_theme.py` — Python-модуль
+  Классы: нет
+  Функции: `style_for_button`
 - `app/utils/cache.py` — Python-модуль
   Классы: `CacheService` (20 методов), `UserCache` (6 методов), `SystemCache` (6 методов), `RateLimitCache` (5 методов), `TokenReplayCache` (1 методов), `ChannelSubCache` (8 методов)
   Функции: `cache_key`, `cached_function`
@@ -4618,6 +4621,9 @@
 - `tests/utils/__init__.py` — Python-модуль
   Классы: нет
   Функции: нет
+- `tests/utils/test_button_theme.py` — Python-модуль
+  Классы: нет
+  Функции: `test_callback_rules`, `test_non_callback_buttons_have_no_theme_color`
 - `tests/utils/test_chat_menu_button.py` — Python-модуль
   Классы: нет
   Функции: `test_disabled_does_not_touch_menu_button`, `test_enabled_sets_webapp_menu_button`, `test_falls_back_to_miniapp_custom_url`, `test_non_https_url_is_skipped`, `test_empty_text_defaults`
