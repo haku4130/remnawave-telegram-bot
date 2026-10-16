@@ -253,7 +253,9 @@ _ENTRIES: tuple[tuple[str, str, str], ...] = (
     ('speaking', '5460795800101594035', '🗣️'),
 )
 
-CATALOG: dict[str, CatalogEmoji] = {name: CatalogEmoji(name, emoji_id, fallback) for name, emoji_id, fallback in _ENTRIES}
+CATALOG: dict[str, CatalogEmoji] = {
+    name: CatalogEmoji(name, emoji_id, fallback) for name, emoji_id, fallback in _ENTRIES
+}
 
 _VS16 = '️'
 _BY_UNICODE: dict[str, CatalogEmoji] = {entry.fallback.replace(_VS16, ''): entry for entry in CATALOG.values()}
@@ -964,7 +966,9 @@ def theme_button(button: InlineKeyboardButton) -> InlineKeyboardButton:
 
 
 def theme_markup(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[theme_button(button) for button in row] for row in markup.inline_keyboard])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[theme_button(button) for button in row] for row in markup.inline_keyboard]
+    )
 
 
 def _is_html(bot: Bot, parse_mode: Any) -> bool:
@@ -1164,9 +1168,7 @@ def build_screens(language: str) -> list[PreviewScreen]:
         PreviewScreen(
             'Главное меню — подписчик',
             '<b>Главное меню</b> — активная подписка',
-            _menu_keyboard(
-                language, has_active_subscription=True, subscription_is_active=True, balance_kopeks=15000
-            ),
+            _menu_keyboard(language, has_active_subscription=True, subscription_is_active=True, balance_kopeks=15000),
         ),
     ]
 
@@ -1329,11 +1331,24 @@ def test_trial_check_error_means_unavailable(monkeypatch):
     assert fo.is_trial_available(broken) is False
 
 
-@pytest.mark.parametrize(('days', 'ru', 'en'), [(1, '1 день', '1 day'), (3, '3 дня', '3 days'), (5, '5 дней', '5 days'),
-                                                (11, '11 дней', '11 days'), (21, '21 день', '21 days'), (22, '22 дня', '22 days')])
+@pytest.mark.parametrize(
+    ('days', 'ru', 'en'),
+    [
+        (1, '1 день', '1 day'),
+        (3, '3 дня', '3 days'),
+        (5, '5 дней', '5 days'),
+        (11, '11 дней', '11 days'),
+        (21, '21 день', '21 days'),
+        (22, '22 дня', '22 days'),
+    ],
+)
 def test_format_days(days, ru, en):
-    ru_texts = SimpleNamespace(language='ru', FORK_DAYS_ONE='{n} день', FORK_DAYS_FEW='{n} дня', FORK_DAYS_MANY='{n} дней')
-    en_texts = SimpleNamespace(language='en', FORK_DAYS_ONE='{n} day', FORK_DAYS_FEW='{n} days', FORK_DAYS_MANY='{n} days')
+    ru_texts = SimpleNamespace(
+        language='ru', FORK_DAYS_ONE='{n} день', FORK_DAYS_FEW='{n} дня', FORK_DAYS_MANY='{n} дней'
+    )
+    en_texts = SimpleNamespace(
+        language='en', FORK_DAYS_ONE='{n} day', FORK_DAYS_FEW='{n} days', FORK_DAYS_MANY='{n} days'
+    )
     assert fo.format_days(ru_texts, days) == ru
     assert fo.format_days(en_texts, days) == en
 ```
@@ -1490,7 +1505,9 @@ async def _resolve_new_user_language(message: types.Message, state: FSMContext) 
         return False
 
     default_language = (
-        (settings.DEFAULT_LANGUAGE or DEFAULT_LANGUAGE) if isinstance(settings.DEFAULT_LANGUAGE, str) else DEFAULT_LANGUAGE
+        (settings.DEFAULT_LANGUAGE or DEFAULT_LANGUAGE)
+        if isinstance(settings.DEFAULT_LANGUAGE, str)
+        else DEFAULT_LANGUAGE
     )
     data['language'] = auto_language or default_language.split('-')[0].lower()
     await state.set_data(data)
@@ -1586,7 +1603,9 @@ async def test_rules_deeplink_for_new_user_shows_rules_without_registration(monk
 async def test_send_rules_screen_paginates_and_adds_menu_button(monkeypatch):
     from app.utils import fork_onboarding
 
-    monkeypatch.setattr(fork_onboarding, 'get_current_rules_content', AsyncMock(return_value='<p>' + 'а' * 5000 + '</p>'))
+    monkeypatch.setattr(
+        fork_onboarding, 'get_current_rules_content', AsyncMock(return_value='<p>' + 'а' * 5000 + '</p>')
+    )
     msg = _message()
     await fork_onboarding.send_rules_screen(msg, AsyncMock(), 'ru', with_menu_button=True)
     assert msg.answer.await_count >= 2
@@ -1639,7 +1658,9 @@ async def send_rules_screen(message, db, language: str, *, with_menu_button: boo
         text = f'{header}\n\n{page}' if index == 0 else page
         if index == len(pages) - 1 and with_menu_button:
             keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text=texts.BACK_TO_MAIN_MENU_BUTTON, callback_data='back_to_menu')]]
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=texts.BACK_TO_MAIN_MENU_BUTTON, callback_data='back_to_menu')]
+                ]
             )
             await message.answer(text, reply_markup=keyboard)
         else:
@@ -1719,8 +1740,12 @@ def _tg(first_name='Андрей <b>'):
 
 def _reg_user(language='ru', active=False):
     sub = SimpleNamespace(is_active=active)
-    return SimpleNamespace(language=language, subscriptions=[sub] if active else [], auth_type='telegram',
-                           is_trial_already_used=MagicMock(return_value=active))
+    return SimpleNamespace(
+        language=language,
+        subscriptions=[sub] if active else [],
+        auth_type='telegram',
+        is_trial_already_used=MagicMock(return_value=active),
+    )
 
 
 def test_welcome_with_trial(fork_texts, monkeypatch):
@@ -1973,7 +1998,9 @@ Expected: FAIL — нет `build_trial_ready_screen`.
 `app/utils/fork_onboarding.py`:
 
 ```python
-def build_trial_ready_screen(texts, end_date_text: str, connect_keyboard: InlineKeyboardMarkup) -> tuple[str, InlineKeyboardMarkup]:
+def build_trial_ready_screen(
+    texts, end_date_text: str, connect_keyboard: InlineKeyboardMarkup
+) -> tuple[str, InlineKeyboardMarkup]:
     rows = [list(row) for row in connect_keyboard.inline_keyboard]
     connect_rows, menu_row = rows[:-1], rows[-1]
     if connect_rows and connect_rows[0]:
@@ -1987,14 +2014,12 @@ def build_trial_ready_screen(texts, end_date_text: str, connect_keyboard: Inline
 `app/handlers/subscription/purchase.py`, в `activate_trial`: перед строкой `await callback.message.edit_text(trial_success_text, reply_markup=connect_keyboard, parse_mode='HTML')` внутри ветки `if remnawave_user and subscription_link:` вставить:
 
 ```python
-            if settings.PREMIUM_THEME_ENABLED and len(connect_keyboard.inline_keyboard) >= 2:
-                from app.utils.fork_onboarding import build_trial_ready_screen
+if settings.PREMIUM_THEME_ENABLED and len(connect_keyboard.inline_keyboard) >= 2:
+    from app.utils.fork_onboarding import build_trial_ready_screen
 
-                end_date_text = format_local_datetime(subscription.end_date, fmt='%d.%m.%Y')
-                trial_success_text, connect_keyboard = build_trial_ready_screen(
-                    texts, end_date_text, connect_keyboard
-                )
-                trial_success_text += payment_note
+    end_date_text = format_local_datetime(subscription.end_date, fmt='%d.%m.%Y')
+    trial_success_text, connect_keyboard = build_trial_ready_screen(texts, end_date_text, connect_keyboard)
+    trial_success_text += payment_note
 ```
 
 (Проверить сигнатуру `format_local_datetime` в `purchase.py` — параметр `fmt`; если имя другое — использовать его. Если `connect_keyboard` получился `get_back_keyboard` с одной строкой — экран форка не применяется, условие `>= 2` это и проверяет.)
@@ -2096,7 +2121,9 @@ def test_exactly_one_green_button_in_every_state(monkeypatch):
         'trial': MenuContext(primary_action='trial'),
         'buy': MenuContext(primary_action='buy'),
         'connect': MenuContext(primary_action='connect', has_active_subscription=True, subscription_is_active=True),
-        'extend_active': MenuContext(primary_action='extend', has_active_subscription=True, subscription_is_active=True),
+        'extend_active': MenuContext(
+            primary_action='extend', has_active_subscription=True, subscription_is_active=True
+        ),
         'extend_expired': MenuContext(primary_action='extend'),
     }
     expected = {
@@ -2301,7 +2328,7 @@ def build_fork_menu_config() -> dict[str, Any]:
 `app/keyboards/inline.py`, в вызове `MenuContext(...)` в `get_main_menu_keyboard_async` добавить последним аргументом:
 
 ```python
-            primary_action=_fork_primary_action(user, subscription),
+primary_action = (_fork_primary_action(user, subscription),)
 ```
 
 и рядом с функцией (на уровне модуля):
@@ -2436,11 +2463,15 @@ def _section_heading(inner_html: str) -> str:
 После добавления блока баланса:
 
 ```python
-    if settings.PREMIUM_THEME_ENABLED and settings.is_referral_program_enabled() and settings.REFERRAL_COMMISSION_PERCENT > 0:
-        hint = texts.get('FORK_MENU_REFERRAL_HINT')
-        if hint:
-            percent = html.escape(str(settings.REFERRAL_COMMISSION_PERCENT))
-            blocks.append(f'<p>{_rich_text(hint).replace("{percent}", percent)}</p>')
+if (
+    settings.PREMIUM_THEME_ENABLED
+    and settings.is_referral_program_enabled()
+    and settings.REFERRAL_COMMISSION_PERCENT > 0
+):
+    hint = texts.get('FORK_MENU_REFERRAL_HINT')
+    if hint:
+        percent = html.escape(str(settings.REFERRAL_COMMISSION_PERCENT))
+        blocks.append(f'<p>{_rich_text(hint).replace("{percent}", percent)}</p>')
 ```
 
 (`texts.get` — не `.t`, см. Global Constraints; проверить, что `settings.is_referral_program_enabled` существует — используется в `service.py` `_evaluate_conditions`.)
@@ -2510,8 +2541,14 @@ def test_stage_two_screens_present(monkeypatch):
     monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', True)
     monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
     titles = [screen.title for screen in preview_screens.build_screens('ru')]
-    for expected in ('Приветствие — пробный', 'Пробный включён', 'Меню — пробный', 'Меню — подключиться',
-                     'Меню — продлить', 'Меню — тариф'):
+    for expected in (
+        'Приветствие — пробный',
+        'Пробный включён',
+        'Меню — пробный',
+        'Меню — подключиться',
+        'Меню — продлить',
+        'Меню — тариф',
+    ):
         assert expected in titles, expected
 ```
 
@@ -2533,8 +2570,9 @@ def _stage_two_screens(language: str) -> list[PreviewScreen]:
     from app.utils import fork_onboarding
 
     texts = get_texts(language)
-    newcomer = SimpleNamespace(language=language, subscriptions=[], auth_type='telegram',
-                               is_trial_already_used=MagicMock(return_value=False))
+    newcomer = SimpleNamespace(
+        language=language, subscriptions=[], auth_type='telegram', is_trial_already_used=MagicMock(return_value=False)
+    )
     tg_user = SimpleNamespace(first_name='Андрей' if language == 'ru' else 'Andrew', username=None)
     welcome_text, welcome_kb = fork_onboarding.build_welcome_screen(newcomer, tg_user)
     connect_kb = InlineKeyboardMarkup(
@@ -2549,10 +2587,14 @@ def _stage_two_screens(language: str) -> list[PreviewScreen]:
         PreviewScreen('Приветствие — пробный', welcome_text, welcome_kb),
         PreviewScreen('Пробный включён', ready_text, ready_kb),
         PreviewScreen('Меню — пробный', 'Меню: новичок', _menu_keyboard(language, primary_action='trial')),
-        PreviewScreen('Меню — подключиться', 'Меню: подписка активна',
-                      _menu_keyboard(language, primary_action='connect', **active)),
-        PreviewScreen('Меню — продлить', 'Меню: истекает через 2 дня',
-                      _menu_keyboard(language, primary_action='extend', **active)),
+        PreviewScreen(
+            'Меню — подключиться',
+            'Меню: подписка активна',
+            _menu_keyboard(language, primary_action='connect', **active),
+        ),
+        PreviewScreen(
+            'Меню — продлить', 'Меню: истекает через 2 дня', _menu_keyboard(language, primary_action='extend', **active)
+        ),
         PreviewScreen('Меню — тариф', 'Меню: пробный уже был', _menu_keyboard(language, primary_action='buy')),
     ]
 ```
