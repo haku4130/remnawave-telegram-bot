@@ -893,6 +893,9 @@
 - `app/handlers/contests.py` — Python-модуль
   Классы: нет
   Функции: `open_contests_menu_message` — Send the contests menu as a fresh message — entry point for the, `cmd_contests` — `/contests` command: open the contests menu., `show_contests_menu` — Show menu with available contest games., `play_contest` — Start playing a specific contest., `handle_pick` — Handle button pick in contest games., `handle_text_answer` — Handle text answer in contest games., `register_handlers` — Register contest handlers.
+- `app/handlers/fork_menu.py` — Python-модуль
+  Классы: нет
+  Функции: `show_more_menu` — Меняет клавиатуру под сообщением меню на подменю; текст сообщения (rich-меню) остаётся., `register_handlers`
 - `app/handlers/gift_activation.py` — Python-модуль
   Классы: нет
   Функции: `handle_gift_activate` — Handle gift_activate:{purchase_id} callback from Telegram notification., `register_handlers`
@@ -3762,6 +3765,9 @@
 - `tests/handlers/test_device_rename_cancel.py` — Python-модуль
   Классы: нет
   Функции: `test_cancel_button_reopens_device_list`, `test_typed_cancel_reopens_device_list`, `test_valid_name_saves_and_reopens`, `test_empty_after_normalize_keeps_state_for_retry`
+- `tests/handlers/test_fork_menu.py` — Python-модуль
+  Классы: нет
+  Функции: `fork_config`, `test_theme_on_swaps_keyboard_to_submenu`, `test_theme_off_does_nothing_but_answer`, `test_missing_user_does_nothing_but_answer`, `test_message_not_modified_is_swallowed`, `test_other_bad_request_is_logged_and_answered`, `test_config_without_more_rows_keeps_menu_untouched`, `test_register_handlers_registers_menu_more`
 - `tests/handlers/test_fork_start_flow.py` — Python-модуль
   Классы: нет
   Функции: `test_auto_language_skips_prompt_and_stores_detected`, `test_without_auto_language_prompt_is_shown`, `test_rules_deeplink_for_new_user_shows_rules_without_registration`, `test_rules_deeplink_for_registered_user_uses_own_language_and_menu_button`, `test_send_rules_screen_paginates_and_adds_menu_button`, `test_send_rules_screen_without_menu_button_has_no_markup`, `test_rules_url`, `test_welcome_offer_prefers_fork_screen`, `test_welcome_offer_uses_db_text_when_theme_off`, `test_welcome_offer_falls_back_to_db_text_when_fork_screen_fails`, `test_welcome_send_kwargs_disable_link_preview_only_for_fork_welcome`, `test_welcome_sends_use_link_preview_kwargs`
@@ -3941,7 +3947,7 @@
 
 - `tests/scripts/test_preview_screens.py` — Python-модуль
   Классы: нет
-  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`
+  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`
 
 ### tests/services
 
@@ -4081,7 +4087,7 @@
   Функции: `test_alive_in_the_panel_is_not_expired_and_takes_the_panel_date`, `test_expired_in_the_panel_is_expired_in_the_bot`, `test_silent_panel_falls_back_to_the_bot_date` — Панель не отвечает — последняя известная истина у бота, гасим по ней.
 - `tests/services/test_fork_menu_layout.py` — Python-модуль
   Классы: нет
-  Функции: `test_resolve_primary_action`, `test_resolve_primary_action_survives_unreadable_daily_flag`, `test_resolve_primary_action_does_not_lazy_load_tariff`, `test_fork_primary_action_returns_none_when_resolve_fails`, `test_exactly_one_green_button_in_every_state`, `test_extend_while_active_keeps_blue_connect`, `test_tariffs_button_blue_next_to_trial`, `test_default_config_switches_with_theme`, `test_build_button_passes_style`, `test_primary_action_condition_accepts_list`
+  Функции: `test_resolve_primary_action`, `test_resolve_primary_action_survives_unreadable_daily_flag`, `test_resolve_primary_action_does_not_lazy_load_tariff`, `test_fork_primary_action_returns_none_when_resolve_fails`, `test_exactly_one_green_button_in_every_state`, `test_extend_while_active_keeps_blue_connect`, `test_tariffs_button_blue_next_to_trial`, `test_default_config_switches_with_theme`, `test_build_button_passes_style`, `test_primary_action_condition_accepts_list`, `test_main_menu_last_row_is_friends_support_more`, `test_main_menu_no_longer_holds_buttons_moved_to_more`, `test_more_submenu_rows`, `test_more_buttons_are_plain_navigation`, `test_more_submenu_visible_buttons`, `test_more_submenu_hides_language_and_contests_when_conditions_fail`, `test_build_keyboard_reads_rows_key`
 - `tests/services/test_format_email_datetime.py` — Python-модуль
   Классы: нет
   Функции: `test_default_format_is_locale_independent` — The fallback shape must be ``DD.MM.YYYY, HH:MM`` — no month, `test_explicit_fmt_arg_overrides_settings` — Caller-provided ``fmt`` wins over the global setting — lets, `test_settings_override_takes_effect_without_restart` — An admin who updates ``EMAIL_DATE_FORMAT`` via system_settings, `test_empty_or_invalid_setting_falls_back_to_default` — Operator misconfiguration (empty / non-string) must not crash, `test_localizes_to_configured_timezone` — UTC datetime gets shifted to ``settings.TIMEZONE`` before formatting., `test_naive_datetime_is_treated_as_utc` — Some legacy paths still pass naive datetimes. Treat them as, `test_iso_string_is_parsed_and_reformatted` — Legacy callers that pre-isoformat'd their datetime get parsed, `test_unparseable_string_passes_through` — If the caller pre-formatted the string in some custom shape we, `test_empty_input_returns_placeholder` — ``None`` / empty must not render the literal Python repr or, `test_custom_placeholder_respected`, `test_non_datetime_non_string_input_returns_placeholder` — Garbage input (int, list, etc.) → placeholder. Defensive., `test_no_microseconds_in_output` — REGRESSION (2026-05-18): user saw, `test_no_offset_in_output` — Non-UTC TZ values also must not leak the offset into the email., `test_notification_delivery_service_uses_format_email_datetime` — ``notify_subscription_expiring`` and ``notify_autopay_success``, `test_auto_purchase_service_sends_machine_dates_to_the_cabinet` — Даты в WebSocket-событиях кабинета — не для человека., `test_helper_signature_is_stable` — The helper is called from 9+ production sites. Lock its

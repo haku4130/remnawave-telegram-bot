@@ -168,3 +168,14 @@ async def test_welcome_title_follows_actual_variant(theme_on, monkeypatch):
     assert 'Приветствие — пробный' not in screens
     welcome = screens['Приветствие — без пробного']
     assert welcome.markup.inline_keyboard[0][0].callback_data == 'menu_buy'
+
+
+@pytest.mark.asyncio
+async def test_more_submenu_screen(theme_on):
+    screens = {screen.title: screen for screen in await preview_screens.build_screens('ru')}
+    more = screens['Меню — Ещё']
+    assert not more.rich
+    buttons = [button for row in more.markup.inline_keyboard for button in row]
+    assert not any(button.style == 'success' for button in buttons)
+    assert buttons[-1].callback_data == 'back_to_menu'
+    assert {'menu_promocode', 'menu_info'} <= {button.callback_data for button in buttons}

@@ -1125,13 +1125,14 @@ class MenuLayoutService:
         cls,
         db: AsyncSession,
         context: MenuContext,
+        rows_key: str = 'rows',
     ) -> InlineKeyboardMarkup:
-        """Построить клавиатуру меню на основе конфигурации."""
+        """Построить клавиатуру меню на основе конфигурации (rows_key — какой набор строк: 'rows' или подменю)."""
         config = await cls.get_config(db)
         texts = get_texts(context.language)
 
         keyboard_rows: list[list[InlineKeyboardButton]] = []
-        rows_config = config.get('rows', [])
+        rows_config = config.get(rows_key, [])
         buttons_config = config.get('buttons', {})
 
         for row_config in rows_config:

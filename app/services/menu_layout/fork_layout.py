@@ -106,6 +106,27 @@ def build_fork_menu_config() -> dict[str, Any]:
     # Без явного стиля таблица button_theme красит return_to_saved_cart в зелёный — вторая зелёная кнопка.
     buttons['resume_checkout']['style'] = 'primary'
     buttons['referrals']['text'] = {'ru': '👥 Друзья', 'en': '👥 Friends'}
+    # Серые кнопки второго плана уходят в подменю «Ещё»: на главном экране остаются друзья и поддержка.
+    buttons['more'] = {
+        'type': 'builtin',
+        'builtin_id': 'more',
+        'text': {'ru': '➕ Ещё', 'en': '➕ More'},
+        'action': 'menu_more',
+        'enabled': True,
+        'visibility': 'all',
+        'conditions': None,
+        'dynamic_text': False,
+    }
+    buttons['more_back'] = {
+        'type': 'builtin',
+        'builtin_id': 'more_back',
+        'text': {'ru': '⬅️ Назад', 'en': '⬅️ Back'},
+        'action': 'back_to_menu',
+        'enabled': True,
+        'visibility': 'all',
+        'conditions': None,
+        'dynamic_text': False,
+    }
 
     by_id = {row['id']: row for row in config['rows']}
     config['rows'] = [
@@ -117,11 +138,14 @@ def build_fork_menu_config() -> dict[str, Any]:
         _row('buy_traffic_row', ['buy_traffic'], {'has_active_subscription': True}, max_per_row=1),
         by_id['simple_subscription_row'],
         by_id['resume_row'],
-        _row('referral_promo_row', ['referrals', 'promocode']),
-        by_id['contests_row'],
-        by_id['support_info_row'],
-        by_id['language_row'],
+        _row('friends_support_more_row', ['referrals', 'support', 'more'], max_per_row=3),
         by_id['admin_row'],
         by_id['moderator_row'],
+    ]
+    config['more_rows'] = [
+        _row('more_promo_info_row', ['promocode', 'info']),
+        by_id['language_row'],
+        by_id['contests_row'],
+        _row('more_back_row', ['more_back'], max_per_row=1),
     ]
     return config

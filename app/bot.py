@@ -8,6 +8,7 @@ from app.handlers import (
     balance,
     common,
     contests as user_contests,
+    fork_menu,
     menu,
     polls as user_polls,
     promocode,
@@ -185,6 +186,7 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     dp.pre_checkout_query.middleware(SubscriptionStatusMiddleware())
     start.register_handlers(dp)
     menu.register_handlers(dp)
+    fork_menu.register_handlers(dp)
     subscription.register_handlers(dp)
     register_gift_handlers(dp)
     balance.register_balance_handlers(dp)

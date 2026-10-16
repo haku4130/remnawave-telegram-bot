@@ -65,14 +65,14 @@ def _catalog_screens() -> list[PreviewScreen]:
     return screens
 
 
-def _menu_keyboard(language: str, **context_fields) -> InlineKeyboardMarkup:
+def _menu_keyboard(language: str, rows_key: str = 'rows', **context_fields) -> InlineKeyboardMarkup:
     config = MenuLayoutService.get_default_config()
     context = MenuContext(language=language, **context_fields)
     texts = get_texts(language)
     buttons_config = config.get('buttons', {})
     rows = []
     # Та же сборка, что в MenuLayoutService.build_keyboard, но по раскладке из кода (без БД).
-    for row_config in config.get('rows', []):
+    for row_config in config.get(rows_key, []):
         if not MenuLayoutService._evaluate_conditions(row_config.get('conditions'), context):
             continue
         row = []
@@ -157,7 +157,7 @@ async def _rich_menu_screen(
 
 
 async def _stage_two_screens(language: str) -> list[PreviewScreen]:
-    """Путь новичка: приветствие, «пробный включён» и rich-меню в четырёх состояниях."""
+    """Путь новичка: приветствие, «пробный включён», rich-меню в четырёх состояниях и подменю «Ещё»."""
     texts = get_texts(language)
     newcomer = SimpleNamespace(
         language=language,
@@ -197,6 +197,8 @@ async def _stage_two_screens(language: str) -> list[PreviewScreen]:
         await _rich_menu_screen(
             'Меню — тариф', language, trial_was_used, _menu_keyboard(language, primary_action='buy')
         ),
+        # Подменю «Ещё»: при нажатии бот меняет только кнопки под тем же сообщением меню.
+        PreviewScreen('Меню — Ещё', '<b>Ещё</b>', _menu_keyboard(language, rows_key='more_rows')),
     ]
 
 
