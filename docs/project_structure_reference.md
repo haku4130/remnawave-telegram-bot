@@ -1825,6 +1825,9 @@
 - `app/services/menu_layout/context.py` — Python-модуль
   Классы: `MenuContext`
   Функции: нет
+- `app/services/menu_layout/fork_layout.py` — Python-модуль
+  Классы: нет
+  Функции: `resolve_primary_action`, `build_fork_menu_config`
 - `app/services/menu_layout/history_service.py` — Python-модуль
   Классы: `MenuLayoutHistoryService` (5 методов)
   Функции: нет
@@ -4073,6 +4076,9 @@
 - `tests/services/test_expiry_asks_the_panel_first.py` — Python-модуль
   Классы: нет
   Функции: `test_alive_in_the_panel_is_not_expired_and_takes_the_panel_date`, `test_expired_in_the_panel_is_expired_in_the_bot`, `test_silent_panel_falls_back_to_the_bot_date` — Панель не отвечает — последняя известная истина у бота, гасим по ней.
+- `tests/services/test_fork_menu_layout.py` — Python-модуль
+  Классы: нет
+  Функции: `test_resolve_primary_action`, `test_exactly_one_green_button_in_every_state`, `test_extend_while_active_keeps_blue_connect`, `test_tariffs_button_blue_next_to_trial`, `test_default_config_switches_with_theme`, `test_build_button_passes_style`, `test_primary_action_condition_accepts_list`
 - `tests/services/test_format_email_datetime.py` — Python-модуль
   Классы: нет
   Функции: `test_default_format_is_locale_independent` — The fallback shape must be ``DD.MM.YYYY, HH:MM`` — no month, `test_explicit_fmt_arg_overrides_settings` — Caller-provided ``fmt`` wins over the global setting — lets, `test_settings_override_takes_effect_without_restart` — An admin who updates ``EMAIL_DATE_FORMAT`` via system_settings, `test_empty_or_invalid_setting_falls_back_to_default` — Operator misconfiguration (empty / non-string) must not crash, `test_localizes_to_configured_timezone` — UTC datetime gets shifted to ``settings.TIMEZONE`` before formatting., `test_naive_datetime_is_treated_as_utc` — Some legacy paths still pass naive datetimes. Treat them as, `test_iso_string_is_parsed_and_reformatted` — Legacy callers that pre-isoformat'd their datetime get parsed, `test_unparseable_string_passes_through` — If the caller pre-formatted the string in some custom shape we, `test_empty_input_returns_placeholder` — ``None`` / empty must not render the literal Python repr or, `test_custom_placeholder_respected`, `test_non_datetime_non_string_input_returns_placeholder` — Garbage input (int, list, etc.) → placeholder. Defensive., `test_no_microseconds_in_output` — REGRESSION (2026-05-18): user saw, `test_no_offset_in_output` — Non-UTC TZ values also must not leak the offset into the email., `test_notification_delivery_service_uses_format_email_datetime` — ``notify_subscription_expiring`` and ``notify_autopay_success``, `test_auto_purchase_service_sends_machine_dates_to_the_cabinet` — Даты в WebSocket-событиях кабинета — не для человека., `test_helper_signature_is_stable` — The helper is called from 9+ production sites. Lock its

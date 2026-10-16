@@ -34,3 +34,5 @@ class MenuContext:
     registration_days: int = 0
     promo_group_id: str | None = None
     has_autopay: bool = False
+    # Главное (зелёное) действие меню форка: trial | connect | extend | buy.
+    primary_action: str | None = None

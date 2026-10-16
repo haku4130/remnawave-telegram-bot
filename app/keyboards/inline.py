@@ -25,6 +25,14 @@ from app.utils.subscription_utils import (
 logger = structlog.get_logger(__name__)
 
 
+def _fork_primary_action(user, subscription) -> str | None:
+    if not settings.PREMIUM_THEME_ENABLED:
+        return None
+    from app.services.menu_layout.fork_layout import resolve_primary_action
+
+    return resolve_primary_action(user, subscription)
+
+
 async def get_main_menu_keyboard_async(
     db: AsyncSession,
     language: str = DEFAULT_LANGUAGE,
@@ -135,6 +143,7 @@ async def get_main_menu_keyboard_async(
             registration_days=registration_days,
             promo_group_id=promo_group_id,
             has_autopay=has_autopay,
+            primary_action=_fork_primary_action(user, subscription),
         )
 
         return await MenuLayoutService.build_keyboard(db, context)
