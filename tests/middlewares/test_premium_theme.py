@@ -309,3 +309,35 @@ async def test_not_modified_error_is_not_retried_unthemed():
     with pytest.raises(TelegramBadRequest):
         await mw.PremiumThemeMiddleware()(make_request, _bot(), method)
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ('text', 'callback_data'),
+    [
+        ('⬅️ Назад', 'menu_subscription'),
+        ('◀️ Назад', 'menu_balance'),
+        ('↩️ Вернуться', 'subscription_settings'),
+        ('🔙 Back', 'balance_topup'),
+    ],
+)
+def test_arrow_label_back_button_gets_no_colour_and_no_icon(text, callback_data):
+    out = mw.theme_button(InlineKeyboardButton(text=text, callback_data=callback_data))
+    assert out.text == text
+    assert out.icon_custom_emoji_id is None
+    assert out.style is None
+
+
+def test_plain_back_label_keeps_primary_colour():
+    out = mw.theme_button(InlineKeyboardButton(text='Назад', callback_data='menu_subscription'))
+    assert out.text == 'Назад'
+    assert out.style == 'primary'
+
+
+def test_regular_button_still_gets_success_colour():
+    out = mw.theme_button(InlineKeyboardButton(text='🚀 Подключиться', callback_data='subscription_connect'))
+    assert out.style == 'success'
+
+
+def test_explicit_style_is_kept_on_non_navigation_button():
+    out = mw.theme_button(InlineKeyboardButton(text='Go', callback_data='menu_subscription', style='danger'))
+    assert out.style == 'danger'

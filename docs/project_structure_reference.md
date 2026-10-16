@@ -2076,7 +2076,7 @@
   Функции: `get_cached_button_styles` — Return the current merged config (DB overrides + defaults)., `load_button_styles_cache` — Load button styles from DB and refresh the module cache.
 - `app/utils/button_theme.py` — Python-модуль
   Классы: нет
-  Функции: `is_navigation` — «Назад», «в меню» и заглушки: такие кнопки без цвета и без анимированной иконки., `style_for_button`
+  Функции: `is_navigation` — «Назад», «в меню», стрелка в подписи и заглушки: такие кнопки без цвета и без анимированной иконки., `style_for_button`
 - `app/utils/cache.py` — Python-модуль
   Классы: `CacheService` (20 методов), `UserCache` (6 методов), `SystemCache` (6 методов), `RateLimitCache` (5 методов), `TokenReplayCache` (1 методов), `ChannelSubCache` (8 методов)
   Функции: `cache_key`, `cached_function`
@@ -3954,7 +3954,7 @@
   Функции: `test_stale_callback_logged_quietly`, `test_blocked_bot_logged_quietly`, `test_unexpected_bad_request_stays_error`
 - `tests/middlewares/test_premium_theme.py` — Python-модуль
   Классы: нет
-  Функции: `theme_on`, `test_leading_tag_becomes_icon`, `test_leading_unicode_from_catalog_becomes_icon`, `test_unicode_outside_catalog_is_left_alone`, `test_emoji_only_label_is_not_emptied`, `test_explicit_style_and_icon_win`, `test_inner_tags_fall_back_to_unicode`, `test_source_markup_is_not_mutated`, `test_send_message_markup_themed_and_html_text_kept`, `test_plain_text_message_gets_fallback`, `test_text_with_entities_is_left_untouched`, `test_escaped_tag_is_restored_in_html`, `test_caption_is_handled_like_text`, `test_callback_alert_gets_fallback`, `test_reply_keyboard_is_not_touched`, `test_disabled_flag_passes_through`, `test_theme_error_does_not_block_sending`, `test_registered_in_bot_factory`, `test_navigation_button_gets_no_icon_and_no_color`, `test_navigation_button_with_tag_falls_back_to_plain`, `test_unknown_escaped_tag_stays_escaped`, `test_restore_escaped_only_known_ids`, `test_group_chat_gets_color_but_no_icon`, `test_inline_message_edit_gets_no_icon`, `test_tag_label_without_icons_falls_back_to_plain`, `test_rejected_themed_request_is_retried_unthemed`, `test_unthemed_request_error_is_not_retried`, `test_retry_failure_raises_retry_error`, `test_not_modified_error_is_not_retried_unthemed`
+  Функции: `theme_on`, `test_leading_tag_becomes_icon`, `test_leading_unicode_from_catalog_becomes_icon`, `test_unicode_outside_catalog_is_left_alone`, `test_emoji_only_label_is_not_emptied`, `test_explicit_style_and_icon_win`, `test_inner_tags_fall_back_to_unicode`, `test_source_markup_is_not_mutated`, `test_send_message_markup_themed_and_html_text_kept`, `test_plain_text_message_gets_fallback`, `test_text_with_entities_is_left_untouched`, `test_escaped_tag_is_restored_in_html`, `test_caption_is_handled_like_text`, `test_callback_alert_gets_fallback`, `test_reply_keyboard_is_not_touched`, `test_disabled_flag_passes_through`, `test_theme_error_does_not_block_sending`, `test_registered_in_bot_factory`, `test_navigation_button_gets_no_icon_and_no_color`, `test_navigation_button_with_tag_falls_back_to_plain`, `test_unknown_escaped_tag_stays_escaped`, `test_restore_escaped_only_known_ids`, `test_group_chat_gets_color_but_no_icon`, `test_inline_message_edit_gets_no_icon`, `test_tag_label_without_icons_falls_back_to_plain`, `test_rejected_themed_request_is_retried_unthemed`, `test_unthemed_request_error_is_not_retried`, `test_retry_failure_raises_retry_error`, `test_not_modified_error_is_not_retried_unthemed`, `test_arrow_label_back_button_gets_no_colour_and_no_icon`, `test_plain_back_label_keeps_primary_colour`, `test_regular_button_still_gets_success_colour`, `test_explicit_style_is_kept_on_non_navigation_button`
 - `tests/middlewares/test_rich_error_report.py` — Python-модуль
   Классы: нет
   Функции: `test_rich_error_report_structure`, `test_rich_error_report_none_when_oversized`, `test_send_error_uses_rich_and_clears_buffer`, `test_send_error_falls_back_to_document_when_rich_unavailable`, `test_rich_error_report_renders_a_plain_note_without_code_block` — Запись без трейса (например, «сообщение некуда доставить») — обычный абзац,
@@ -4679,7 +4679,7 @@
   Функции: нет
 - `tests/utils/test_button_theme.py` — Python-модуль
   Классы: нет
-  Функции: `test_callback_rules`, `test_non_callback_buttons_have_no_theme_color`, `test_backup_callbacks_are_not_navigation`, `test_is_navigation`
+  Функции: `test_callback_rules`, `test_non_callback_buttons_have_no_theme_color`, `test_backup_callbacks_are_not_navigation`, `test_is_navigation`, `test_arrow_label_is_navigation_whatever_the_callback`, `test_label_without_arrow_is_not_navigation`, `test_regular_label_keeps_callback_colour`
 - `tests/utils/test_chat_menu_button.py` — Python-модуль
   Классы: нет
   Функции: `test_disabled_does_not_touch_menu_button`, `test_enabled_sets_webapp_menu_button`, `test_falls_back_to_miniapp_custom_url`, `test_non_https_url_is_skipped`, `test_empty_text_defaults`

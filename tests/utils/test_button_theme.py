@@ -5,7 +5,7 @@
 import pytest
 from aiogram.types import InlineKeyboardButton, WebAppInfo
 
-from app.utils.button_theme import style_for_button
+from app.utils.button_theme import is_navigation, style_for_button
 
 
 def _cb(data: str) -> InlineKeyboardButton:
@@ -60,3 +60,36 @@ def test_is_navigation(callback_data):
     from app.utils.button_theme import is_navigation
 
     assert is_navigation(_cb(callback_data)) is True
+
+
+@pytest.mark.parametrize(
+    ('text', 'callback_data'),
+    [
+        ('⬅️ Назад', 'menu_subscription'),
+        ('⬅ Назад', 'menu_buy'),
+        ('◀️ Назад', 'menu_balance'),
+        ('↩️ Вернуться', 'subscription_settings'),
+        ('🔙 Back', 'balance_topup'),
+        ('<tg-emoji emoji-id="5312486108309757006">⬅️</tg-emoji> Назад', 'menu_subscription'),
+    ],
+)
+def test_arrow_label_is_navigation_whatever_the_callback(text, callback_data):
+    button = InlineKeyboardButton(text=text, callback_data=callback_data)
+    assert is_navigation(button) is True
+    assert style_for_button(button) is None
+
+
+@pytest.mark.parametrize(
+    'text',
+    ['Назад', '🏠 Главное меню', '🚀 Подключиться'],
+)
+def test_label_without_arrow_is_not_navigation(text):
+    button = InlineKeyboardButton(text=text, callback_data='menu_subscription')
+    assert is_navigation(button) is False
+    assert style_for_button(button) == 'primary'
+
+
+def test_regular_label_keeps_callback_colour():
+    button = InlineKeyboardButton(text='🚀 Подключиться', callback_data='subscription_connect')
+    assert is_navigation(button) is False
+    assert style_for_button(button) == 'success'

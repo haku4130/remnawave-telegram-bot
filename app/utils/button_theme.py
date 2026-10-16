@@ -9,7 +9,16 @@
 
 from __future__ import annotations
 
+import re
+
 from aiogram.types import InlineKeyboardButton
+
+
+# Подпись начинается со стрелки «назад» — это навигация, даже если callback ведёт в раздел.
+# U+FE0F (вариационный селектор) не учитываем: «⬅️» и «⬅» — одна и та же стрелка.
+_NAV_ARROWS = ('⬅', '◀', '↩', '🔙')
+_VARIATION_SELECTOR = '\ufe0f'
+_LEADING_TG_EMOJI_RE = re.compile(r'^\s*<tg-emoji emoji-id="\d+">(.*?)</tg-emoji>', re.DOTALL)
 
 
 # (вид совпадения, значение, стиль). Вид: exact | prefix | contains.
@@ -59,13 +68,28 @@ def _matches(kind: str, pattern: str, data: str) -> bool:
     return pattern in data
 
 
+def _label_is_navigation(text: str | None) -> bool:
+    if not text:
+        return False
+    head = text.strip()
+    # Видимый символ первого <tg-emoji> — его подпись-запасной вариант.
+    tag = _LEADING_TG_EMOJI_RE.match(head)
+    if tag:
+        head = tag.group(1) + head[tag.end() :]
+    return head.replace(_VARIATION_SELECTOR, '').lstrip().startswith(_NAV_ARROWS)
+
+
 def is_navigation(button: InlineKeyboardButton) -> bool:
-    """«Назад», «в меню» и заглушки: такие кнопки без цвета и без анимированной иконки."""
+    """«Назад», «в меню», стрелка в подписи и заглушки: такие кнопки без цвета и без анимированной иконки."""
     data = button.callback_data
-    return bool(data) and (data in ('back', 'back_to_menu', 'noop') or data.startswith('back_'))
+    if data and (data in ('back', 'back_to_menu', 'noop') or data.startswith('back_')):
+        return True
+    return _label_is_navigation(button.text)
 
 
 def style_for_button(button: InlineKeyboardButton) -> str | None:
+    if is_navigation(button):
+        return None
     data = button.callback_data
     if not data:
         return None
