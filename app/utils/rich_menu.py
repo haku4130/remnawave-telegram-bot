@@ -282,6 +282,13 @@ def _sanitize_rich_inline(value: str) -> str:
     return _IMG_TAG_RE.sub('', value)
 
 
+def _section_heading(inner_html: str) -> str:
+    # С темой форка — жирный абзац: <h3>-<h6> мобильный Telegram набирает с засечками.
+    if settings.PREMIUM_THEME_ENABLED:
+        return f'<p><b>{inner_html}</b></p>'
+    return f'<h6>{inner_html}</h6>'
+
+
 def _rich_text(value: str) -> str:
     """Готовит редактируемый из админки ТЕКСТ ШАБЛОНА к вставке в rich-HTML.
 
@@ -511,8 +518,11 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     username = getattr(user, 'username', None)
     has_name = bool(getattr(user, 'first_name', None) or getattr(user, 'last_name', None))
     user_name = format_username_link(username) if username and not has_name else html.escape(user.full_name or '')
-    blocks.append(f'<h4>👤 {user_name}</h4>')
-    blocks.append('<hr/>')
+    if settings.PREMIUM_THEME_ENABLED:
+        blocks.append(f'<p><b>{user_name}</b></p>')
+    else:
+        blocks.append(f'<h4>👤 {user_name}</h4>')
+        blocks.append('<hr/>')
 
     if settings.is_multi_tariff_enabled():
         heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING', '📱 Подписки')
@@ -526,11 +536,11 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
             summary = f'<b>{_rich_text(heading)} ({len(subscriptions)})</b>'
             blocks.append(f'<details><summary>{summary}</summary>{subscription_block}</details>')
         else:
-            blocks.append(f'<h6>{_rich_text(heading)}</h6>')
+            blocks.append(_section_heading(_rich_text(heading)))
             blocks.append(subscription_block)
     else:
         heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '📱 Подписка')
-        blocks.append(f'<h6>{_rich_text(heading)}</h6>')
+        blocks.append(_section_heading(_rich_text(heading)))
         blocks.append(await _build_single_subscription_block(user, texts, db))
 
     trial_link = _trial_offer_link(user, texts)
@@ -540,6 +550,16 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     balance_template = texts.t('MAIN_MENU_RICH_BALANCE', '💰 Баланс: {balance}')
     balance_value = f'<b>{html.escape(settings.format_price(user.balance_kopeks))}</b>'
     blocks.append(f'<p>{_rich_text(balance_template).replace("{balance}", balance_value)}</p>')
+
+    if (
+        settings.PREMIUM_THEME_ENABLED
+        and settings.is_referral_program_enabled()
+        and settings.REFERRAL_COMMISSION_PERCENT > 0
+    ):
+        hint = texts.get('FORK_MENU_REFERRAL_HINT')
+        if hint:
+            percent = html.escape(str(settings.REFERRAL_COMMISSION_PERCENT))
+            blocks.append(f'<p>{_rich_text(hint).replace("{percent}", percent)}</p>')
 
     hint_sections: list[str] = []
     try:

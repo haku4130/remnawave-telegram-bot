@@ -10,5 +10,15 @@
   "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Choose a plan",
   "FORK_BUTTON_CONNECT": "{e:rocket} Connect",
   "FORK_TRIAL_READY": "{e:party} <b>Done! Access until {end_date}</b>\n\n<b>Step 1.</b> Tap “Connect” to see instructions for your device.\n<b>Step 2.</b> Install the app and tap “Add subscription” in it.\n\nStuck? Message us — we’ll help in a couple of minutes.",
-  "FORK_BUTTON_HELP": "{e:speech} Get help"
+  "FORK_BUTTON_HELP": "{e:speech} Get help",
+  "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Subscription",
+  "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Subscriptions",
+  "MAIN_MENU_RICH_BALANCE": "Balance: {balance}",
+  "MAIN_MENU_RICH_TRIAL_BUTTON": "{e:gift} Try for free",
+  "MAIN_MENU_RICH_CONNECT": "Connect",
+  "MAIN_MENU_RICH_RENEW": "Renew",
+  "MAIN_MENU_RICH_TRIAL_ACTIVATED": "{e:party} <b>Trial access is on</b>",
+  "MAIN_MENU_ACTION_PROMPT": "Choose an option",
+  "MAIN_MENU": "<b>{user_name}</b>\n\n{e:phone} <b>Subscription:</b> {subscription_status}\n\nChoose an option\n",
+  "FORK_MENU_REFERRAL_HINT": "{e:people} Invite a friend — get {percent}% of their payments."
 }

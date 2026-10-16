@@ -10,5 +10,15 @@
   "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Выбрать тариф",
   "FORK_BUTTON_CONNECT": "{e:rocket} Подключиться",
   "FORK_TRIAL_READY": "{e:party} <b>Готово! Доступ до {end_date}</b>\n\n<b>Шаг 1.</b> Нажмите «Подключиться» — откроется инструкция для вашего устройства.\n<b>Шаг 2.</b> Установите приложение и нажмите в нём «Добавить подписку».\n\nНе получается? Напишите нам — поможем за пару минут.",
-  "FORK_BUTTON_HELP": "{e:speech} Помощь"
+  "FORK_BUTTON_HELP": "{e:speech} Помощь",
+  "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Подписка",
+  "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Подписки",
+  "MAIN_MENU_RICH_BALANCE": "Баланс: {balance}",
+  "MAIN_MENU_RICH_TRIAL_BUTTON": "{e:gift} Попробовать бесплатно",
+  "MAIN_MENU_RICH_CONNECT": "Подключиться",
+  "MAIN_MENU_RICH_RENEW": "Продлить",
+  "MAIN_MENU_RICH_TRIAL_ACTIVATED": "{e:party} <b>Пробный доступ включён</b>",
+  "MAIN_MENU_ACTION_PROMPT": "Выберите действие",
+  "MAIN_MENU": "<b>{user_name}</b>\n\n{e:phone} <b>Подписка:</b> {subscription_status}\n\nВыберите действие\n",
+  "FORK_MENU_REFERRAL_HINT": "{e:people} Пригласите друга — {percent}% с его оплат."
 }
