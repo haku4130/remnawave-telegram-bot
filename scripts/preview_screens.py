@@ -26,6 +26,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 
 from app.bot_factory import create_bot
 from app.config import settings
+from app.handlers.subscription import purchase
+from app.keyboards.inline import get_subscription_keyboard
 from app.localization.emoji_catalog import CATALOG, tag
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
@@ -224,10 +226,47 @@ async def _stage_two_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+def _subscription_screens(language: str) -> list[PreviewScreen]:
+    """Экран «Подписка» (кнопка меню): активна, скоро истекает, подписки нет — тем же сборщиком, что у бота."""
+    texts = get_texts(language)
+    # Как прод-тариф: не суточный, 3 устройства, докупка устройства 55 ₽ — кнопка «Добавить устройство» видна.
+    tariff = SimpleNamespace(
+        name='Стандартный', is_daily=False, is_free=False, device_price_kopeks=5500, can_topup_traffic=lambda: False
+    )
+    devices = [{'platform': 'macOS', 'deviceModel': 'MacBook Air'}, {'platform': 'iOS', 'deviceModel': 'iPhone 15'}]
+    screens = []
+    for title, days_left in (('Подписка — активна', 30), ('Подписка — скоро истекает', 2)):
+        subscription = _fake_subscription(days_left)
+        subscription.tariff = tariff
+        link = None if settings.should_hide_subscription_link() else subscription.subscription_url
+        text = purchase._build_fork_subscription_text(
+            texts,
+            subscription,
+            tariff=tariff,
+            show_devices=settings.is_devices_selection_enabled(),
+            devices_used=len(devices),
+            devices=devices,
+            subscription_link=link,
+        )
+        markup = get_subscription_keyboard(
+            language, has_subscription=True, subscription=subscription, gift_enabled=True
+        )
+        screens.append(PreviewScreen(title, text, markup))
+    screens.append(
+        PreviewScreen(
+            'Подписка — нет подписки',
+            texts.FORK_SUB_NONE_SCREEN,
+            get_subscription_keyboard(language, has_subscription=False, gift_enabled=True),
+        )
+    )
+    return screens
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
         *(await _stage_two_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(_subscription_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

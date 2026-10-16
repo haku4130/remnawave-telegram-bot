@@ -47,8 +47,8 @@ from app.database.crud.user_message import get_random_active_message
 from app.database.models import User
 from app.localization.fork_text import fork_traffic_usage
 from app.localization.texts import Texts
-from app.services.menu_layout.fork_layout import EXPIRING_DAYS, _is_daily_tariff
 from app.utils.fork_onboarding import format_days
+from app.utils.fork_subscription import _fork_days_left, _fork_status_label
 from app.utils.formatters import format_username_link
 from app.utils.miniapp_buttons import build_miniapp_startapp_url
 from app.utils.promo_offer import build_promo_offer_hint, build_test_access_hint
@@ -508,33 +508,6 @@ async def _build_single_subscription_block(user: User, texts, db: AsyncSession) 
             lines.append(renew_link)
 
     return '<blockquote>' + '<br>'.join(lines) + '</blockquote>'
-
-
-def _fork_status_label(subscription, texts) -> str:
-    actual_status = (getattr(subscription, 'actual_status', None) or '').lower()
-    if actual_status == 'limited':
-        return texts.FORK_SUB_STATUS_LIMITED
-    if actual_status == 'expired':
-        return texts.FORK_SUB_STATUS_EXPIRED
-    if actual_status == 'disabled':
-        return texts.FORK_SUB_STATUS_DISABLED
-    is_trial = bool(getattr(subscription, 'is_trial', False)) or actual_status == 'trial'
-    if actual_status in {'active', 'trial'}:
-        # У суточного тарифа дней всегда ≤ 1 — «скоро истекает» он каждый день, это шум.
-        if _fork_days_left(subscription) <= EXPIRING_DAYS and not _is_daily_tariff(subscription):
-            return texts.FORK_SUB_STATUS_EXPIRING
-        return texts.FORK_SUB_STATUS_TRIAL if is_trial else texts.FORK_SUB_STATUS_ACTIVE
-    return texts.FORK_SUB_STATUS_PENDING
-
-
-def _fork_days_left(subscription) -> int:
-    days_left = getattr(subscription, 'days_left', None)
-    if isinstance(days_left, int):
-        return days_left
-    end_date = getattr(subscription, 'end_date', None)
-    if not end_date:
-        return 0
-    return max((end_date - datetime.now(UTC)).days, 0)
 
 
 def _build_fork_subscription_block(user: User, texts) -> str:

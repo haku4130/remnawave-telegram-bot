@@ -37,6 +37,7 @@ from app.keyboards.inline import (
     get_trial_keyboard,
     get_updated_subscription_settings_keyboard,
 )
+from app.localization.fork_text import fork_devices, fork_period, fork_traffic, fork_traffic_usage
 from app.localization.texts import Texts, get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.pricing_engine import pricing_engine
@@ -58,6 +59,7 @@ from app.services.trial_activation_service import (
 )
 from app.services.user_cart_service import user_cart_service
 from app.utils.decorators import error_handler
+from app.utils.fork_subscription import _fork_days_left, _fork_status_label
 
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +190,116 @@ from .traffic import (
 )
 
 
+_FORK_DEVICES_SHOWN = 5
+_FORK_DEVICE_LABEL_MAX = 35
+
+
+def _fork_device_label(device: dict[str, Any]) -> str:
+    """«macOS — Mac»: платформа и модель из панели, длинное обрезано, всё экранировано."""
+    parts = [str(device.get(key) or '').strip() for key in ('platform', 'deviceModel')]
+    label = ' — '.join(part for part in parts if part)
+    if len(label) > _FORK_DEVICE_LABEL_MAX:
+        label = label[: _FORK_DEVICE_LABEL_MAX - 1].rstrip() + '…'
+    return html.escape(label)
+
+
+def _fork_period_line(texts, subscription, tariff) -> str | None:
+    """«Стандартный · до 25.10.2026, осталось 8 дней»; без тарифа — только срок, с большой буквы."""
+    end_date = getattr(subscription, 'end_date', None)
+    period = None
+    # У суточного тарифа срока нет (апстрим тоже не показывает «Действует до»).
+    if end_date and not (tariff and getattr(tariff, 'is_daily', False)):
+        date = format_local_datetime(end_date, '%d.%m.%Y')
+        ended = getattr(subscription, 'actual_status', None) == 'expired' or end_date <= datetime.now(UTC)
+        days_left = _fork_days_left(subscription)
+        if ended:
+            period = texts.FORK_SUB_INFO_ENDED.format(date=date)
+        elif days_left >= 1:
+            period = texts.FORK_SUB_INFO_UNTIL.format(date=date, days=fork_period(texts, days_left))
+        else:
+            period = texts.FORK_SUB_INFO_LAST_DAY.format(date=date)
+    if tariff is not None:
+        return ' · '.join(part for part in (html.escape(tariff.name or ''), period) if part) or None
+    return period[:1].upper() + period[1:] if period else None
+
+
+def _build_fork_subscription_text(
+    texts,
+    subscription,
+    *,
+    tariff=None,
+    show_devices: bool,
+    devices_used: str | int | None,
+    devices: list[dict[str, Any]],
+    traffic_purchases=(),
+    subscription_link: str | None = None,
+) -> str:
+    """Экран «Подписка» под темой форка: статус, срок, трафик и устройства, ссылка для приложения.
+
+    Только при включённой теме (ключи FORK_*). Строки без эмодзи-маркеров, без цитат; одна
+    анимированная иконка — в статусе. Устройства не показываются вовсе, если выбор устройств
+    выключен (апстрим в этом случае вырезает строку из шаблона). Ссылку передаёт вызывающий,
+    только когда её сейчас можно показывать.
+    """
+    lines = [f'<b>{_fork_status_label(subscription, texts)}</b>']
+
+    period_line = _fork_period_line(texts, subscription, tariff)
+    if period_line:
+        lines.append(period_line)
+
+    in_use = (getattr(subscription, 'actual_status', None) or '') in ('active', 'trial', 'limited')
+    if in_use:
+        usage = [
+            texts.FORK_SUB_TRAFFIC_PART.format(
+                traffic=fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb)
+            )
+        ]
+        if show_devices:
+            if devices_used in (None, ''):
+                # Панель не ответила — показываем только лимит, как rich-меню.
+                devices_value = Texts.format_device_limit(subscription.device_limit)
+            else:
+                devices_value = fork_devices(texts, devices_used, subscription.device_limit)
+            usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=devices_value))
+        lines.append(' · '.join(usage))
+
+        if traffic_purchases:
+            total_gb = sum(purchase.traffic_gb for purchase in traffic_purchases)
+            nearest = min(purchase.expires_at for purchase in traffic_purchases)
+            lines.append(
+                texts.FORK_SUB_PURCHASED_TRAFFIC.format(
+                    traffic=fork_traffic(texts, total_gb), date=format_local_datetime(nearest, '%d.%m.%Y')
+                )
+            )
+
+        if show_devices and devices:
+            labels = [label for label in map(_fork_device_label, devices[:_FORK_DEVICES_SHOWN]) if label]
+            if labels:
+                lines.append(texts.FORK_SUB_CONNECTED.format(devices=', '.join(labels)))
+
+    if subscription_link:
+        lines.append(texts.FORK_SUB_LINK.format(link=f'<code>{html.escape(subscription_link)}</code>'))
+
+    return '\n'.join(lines)
+
+
+async def _active_traffic_purchases(db: AsyncSession, subscription) -> list:
+    """Действующие докупки трафика (только у тарифа с лимитом) — как в блоке апстрима."""
+    if not subscription.traffic_limit_gb or subscription.traffic_limit_gb <= 0:
+        return []
+    from sqlalchemy import select as sql_select
+
+    from app.database.models import TrafficPurchase
+
+    result = await db.execute(
+        sql_select(TrafficPurchase)
+        .where(TrafficPurchase.subscription_id == subscription.id)
+        .where(TrafficPurchase.expires_at > datetime.now(UTC))
+        .order_by(TrafficPurchase.expires_at.asc())
+    )
+    return list(result.scalars().all())
+
+
 async def show_subscription_info(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     # Multi-tariff: redirect to "My subscriptions" list
     if settings.is_multi_tariff_enabled():
@@ -212,7 +324,7 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
 
     if not subscription:
         await callback.message.edit_text(
-            texts.SUBSCRIPTION_NONE,
+            texts.FORK_SUB_NONE_SCREEN if settings.PREMIUM_THEME_ENABLED else texts.SUBSCRIPTION_NONE,
             reply_markup=get_subscription_keyboard(db_user.language, has_subscription=False, gift_enabled=gift_enabled),
         )
         await callback.answer()
@@ -443,6 +555,34 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
 
         except Exception as e:
             logger.warning('Ошибка получения тарифа', error=e, exc_info=True)
+
+    if settings.PREMIUM_THEME_ENABLED:
+        # Тема форка: короткий экран без имени, баланса, серверов и цитат (см. _build_fork_subscription_text).
+        subscription_link = get_display_subscription_link(subscription)
+        show_link = actual_status in ('trial_active', 'paid_active') and not settings.should_hide_subscription_link()
+        message = _build_fork_subscription_text(
+            texts,
+            subscription,
+            tariff=tariff,
+            show_devices=show_devices,
+            devices_used=devices_used_str,
+            devices=devices_list,
+            traffic_purchases=await _active_traffic_purchases(db, subscription),
+            subscription_link=subscription_link if show_link else None,
+        )
+        await callback.message.edit_text(
+            message,
+            reply_markup=get_subscription_keyboard(
+                db_user.language,
+                has_subscription=True,
+                is_trial=subscription.is_trial,
+                subscription=subscription,
+                gift_enabled=gift_enabled,
+            ),
+            parse_mode='HTML',
+        )
+        await callback.answer()
+        return
 
     # Определяем, суточный ли тариф для выбора шаблона
     is_daily_tariff = tariff and getattr(tariff, 'is_daily', False)

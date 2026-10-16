@@ -2101,6 +2101,9 @@
 - `app/utils/fork_onboarding.py` — Python-модуль
   Классы: нет
   Функции: `resolve_auto_language`, `is_trial_available` — Бесплатный пробный, который пользователь может включить прямо сейчас., `format_days` — «3 дня» / «5 дней» / «3 days» по ключам FORK_DAYS_*., `rules_url`, `send_rules_screen` — Правила сервиса по ссылке из приветствия. Новичку кнопки не нужно — приветствие, `build_welcome_screen` — Приветствие нового пользователя: пробный одной зелёной кнопкой, правила — ссылкой строкой., `build_trial_ready_screen` — Экран после включения пробного: два шага, зелёное «Подключиться», помощь и «В меню».
+- `app/utils/fork_subscription.py` — Python-модуль
+  Классы: нет
+  Функции: нет
 - `app/utils/formatters.py` — Python-модуль
   Классы: нет
   Функции: `format_datetime`, `format_date`, `format_time_ago`, `format_days_declension`, `format_duration`, `format_bytes`, `format_percentage`, `format_number`, `format_price_range`, `truncate_text`, `format_username`, `format_username_link` — Telegram-логин явной ссылкой — для rich-сообщений., `format_subscription_status`, `format_traffic_usage`, `format_boolean`
@@ -3778,6 +3781,9 @@
 - `tests/handlers/test_fork_start_flow.py` — Python-модуль
   Классы: нет
   Функции: `test_auto_language_skips_prompt_and_stores_detected`, `test_without_auto_language_prompt_is_shown`, `test_rules_deeplink_for_new_user_shows_rules_without_registration`, `test_rules_deeplink_for_registered_user_uses_own_language_and_menu_button`, `test_send_rules_screen_paginates_and_adds_menu_button`, `test_send_rules_screen_without_menu_button_has_no_markup`, `test_rules_url`, `test_welcome_offer_prefers_fork_screen`, `test_welcome_offer_uses_db_text_when_theme_off`, `test_welcome_offer_falls_back_to_db_text_when_fork_screen_fails`, `test_welcome_send_kwargs_disable_link_preview_only_for_fork_welcome`, `test_welcome_sends_use_link_preview_kwargs`
+- `tests/handlers/test_fork_subscription_screen.py` — Python-модуль
+  Классы: нет
+  Функции: `prod_like`, `theme_on`, `theme_off`, `handler_env` — Всё, куда обработчик ходит за данными, — заглушки; время заморожено., `test_theme_off_screen_matches_upstream_snapshot`, `test_theme_off_no_subscription_matches_upstream`, `test_theme_on_active_screen_ru`, `test_theme_on_active_screen_en`, `test_theme_on_expiring_screen`, `test_theme_on_last_day`, `test_theme_on_trial_screen`, `test_theme_on_expired_screen`, `test_theme_on_no_subscription`, `test_theme_on_screen_has_no_upstream_clutter`, `test_theme_on_devices_selection_off_drops_devices`, `test_theme_on_link_hidden_by_setting`, `test_theme_on_purchased_traffic_is_one_line`, `test_theme_on_device_names_escaped_and_caption_fits`, `test_theme_on_other_statuses_render`, `test_theme_on_keyboard_active`, `test_theme_on_add_device_follows_tariff_price`, `test_theme_on_add_device_without_tariff_follows_setting`, `test_theme_on_keyboard_has_exactly_one_green`, `test_theme_on_devices_unknown_shows_limit_only`
 - `tests/handlers/test_fork_trial_ready.py` — Python-модуль
   Классы: нет
   Функции: `test_theme_off_keeps_upstream_screen`, `test_theme_on_shows_fork_screen_with_payment_note_once`, `test_builder_failure_keeps_upstream_screen`
@@ -3957,7 +3963,7 @@
 
 - `tests/scripts/test_preview_screens.py` — Python-модуль
   Классы: нет
-  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_menu_keyboard_has_plain_balance_button`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`, `test_send_screens_swaps_buttons_of_more_menu_after_sending`, `test_send_screens_fails_loudly_when_telegram_rejects_button_swap`, `test_send_screens_ignores_stale_server_locales`
+  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_menu_keyboard_has_plain_balance_button`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`, `test_send_screens_swaps_buttons_of_more_menu_after_sending`, `test_send_screens_fails_loudly_when_telegram_rejects_button_swap`, `test_send_screens_ignores_stale_server_locales`, `test_subscription_screens_present`, `test_subscription_screens_absent_without_theme`
 
 ### tests/services
 

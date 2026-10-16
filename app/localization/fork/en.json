@@ -33,5 +33,20 @@
   "FORK_SUB_TRAFFIC_VALUE": "{used} of {limit}",
   "FORK_GB": "{n} GB",
   "FORK_DEVICES_OF": "{used} of {limit}",
-  "FORK_SUB_NONE": "No subscription yet"
+  "FORK_SUB_NONE": "No subscription yet",
+  "FORK_SUB_NONE_SCREEN": "<b>{e:cross} No subscription</b>\nChoose a plan — connecting takes a couple of minutes.",
+  "FORK_SUB_INFO_UNTIL": "until {date}, {days} left",
+  "FORK_SUB_INFO_LAST_DAY": "until {date}, less than a day left",
+  "FORK_SUB_INFO_ENDED": "ended {date}",
+  "FORK_SUB_PURCHASED_TRAFFIC": "Extra traffic: {traffic} until {date}",
+  "FORK_SUB_CONNECTED": "Connected: {devices}",
+  "FORK_SUB_LINK": "Link for the app (tap to copy):\n{link}",
+  "FORK_BUTTON_EXTEND": "{e:refresh} Renew",
+  "FORK_BUTTON_AUTOPAY": "{e:coin} Autopay",
+  "FORK_BUTTON_BUY_SUBSCRIPTION": "{e:gem} Buy a subscription",
+  "FORK_BUTTON_ADD_DEVICE": "{e:phone} Add a device",
+  "FORK_BUTTON_SETTINGS": "{e:gear} Settings",
+  "FORK_BUTTON_TARIFF": "{e:gem} Plan",
+  "FORK_BUTTON_BUY_TRAFFIC": "{e:chart_up} Buy traffic",
+  "FORK_BUTTON_GIFT": "{e:gift} Gift a subscription"
 }

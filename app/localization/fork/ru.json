@@ -33,5 +33,20 @@
   "FORK_SUB_TRAFFIC_VALUE": "{used} из {limit}",
   "FORK_GB": "{n} ГБ",
   "FORK_DEVICES_OF": "{used} из {limit}",
-  "FORK_SUB_NONE": "Подписки пока нет"
+  "FORK_SUB_NONE": "Подписки пока нет",
+  "FORK_SUB_NONE_SCREEN": "<b>{e:cross} Подписки нет</b>\nВыберите тариф — подключение займёт пару минут.",
+  "FORK_SUB_INFO_UNTIL": "до {date}, осталось {days}",
+  "FORK_SUB_INFO_LAST_DAY": "до {date}, осталось меньше суток",
+  "FORK_SUB_INFO_ENDED": "закончилась {date}",
+  "FORK_SUB_PURCHASED_TRAFFIC": "Докуплено: {traffic} до {date}",
+  "FORK_SUB_CONNECTED": "Подключено: {devices}",
+  "FORK_SUB_LINK": "Ссылка для приложения (нажмите, чтобы скопировать):\n{link}",
+  "FORK_BUTTON_EXTEND": "{e:refresh} Продлить",
+  "FORK_BUTTON_AUTOPAY": "{e:coin} Автоплатёж",
+  "FORK_BUTTON_BUY_SUBSCRIPTION": "{e:gem} Купить подписку",
+  "FORK_BUTTON_ADD_DEVICE": "{e:phone} Добавить устройство",
+  "FORK_BUTTON_SETTINGS": "{e:gear} Настройки",
+  "FORK_BUTTON_TARIFF": "{e:gem} Тариф",
+  "FORK_BUTTON_BUY_TRAFFIC": "{e:chart_up} Докупить трафик",
+  "FORK_BUTTON_GIFT": "{e:gift} Подарить подписку"
 }

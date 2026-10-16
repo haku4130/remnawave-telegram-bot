@@ -1128,6 +1128,9 @@ def get_subscription_keyboard(
     from app.config import settings
 
     texts = get_texts(language)
+    if settings.PREMIUM_THEME_ENABLED and not settings.is_multi_tariff_enabled():
+        return _fork_subscription_keyboard(texts, has_subscription, is_trial, subscription, gift_enabled)
+
     keyboard = []
 
     # Sub ID suffix for multi-tariff callback routing
@@ -1319,6 +1322,140 @@ def get_subscription_keyboard(
 
     keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
 
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def _fork_connect_button(texts, subscription, style: str) -> InlineKeyboardButton:
+    """«Подключиться» по CONNECT_BUTTON_MODE — те же варианты, что у апстрима, но с подписью форка."""
+    label = texts.FORK_BUTTON_CONNECT
+    link = get_display_subscription_link(subscription) if subscription else None
+    mode = settings.CONNECT_BUTTON_MODE
+    if mode == 'miniapp_custom' and settings.MINIAPP_CUSTOM_URL:
+        return InlineKeyboardButton(text=label, web_app=types.WebAppInfo(url=settings.MINIAPP_CUSTOM_URL), style=style)
+    if link and mode == 'miniapp_subscription':
+        return InlineKeyboardButton(text=label, web_app=types.WebAppInfo(url=link), style=style)
+    if link and mode == 'link':
+        return InlineKeyboardButton(text=label, url=link, style=style)
+    if link and mode == 'happ_cryptolink':
+        return InlineKeyboardButton(text=label, callback_data='open_subscription_link', style=style)
+    return InlineKeyboardButton(text=label, callback_data='subscription_connect', style=style)
+
+
+def _fork_device_purchase_available(subscription) -> bool:
+    """Те же условия, что у «📱 Изменить устройства» в настройках: цена устройства у тарифа или глобальная настройка."""
+    tariff = getattr(subscription, 'tariff', None) if subscription else None
+    if tariff is not None:
+        return (getattr(tariff, 'device_price_kopeks', None) or 0) > 0
+    return settings.is_devices_selection_enabled()
+
+
+def _fork_subscription_keyboard(
+    texts, has_subscription: bool, is_trial: bool, subscription, gift_enabled: bool
+) -> InlineKeyboardMarkup:
+    """Кнопки экрана «Подписка» под темой форка.
+
+    Зелёная одна: «Подключиться», а у закончившейся подписки — покупка (продлить/купить).
+    «Добавить устройство» вынесено из настроек на экран. Цвета заданы явно: таблица темы
+    красит subscription_extend в зелёный, а web_app-кнопку не красит вовсе.
+    """
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    if not has_subscription:
+        keyboard.append(
+            [InlineKeyboardButton(text=texts.FORK_BUTTON_CHOOSE_TARIFF, callback_data='menu_buy', style='success')]
+        )
+    else:
+        ended = (getattr(subscription, 'actual_status', None) or '') in ('expired', 'disabled')
+        keyboard.append([_fork_connect_button(texts, subscription, 'primary' if ended else 'success')])
+        purchase_style = 'success' if ended else 'primary'
+
+        happ_row = get_happ_download_button_row(texts)
+        if happ_row:
+            keyboard.append(happ_row)
+
+        if is_trial:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.FORK_BUTTON_BUY_SUBSCRIPTION,
+                        callback_data='subscription_upgrade',
+                        style=purchase_style,
+                    )
+                ]
+            )
+        else:
+            tariff = getattr(subscription, 'tariff', None) if subscription else None
+            is_daily_tariff = bool(tariff and getattr(tariff, 'is_daily', False))
+
+            if is_daily_tariff:
+                # Суточный тариф (на проде его нет): пауза/возобновление как у апстрима.
+                from app.database.models import SubscriptionStatus
+
+                is_inactive = getattr(subscription, 'status', None) in (
+                    SubscriptionStatus.DISABLED.value,
+                    SubscriptionStatus.EXPIRED.value,
+                    SubscriptionStatus.LIMITED.value,
+                )
+                if is_inactive or getattr(subscription, 'is_daily_paused', False):
+                    pause_text = texts.t('RESUME_DAILY_BUTTON', '▶️ Возобновить подписку')
+                else:
+                    pause_text = texts.t('PAUSE_DAILY_BUTTON', '⏸️ Приостановить подписку')
+                keyboard.append(
+                    [InlineKeyboardButton(text=pause_text, callback_data='toggle_daily_subscription_pause')]
+                )
+            else:
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            text=texts.FORK_BUTTON_EXTEND, callback_data='subscription_extend', style=purchase_style
+                        ),
+                        InlineKeyboardButton(text=texts.FORK_BUTTON_AUTOPAY, callback_data='subscription_autopay'),
+                    ]
+                )
+
+            # Докупать устройства к закончившейся подписке незачем — сначала продление.
+            if not ended and _fork_device_purchase_available(subscription):
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            text=texts.FORK_BUTTON_ADD_DEVICE,
+                            callback_data='subscription_change_devices',
+                            style='primary',
+                        )
+                    ]
+                )
+
+            settings_row = [
+                InlineKeyboardButton(text=texts.FORK_BUTTON_SETTINGS, callback_data='subscription_settings')
+            ]
+            if settings.is_tariffs_mode() and subscription:
+                if ended:
+                    settings_row.append(
+                        InlineKeyboardButton(text=texts.FORK_BUTTON_CHOOSE_TARIFF, callback_data='menu_buy')
+                    )
+                else:
+                    is_free_tariff = bool(
+                        tariff and getattr(tariff, 'is_free', False) and settings.TARIFF_SWITCH_RESET_FREE_DAYS
+                    )
+                    tariff_callback = 'tariff_switch' if (is_daily_tariff or is_free_tariff) else 'instant_switch'
+                    settings_row.append(
+                        InlineKeyboardButton(text=texts.FORK_BUTTON_TARIFF, callback_data=tariff_callback)
+                    )
+            keyboard.append(settings_row)
+
+            show_traffic_topup = False
+            if subscription and (subscription.traffic_limit_gb or 0) > 0:
+                if settings.is_tariffs_mode() and tariff:
+                    show_traffic_topup = tariff.can_topup_traffic()
+                elif settings.is_traffic_topup_enabled() and not settings.is_traffic_topup_blocked():
+                    show_traffic_topup = True
+            if show_traffic_topup:
+                keyboard.append([InlineKeyboardButton(text=texts.FORK_BUTTON_BUY_TRAFFIC, callback_data='buy_traffic')])
+
+    if gift_enabled:
+        keyboard.append([InlineKeyboardButton(text=texts.FORK_BUTTON_GIFT, callback_data='subscription_gift')])
+
+    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 

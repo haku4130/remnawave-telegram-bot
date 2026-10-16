@@ -281,3 +281,40 @@ async def test_send_screens_ignores_stale_server_locales(monkeypatch, tmp_path, 
     assert bot.send_rich_message.await_count == len(RICH_TITLES)
     for call in bot.send_rich_message.await_args_list:
         assert f'<footer>{expected}</footer>' in call.kwargs['rich_message'].html
+
+
+SUBSCRIPTION_TITLES = ('Подписка — активна', 'Подписка — скоро истекает', 'Подписка — нет подписки')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_subscription_screens_present(theme_on, monkeypatch, language):
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    monkeypatch.setattr(settings, 'SALES_MODE', 'tariffs')
+    monkeypatch.setattr(settings, 'CONNECT_BUTTON_MODE', 'miniapp_subscription')
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in SUBSCRIPTION_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert '<blockquote' not in screen.text, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+        assert sum(1 for button in buttons if button.style == 'success') == 1, title
+    expiring = 'скоро истекает' if language == 'ru' else 'expires soon'
+    assert expiring in screens['Подписка — скоро истекает'].text
+    callbacks = [b.callback_data for row in screens['Подписка — активна'].markup.inline_keyboard for b in row]
+    assert 'subscription_change_devices' in callbacks
+    assert screens['Подписка — нет подписки'].markup.inline_keyboard[0][0].callback_data == 'menu_buy'
+
+
+@pytest.mark.asyncio
+async def test_subscription_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title.startswith('Подписка —') for title in titles)
