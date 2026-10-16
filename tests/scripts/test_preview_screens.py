@@ -59,3 +59,39 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
     assert bot.send_message.await_count == sent * 2
     assert {call.args[0] for call in bot.send_message.await_args_list} == {42}
     bot.session.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize('language', ['ru', 'en'])
+def test_stage_two_screens_present(theme_on, monkeypatch, language):
+    monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
+    screens = preview_screens.build_screens(language)
+    titles = [screen.title for screen in screens]
+    for expected in (
+        'Приветствие — пробный',
+        'Пробный включён',
+        'Меню — пробный',
+        'Меню — подключиться',
+        'Меню — продлить',
+        'Меню — тариф',
+    ):
+        assert expected in titles, expected
+    for screen in screens:
+        assert len(screen.text) <= 4096, screen.title
+
+
+def test_stage_two_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert 'Приветствие — пробный' not in titles
+
+
+def test_stage_two_menus_have_one_green_button(theme_on, monkeypatch):
+    monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
+    screens = {screen.title: screen for screen in preview_screens.build_screens('ru')}
+    for title in ('Меню — пробный', 'Меню — подключиться', 'Меню — продлить', 'Меню — тариф'):
+        buttons = [button for row in screens[title].markup.inline_keyboard for button in row]
+        assert sum(1 for button in buttons if button.style == 'success') == 1, title

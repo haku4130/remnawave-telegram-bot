@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from types import SimpleNamespace
 from typing import NamedTuple
+from unittest.mock import MagicMock
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from app.bot_factory import create_bot
 from app.config import settings
@@ -23,6 +25,7 @@ from app.localization.emoji_catalog import CATALOG, tag
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
+from app.utils import fork_onboarding
 
 
 # Лимит Telegram на текст сообщения — 4096 символов; тег эмодзи длинный, поэтому
@@ -86,6 +89,43 @@ def _menu_text(language: str, subscription_status: str) -> str:
     return get_texts(language).MAIN_MENU.format(user_name='Алексей', subscription_status=subscription_status)
 
 
+def _stage_two_screens(language: str) -> list[PreviewScreen]:
+    """Путь новичка: приветствие, «пробный включён» и главное меню в четырёх состояниях."""
+    texts = get_texts(language)
+    newcomer = SimpleNamespace(
+        language=language,
+        subscriptions=[],
+        auth_type='telegram',
+        is_trial_already_used=MagicMock(return_value=False),
+    )
+    tg_user = SimpleNamespace(first_name='Андрей' if language == 'ru' else 'Andrew', username=None)
+    welcome_text, welcome_kb = fork_onboarding.build_welcome_screen(newcomer, tg_user)
+    connect_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.CONNECT_BUTTON, web_app=WebAppInfo(url='https://example.com/sub'))],
+            [InlineKeyboardButton(text=texts.BACK_TO_MAIN_MENU_BUTTON, callback_data='back_to_menu')],
+        ]
+    )
+    ready_text, ready_kb = fork_onboarding.build_trial_ready_screen(texts, '19.10.2026', connect_kb)
+    active = {'has_active_subscription': True, 'subscription_is_active': True}
+    return [
+        PreviewScreen('Приветствие — пробный', welcome_text, welcome_kb),
+        PreviewScreen('Пробный включён', ready_text, ready_kb),
+        PreviewScreen('Меню — пробный', 'Меню: новичок', _menu_keyboard(language, primary_action='trial')),
+        PreviewScreen(
+            'Меню — подключиться',
+            'Меню: подписка активна',
+            _menu_keyboard(language, primary_action='connect', **active),
+        ),
+        PreviewScreen(
+            'Меню — продлить',
+            'Меню: истекает через 2 дня',
+            _menu_keyboard(language, primary_action='extend', **active),
+        ),
+        PreviewScreen('Меню — тариф', 'Меню: пробный уже был', _menu_keyboard(language, primary_action='buy')),
+    ]
+
+
 def build_screens(language: str) -> list[PreviewScreen]:
     texts = get_texts(language)
     return [
@@ -102,6 +142,7 @@ def build_screens(language: str) -> list[PreviewScreen]:
             ),
             _menu_keyboard(language, has_active_subscription=True, subscription_is_active=True, balance_kopeks=15000),
         ),
+        *(_stage_two_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

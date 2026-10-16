@@ -3938,7 +3938,7 @@
 
 - `tests/scripts/test_preview_screens.py` — Python-модуль
   Классы: нет
-  Функции: `theme_on`, `test_build_screens_contains_catalog_sheets_and_menus`, `test_menu_screens_have_buttons`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`
+  Функции: `theme_on`, `test_build_screens_contains_catalog_sheets_and_menus`, `test_menu_screens_have_buttons`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`
 
 ### tests/services
 
