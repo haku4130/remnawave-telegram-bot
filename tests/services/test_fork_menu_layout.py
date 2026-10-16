@@ -3,15 +3,23 @@
 from types import SimpleNamespace
 
 import pytest
+from aiogram.types import InlineKeyboardButton
 
 from app.config import settings
 from app.services.menu_layout import fork_layout
 from app.services.menu_layout.context import MenuContext
 from app.services.menu_layout.service import MenuLayoutService
+from app.utils.button_theme import style_for_button
 
 
-def _sub(status='active', is_trial=False, days_left=20, pending=False):
-    return SimpleNamespace(actual_status=status, is_trial=is_trial, days_left=days_left, is_pending_trial=pending)
+def _sub(status='active', is_trial=False, days_left=20, pending=False, daily=False):
+    return SimpleNamespace(
+        actual_status=status,
+        is_trial=is_trial,
+        days_left=days_left,
+        is_pending_trial=pending,
+        is_daily_tariff=daily,
+    )
 
 
 @pytest.mark.parametrize(
@@ -24,6 +32,7 @@ def _sub(status='active', is_trial=False, days_left=20, pending=False):
         (_sub('trial', is_trial=True, days_left=1), False, 'connect'),
         (_sub('limited', days_left=20), False, 'connect'),
         (_sub('active', days_left=3), False, 'extend'),
+        (_sub('active', days_left=0, daily=True), False, 'connect'),
         (_sub('expired'), False, 'extend'),
         (_sub('disabled'), False, 'extend'),
         (_sub('expired', is_trial=True), False, 'buy'),
@@ -43,11 +52,15 @@ def _visible(context: MenuContext) -> list[tuple[str, str | None]]:
             continue
         for button_id in row['buttons']:
             cfg = config['buttons'][button_id]
+            if not cfg.get('enabled', True):
+                continue
             if not MenuLayoutService._check_visibility(cfg.get('visibility', 'all'), context):
                 continue
             if not MenuLayoutService._evaluate_conditions(cfg.get('conditions'), context):
                 continue
-            result.append((button_id, cfg.get('style')))
+            # Исходящий middleware красит кнопки без явного стиля по таблице — считаем и их.
+            themed = style_for_button(InlineKeyboardButton(text='x', callback_data=cfg['action']))
+            result.append((button_id, cfg.get('style') or themed))
     return result
 
 
@@ -65,6 +78,11 @@ def test_exactly_one_green_button_in_every_state(monkeypatch):
             primary_action='extend', has_active_subscription=True, subscription_is_active=True
         ),
         'extend_expired': MenuContext(primary_action='extend'),
+        'trial_cart': MenuContext(primary_action='trial', has_saved_cart=True),
+        'buy_cart': MenuContext(primary_action='buy', has_saved_cart=True),
+        'connect_cart': MenuContext(
+            primary_action='connect', has_active_subscription=True, subscription_is_active=True, has_saved_cart=True
+        ),
     }
     expected = {
         'trial': ['trial'],
@@ -72,6 +90,9 @@ def test_exactly_one_green_button_in_every_state(monkeypatch):
         'connect': ['connect'],
         'extend_active': ['extend'],
         'extend_expired': ['extend'],
+        'trial_cart': ['trial'],
+        'buy_cart': ['buy_primary'],
+        'connect_cart': ['connect'],
     }
     for name, context in states.items():
         assert _greens(context) == expected[name], name

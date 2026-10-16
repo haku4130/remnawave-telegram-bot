@@ -25,7 +25,9 @@ def resolve_primary_action(user, subscription) -> str:
         status = getattr(subscription, 'actual_status', None)
         is_trial = bool(getattr(subscription, 'is_trial', False))
         if status in _ACTIVE_STATUSES:
-            if not is_trial and getattr(subscription, 'days_left', EXPIRING_DAYS + 1) <= EXPIRING_DAYS:
+            # У суточного тарифа days_left всегда ≤ 1 — «заканчивается» он каждый день, продлевать нечего.
+            expiring = getattr(subscription, 'days_left', EXPIRING_DAYS + 1) <= EXPIRING_DAYS
+            if not is_trial and expiring and not getattr(subscription, 'is_daily_tariff', False):
                 return 'extend'
             return 'connect'
         if status in _ENDED_STATUSES and not is_trial:
@@ -84,6 +86,8 @@ def build_fork_menu_config() -> dict[str, Any]:
     )
     buttons['subscription']['style'] = 'primary'
     buttons['balance']['style'] = 'primary'
+    # Без явного стиля таблица button_theme красит return_to_saved_cart в зелёный — вторая зелёная кнопка.
+    buttons['resume_checkout']['style'] = 'primary'
     buttons['referrals']['text'] = {'ru': '👥 Друзья', 'en': '👥 Friends'}
 
     by_id = {row['id']: row for row in config['rows']}
