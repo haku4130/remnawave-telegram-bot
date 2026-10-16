@@ -1274,9 +1274,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                 from app.utils.fork_onboarding import build_trial_ready_screen
 
                 end_date_text = format_local_datetime(subscription.end_date, '%d.%m.%Y')
-                trial_success_text, connect_keyboard = build_trial_ready_screen(
-                    texts, end_date_text, connect_keyboard
-                )
+                trial_success_text, connect_keyboard = build_trial_ready_screen(texts, end_date_text, connect_keyboard)
                 trial_success_text += payment_note
 
             await callback.message.edit_text(
