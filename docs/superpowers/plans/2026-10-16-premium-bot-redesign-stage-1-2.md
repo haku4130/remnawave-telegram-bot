@@ -1241,6 +1241,8 @@ Expected: `Отправлено экранов: 3`. Владелец смотр�
 
 - [ ] **Step 3: Мерж в main (с «да»)** — по навыку `superpowers:finishing-a-development-branch`. Пуш в `main` = автодеплой.
 
+  Один флаг `PREMIUM_THEME_ENABLED` включает оба этапа: в ветке с этапом 2 он же включает приветствие форка, экран «пробный включён» и раскладку меню. Для поэтапной выкатки в `main` сначала мержится ветка `premium-stage-1` (`449d924f`, только этап 1), а ветка этапа 2 — в Task 13.
+
 - [ ] **Step 4: Прод (с «да»), сразу после деплоя**
 
 ```bash
@@ -2588,3 +2590,12 @@ ssh root@msk3.zanity.net "docker exec remnawave_bot_db psql -U \$(grep ^POSTGRES
 (Если имя пользователя/БД в `.env` называются иначе — посмотреть `docker-compose.yml` сервиса `postgres`.)
 
 - [ ] **Step 9: Проверка** — логи без ошибок (команда из Task 6 Step 5). Владелец проходит путь новичка сам: удалить себя нельзя, поэтому проверить вторым аккаунтом или попросить знакомого; минимум — `/start rules` и главное меню у себя. Записать в память проекта дату выкатки этапа 2 и метрики «до» (27 % без подписки, 32 % пробных с подключением) для сравнения через 2–4 недели.
+
+- [ ] **Step 10: Откат этапа 2 (с «да»; в обратном порядке к Step 8)** — сначала включить запись `welcome_texts` (пока тема включена, она не читается, поэтому порядок безопасен), затем выключить флаги в `.env` (свежий бэкап перед правкой; эталон «до этапа 2» — бэкап из Step 8) и пересоздать контейнер:
+
+```bash
+ssh root@msk3.zanity.net "docker exec remnawave_bot_db psql -U \$(grep ^POSTGRES_USER= /root/remnawave-bot/.env | cut -d= -f2) -d remnawave_bot -c 'update welcome_texts set is_enabled = true where id = 1 returning id, is_enabled'"
+ssh root@msk3.zanity.net 'set -e; cd /root/remnawave-bot; ts=$(date +%Y%m%d-%H%M%S); cp .env /root/backups/bot-env-$ts.bak; for kv in PREMIUM_THEME_ENABLED=false SKIP_RULES_ACCEPT=false LANGUAGE_AUTO_DETECT=false; do k=${kv%%=*}; grep -q "^$k=" .env && sed -i "s/^$k=.*/$kv/" .env || echo "$kv" >> .env; done; docker compose up -d --force-recreate bot'
+```
+
+`PREMIUM_THEME_ENABLED=false` выключает и этап 1 (флаг общий); чтобы оставить этап 1, верните в `main` код этапа 1 (`premium-stage-1`) и держите флаг `true`. Проверка — команда из Task 6 Step 5.
