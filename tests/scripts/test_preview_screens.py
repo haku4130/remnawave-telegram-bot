@@ -542,3 +542,45 @@ async def test_balance_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in BALANCE_TITLES)
+
+
+TOPUP_NOTIFICATION_TITLES = (
+    'После пополнения — подписка оформлена',
+    'После пополнения — подписка продлена',
+    'После пополнения — устройства добавлены',
+    'После пополнения — трафик добавлен',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_topup_notification_screens_present(theme_on, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in TOPUP_NOTIFICATION_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.startswith('<b>'), title
+        assert '<blockquote' not in screen.text, title
+        assert screen.text.count('<tg-emoji') == 1, title
+        assert len(re.sub('<[^>]+>', '', screen.text)) <= 1024, title
+        buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+        assert sum(1 for button in buttons if button.style == 'success') == 1, title
+        assert buttons[0].web_app is not None, title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
+
+
+@pytest.mark.asyncio
+async def test_topup_notification_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in TOPUP_NOTIFICATION_TITLES)

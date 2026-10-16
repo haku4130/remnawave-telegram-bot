@@ -40,9 +40,10 @@ from app.keyboards.inline import (
     get_updated_subscription_settings_keyboard,
 )
 from app.localization.emoji_catalog import CATALOG, tag
-from app.localization.fork_text import fork_period
+from app.localization.fork_text import fork_period, fork_traffic
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
+from app.services import subscription_auto_purchase_service as auto_purchase
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
 from app.services.payment import rollypay as rollypay_service
 from app.services.payment.common import PaymentCommonMixin
@@ -588,6 +589,46 @@ async def _balance_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+def _topup_notification_screens(language: str) -> list[PreviewScreen]:
+    """Сообщения после пополнения: автопокупка, автопродление, докупка — теми же сборщиками, что у сервиса."""
+    texts = get_texts(language)
+    subscription = _fake_subscription(30)
+    keyboard = auto_purchase._notification_keyboard(
+        texts, subscription, my_subscription_default='📱 Моя подписка', menu_default='🏠 Главное меню'
+    )
+    price = texts.format_price(19900)
+    return [
+        PreviewScreen(
+            'После пополнения — подписка оформлена',
+            auto_purchase._fork_subscription_notification_text(
+                texts, 'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS', '', 30, subscription.end_date
+            ),
+            keyboard,
+        ),
+        PreviewScreen(
+            'После пополнения — подписка продлена',
+            auto_purchase._fork_subscription_notification_text(
+                texts, 'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED', '', 30, subscription.end_date
+            ),
+            keyboard,
+        ),
+        PreviewScreen(
+            'После пополнения — устройства добавлены',
+            texts.AUTO_PURCHASE_DEVICES_SUCCESS.format(devices_to_add=2, new_limit=5, price=texts.format_price(11000)),
+            keyboard,
+        ),
+        PreviewScreen(
+            'После пополнения — трафик добавлен',
+            texts.AUTO_PURCHASE_TRAFFIC_SUCCESS.format(
+                traffic_gb=fork_traffic(texts, 100),
+                new_limit=fork_traffic(texts, 200),
+                price=price,
+            ),
+            keyboard,
+        ),
+    ]
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -597,6 +638,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_extend_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_purchase_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _balance_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(_topup_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

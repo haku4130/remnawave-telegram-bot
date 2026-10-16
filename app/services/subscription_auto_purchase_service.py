@@ -25,6 +25,7 @@ from app.database.models import (
     TransactionType,
     User,
 )
+from app.localization.fork_text import fork_period, fork_traffic
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.gift_notification_service import (
@@ -115,6 +116,73 @@ async def _notify_email_user_auto_purchase(
             user_id=getattr(user, 'id', None),
             error=error,
         )
+
+
+def _notification_keyboard(
+    texts,
+    subscription: Subscription | None,
+    *,
+    my_subscription_default: str,
+    menu_default: str,
+) -> InlineKeyboardMarkup:
+    """Кнопки под уведомлением после пополнения: «Моя подписка» и «В меню».
+
+    Под темой форка, если у подписки есть ссылка, главная кнопка — «Подключиться» (по CONNECT_BUTTON_MODE,
+    зелёная), а «Моя подписка» ей не нужна; без ссылки «Моя подписка» остаётся единственной зелёной,
+    «Назад» — без цвета. Без темы — две кнопки апстрима; ``*_default`` — подписи кода при отсутствии ключа.
+    """
+    if settings.PREMIUM_THEME_ENABLED:
+        from app.keyboards.inline import _fork_connect_button
+        from app.utils.subscription_utils import get_display_subscription_link
+
+        back_row = [InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')]
+        if subscription is not None and get_display_subscription_link(subscription):
+            return InlineKeyboardMarkup(
+                inline_keyboard=[[_fork_connect_button(texts, subscription, 'success')], back_row]
+            )
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('MY_SUBSCRIPTION_BUTTON', my_subscription_default),
+                        callback_data='menu_subscription',
+                        style='success',
+                    )
+                ],
+                back_row,
+            ]
+        )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.t('MY_SUBSCRIPTION_BUTTON', my_subscription_default),
+                    callback_data='menu_subscription',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('BACK_TO_MAIN_MENU_BUTTON', menu_default),
+                    callback_data='back_to_menu',
+                )
+            ],
+        ]
+    )
+
+
+def _fork_subscription_notification_text(
+    texts, title_key: str, title_default: str, period_days: int, end_date: datetime | None
+) -> str:
+    """Уведомление об автопокупке/автопродлении под темой: заголовок и «Действует до …»; подсказка не нужна —
+    под текстом кнопка «Подключиться» или «Моя подписка»."""
+    lines = [texts.t(title_key, title_default).format(period=fork_period(texts, period_days))]
+    if end_date:
+        lines.append(
+            texts.t('AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS', '⏰ Новая дата окончания: {date}.').format(
+                date=format_local_datetime(end_date, '%d.%m.%Y')
+            )
+        )
+    return '\n'.join(lines)
 
 
 @dataclass(slots=True)
@@ -750,40 +818,39 @@ async def _auto_extend_subscription(
     # Send user notification only for Telegram users
     if bot and user.telegram_id and settings.is_notifications_enabled():
         try:
-            auto_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
-                '✅ Subscription automatically extended for {period}.',
-            ).format(period=period_label)
-            if settings.is_multi_tariff_enabled() and prepared.tariff_name:
-                auto_message += f'\n📦 Тариф: «{prepared.tariff_name}»'
-            details_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS',
-                'New expiration date: {date}.',
-            ).format(date=end_date_label)
-            hint_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_HINT',
-                "Open the 'My subscription' section to access your link.",
-            )
+            if settings.PREMIUM_THEME_ENABLED:
+                full_message = _fork_subscription_notification_text(
+                    texts,
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+                    '✅ Subscription automatically extended for {period}.',
+                    prepared.period_days,
+                    new_end_date,
+                )
+            else:
+                auto_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+                    '✅ Subscription automatically extended for {period}.',
+                ).format(period=period_label)
+                if settings.is_multi_tariff_enabled() and prepared.tariff_name:
+                    auto_message += f'\n📦 Тариф: «{prepared.tariff_name}»'
+                details_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS',
+                    'New expiration date: {date}.',
+                ).format(date=end_date_label)
+                hint_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_HINT',
+                    "Open the 'My subscription' section to access your link.",
+                )
 
-            full_message = '\n\n'.join(
-                part.strip() for part in [auto_message, details_message, hint_message] if part and part.strip()
-            )
+                full_message = '\n\n'.join(
+                    part.strip() for part in [auto_message, details_message, hint_message] if part and part.strip()
+                )
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),
-                            callback_data='back_to_menu',
-                        )
-                    ],
-                ]
+            keyboard = _notification_keyboard(
+                texts,
+                updated_subscription,
+                my_subscription_default='📱 My subscription',
+                menu_default='🏠 Main menu',
             )
 
             await bot.send_message(
@@ -1127,38 +1194,38 @@ async def _auto_purchase_tariff(
             texts = get_texts(getattr(user, 'language', 'ru'))
             period_label = format_period_description(period_days, getattr(user, 'language', 'ru'))
 
-            message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS',
-                '✅ Подписка на {period} автоматически оформлена после пополнения баланса.',
-            ).format(period=period_label)
-            if settings.is_multi_tariff_enabled() and tariff_name_for_label:
-                message += f'\n📦 Тариф: «{tariff_name_for_label}»'
+            if settings.PREMIUM_THEME_ENABLED:
+                notification_text = _fork_subscription_notification_text(
+                    texts,
+                    'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS',
+                    '✅ Подписка на {period} автоматически оформлена после пополнения баланса.',
+                    period_days,
+                    getattr(subscription, 'end_date', None),
+                )
+            else:
+                message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS',
+                    '✅ Подписка на {period} автоматически оформлена после пополнения баланса.',
+                ).format(period=period_label)
+                if settings.is_multi_tariff_enabled() and tariff_name_for_label:
+                    message += f'\n📦 Тариф: «{tariff_name_for_label}»'
 
-            hint = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_HINT',
-                'Перейдите в раздел «Моя подписка», чтобы получить ссылку.',
-            )
+                hint = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_HINT',
+                    'Перейдите в раздел «Моя подписка», чтобы получить ссылку.',
+                )
+                notification_text = f'{message}\n\n{hint}'
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
-                            callback_data='back_to_menu',
-                        )
-                    ],
-                ]
+            keyboard = _notification_keyboard(
+                texts,
+                subscription,
+                my_subscription_default='📱 Моя подписка',
+                menu_default='🏠 Главное меню',
             )
 
             await bot.send_message(
                 chat_id=user.telegram_id,
-                text=f'{message}\n\n{hint}',
+                text=notification_text,
                 reply_markup=keyboard,
                 parse_mode='HTML',
             )
@@ -1574,7 +1641,6 @@ async def _auto_add_devices(
     manual: bool = False,
 ) -> bool:
     """Auto-purchase devices from saved cart after balance topup."""
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     from app.database.crud.user import lock_user_for_pricing, subtract_user_balance
     from app.database.models import PaymentMethod
@@ -1850,21 +1916,11 @@ async def _auto_add_devices(
                 price=texts.format_price(price_kopeks),
             )
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
-                            callback_data='back_to_menu',
-                        )
-                    ],
-                ]
+            keyboard = _notification_keyboard(
+                texts,
+                subscription,
+                my_subscription_default='📱 Моя подписка',
+                menu_default='🏠 Главное меню',
             )
 
             await bot.send_message(
@@ -1906,7 +1962,6 @@ async def _auto_add_traffic(
     manual: bool = False,
 ) -> bool:
     """Auto-purchase traffic from saved cart after balance topup."""
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     from app.database.crud.subscription import add_subscription_traffic, get_subscription_by_user_id
     from app.database.crud.user import lock_user_for_pricing, subtract_user_balance
@@ -2202,26 +2257,21 @@ async def _auto_add_traffic(
                     '💰 Списано: {price}'
                 ),
             ).format(
-                traffic_gb=traffic_gb,
-                new_limit=subscription.traffic_limit_gb,
+                # Под темой — «50 ГБ»/«50 GB» на языке пользователя; безлимит (0) — «∞».
+                traffic_gb=fork_traffic(texts, traffic_gb) if settings.PREMIUM_THEME_ENABLED else traffic_gb,
+                new_limit=(
+                    fork_traffic(texts, subscription.traffic_limit_gb)
+                    if settings.PREMIUM_THEME_ENABLED
+                    else subscription.traffic_limit_gb
+                ),
                 price=texts.format_price(price_kopeks),
             )
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
-                            callback_data='back_to_menu',
-                        )
-                    ],
-                ]
+            keyboard = _notification_keyboard(
+                texts,
+                subscription,
+                my_subscription_default='📱 Моя подписка',
+                menu_default='🏠 Главное меню',
             )
 
             await bot.send_message(
@@ -2578,40 +2628,39 @@ async def try_auto_extend_expired_after_topup(
     # Send user notification (only for Telegram users)
     if bot and user.telegram_id and settings.is_notifications_enabled():
         try:
-            auto_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
-                '✅ Subscription automatically extended for {period}.',
-            ).format(period=period_label)
-            if settings.is_multi_tariff_enabled() and tariff_name_for_label:
-                auto_message += f'\n📦 Тариф: «{tariff_name_for_label}»'
-            details_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS',
-                'New expiration date: {date}.',
-            ).format(date=end_date_label)
-            hint_message = texts.t(
-                'AUTO_PURCHASE_SUBSCRIPTION_HINT',
-                "Open the 'My subscription' section to access your link.",
-            )
+            if settings.PREMIUM_THEME_ENABLED:
+                full_message = _fork_subscription_notification_text(
+                    texts,
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+                    '✅ Subscription automatically extended for {period}.',
+                    period_days,
+                    new_end_date,
+                )
+            else:
+                auto_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+                    '✅ Subscription automatically extended for {period}.',
+                ).format(period=period_label)
+                if settings.is_multi_tariff_enabled() and tariff_name_for_label:
+                    auto_message += f'\n📦 Тариф: «{tariff_name_for_label}»'
+                details_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS',
+                    'New expiration date: {date}.',
+                ).format(date=end_date_label)
+                hint_message = texts.t(
+                    'AUTO_PURCHASE_SUBSCRIPTION_HINT',
+                    "Open the 'My subscription' section to access your link.",
+                )
 
-            full_message = '\n\n'.join(
-                part.strip() for part in [auto_message, details_message, hint_message] if part and part.strip()
-            )
+                full_message = '\n\n'.join(
+                    part.strip() for part in [auto_message, details_message, hint_message] if part and part.strip()
+                )
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),
-                            callback_data='back_to_menu',
-                        )
-                    ],
-                ]
+            keyboard = _notification_keyboard(
+                texts,
+                updated_subscription,
+                my_subscription_default='📱 My subscription',
+                menu_default='🏠 Main menu',
             )
 
             await bot.send_message(

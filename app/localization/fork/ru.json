@@ -166,5 +166,12 @@
   "PAYMENT_CREATE_ERROR": "<b>{e:cross} Не удалось создать платёж</b>\nПопробуйте чуть позже.",
   "FORK_TOPUP_SUCCESS": "<b>{e:check} Баланс пополнен на {amount}</b>\nСпособ: {method}",
   "FORK_SUPPORT_TOPUP": "<b>{e:speech} Пополнение через поддержку</b>\nНапишите в поддержку: {contact}\nУкажите свой ID <code>{user_id}</code>, сумму и удобный способ — например, криптовалюта или перевод между банками.\nОбработаем за 1–24 часа.",
-  "FORK_BUTTON_WRITE_SUPPORT": "{e:speech} Написать в поддержку"
+  "FORK_BUTTON_WRITE_SUPPORT": "{e:speech} Написать в поддержку",
+  "AUTO_PURCHASE_SUBSCRIPTION_SUCCESS": "<b>{e:party} Подписка оформлена на {period}</b>\nОформили автоматически после пополнения.",
+  "AUTO_PURCHASE_SUBSCRIPTION_EXTENDED": "<b>{e:refresh} Подписка продлена на {period}</b>\nПродлили автоматически после пополнения.",
+  "AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS": "Действует до <b>{date}</b>",
+  "AUTO_PURCHASE_DEVICES_SUCCESS": "<b>{e:phone} Устройства добавлены</b>\nДокупили автоматически после пополнения.\nЛимит устройств: <b>{new_limit}</b> (+{devices_to_add})\nСписано <b>{price}</b>",
+  "ADDON_PURCHASE_DEVICES_SUCCESS": "<b>{e:phone} Устройства добавлены</b>\nЛимит устройств: <b>{new_limit}</b> (+{devices_to_add})\nСписано <b>{price}</b>",
+  "AUTO_PURCHASE_TRAFFIC_SUCCESS": "<b>{e:chart_up} Трафик добавлен</b>\nДокупили автоматически после пополнения.\nЛимит трафика: <b>{new_limit}</b> (+{traffic_gb})\nСписано <b>{price}</b>",
+  "ADDON_PURCHASE_TRAFFIC_SUCCESS": "<b>{e:chart_up} Трафик добавлен</b>\nЛимит трафика: <b>{new_limit}</b> (+{traffic_gb})\nСписано <b>{price}</b>"
 }
