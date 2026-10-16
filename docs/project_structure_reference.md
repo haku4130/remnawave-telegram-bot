@@ -3947,7 +3947,7 @@
 
 - `tests/scripts/test_preview_screens.py` — Python-модуль
   Классы: нет
-  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`
+  Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`, `test_send_screens_swaps_buttons_of_more_menu_after_sending`, `test_send_screens_fails_loudly_when_telegram_rejects_button_swap`
 
 ### tests/services
 

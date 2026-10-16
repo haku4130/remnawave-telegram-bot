@@ -663,7 +663,7 @@ async def _send_rich_menu(
     rich_html: str,
     keyboard: InlineKeyboardMarkup,
     language: str | None,
-) -> None:
+) -> Message:
     global _effect_unavailable
 
     rich_html, keyboard = _apply_inline_buttons(rich_html, keyboard)
@@ -672,7 +672,7 @@ async def _send_rich_menu(
         effect_id = None
 
     try:
-        await bot.send_rich_message(
+        return await bot.send_rich_message(
             chat_id=chat_id,
             rich_message=_input_rich_message(rich_html, language),
             reply_markup=keyboard,
@@ -685,13 +685,12 @@ async def _send_rich_menu(
                 error=str(error),
                 chat_id=chat_id,
             )
-            await bot.send_rich_message(
+            return await bot.send_rich_message(
                 chat_id=chat_id,
                 rich_message=_input_rich_message(_strip_tg_time(rich_html), language),
                 reply_markup=keyboard,
                 message_effect_id=effect_id,
             )
-            return
         # Невалидный/отключённый эффект не должен ронять rich-меню в классику —
         # повторяем без эффекта и больше его не шлём до рестарта.
         if effect_id and 'effect' in str(error).lower():
@@ -701,13 +700,12 @@ async def _send_rich_menu(
                 effect_id=effect_id,
                 error=str(error),
             )
-            await bot.send_rich_message(
+            return await bot.send_rich_message(
                 chat_id=chat_id,
                 rich_message=_input_rich_message(rich_html, language),
                 reply_markup=keyboard,
             )
-        else:
-            raise
+        raise
 
 
 async def try_send_rich_main_menu(

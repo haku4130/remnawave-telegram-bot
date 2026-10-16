@@ -45,6 +45,9 @@ class PreviewScreen(NamedTuple):
     markup: InlineKeyboardMarkup | None
     # rich=True — text это rich-HTML главного меню, уходит через sendRichMessage, как на проде.
     rich: bool = False
+    # Клавиатура, на которую сразу после отправки меняют кнопки этого сообщения (editMessageReplyMarkup),
+    # как делает обработчик «Ещё». Только для rich-экранов; ошибка Telegram роняет предпросмотр.
+    then_markup: InlineKeyboardMarkup | None = None
 
 
 def _catalog_screens() -> list[PreviewScreen]:
@@ -149,11 +152,15 @@ def _offline_menu_sources(user: SimpleNamespace) -> Iterator[None]:
 
 
 async def _rich_menu_screen(
-    title: str, language: str, user: SimpleNamespace, keyboard: InlineKeyboardMarkup
+    title: str,
+    language: str,
+    user: SimpleNamespace,
+    keyboard: InlineKeyboardMarkup,
+    then_markup: InlineKeyboardMarkup | None = None,
 ) -> PreviewScreen:
     with _offline_menu_sources(user):
         rich_html = await rich_menu.build_main_menu_rich_html(user, get_texts(language), None)
-    return PreviewScreen(title, rich_html, keyboard, rich=True)
+    return PreviewScreen(title, rich_html, keyboard, rich=True, then_markup=then_markup)
 
 
 async def _stage_two_screens(language: str) -> list[PreviewScreen]:
@@ -197,8 +204,15 @@ async def _stage_two_screens(language: str) -> list[PreviewScreen]:
         await _rich_menu_screen(
             'Меню — тариф', language, trial_was_used, _menu_keyboard(language, primary_action='buy')
         ),
-        # Подменю «Ещё»: при нажатии бот меняет только кнопки под тем же сообщением меню.
-        PreviewScreen('Меню — Ещё', '<b>Ещё</b>', _menu_keyboard(language, rows_key='more_rows')),
+        # Подменю «Ещё»: то же меню, что «подключиться», а сразу после отправки кнопки меняются на подменю —
+        # так предпросмотр проверяет, что Telegram принимает editMessageReplyMarkup у rich-сообщения.
+        await _rich_menu_screen(
+            'Меню — Ещё',
+            language,
+            subscriber,
+            _menu_keyboard(language, primary_action='connect', **active),
+            then_markup=_menu_keyboard(language, rows_key='more_rows'),
+        ),
     ]
 
 
@@ -222,7 +236,11 @@ async def send_screens(chat_id: int, language: str) -> int:
             await bot.send_message(chat_id, f'<i>{screen.title}</i>', link_preview_options=_NO_LINK_PREVIEW)
             if screen.rich:
                 # Тот же путь, что у бота: перенос кнопок в полотно, повтор без tg-time.
-                await rich_menu._send_rich_menu(bot, chat_id, screen.text, screen.markup, language)
+                sent_message = await rich_menu._send_rich_menu(bot, chat_id, screen.text, screen.markup, language)
+                if screen.then_markup is not None:
+                    await bot.edit_message_reply_markup(
+                        chat_id=chat_id, message_id=sent_message.message_id, reply_markup=screen.then_markup
+                    )
             else:
                 await bot.send_message(
                     chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW

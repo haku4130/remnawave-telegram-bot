@@ -11,6 +11,7 @@ from scripts import preview_screens
 
 
 MENU_TITLES = ('Меню — пробный', 'Меню — подключиться', 'Меню — продлить', 'Меню — тариф')
+RICH_TITLES = (*MENU_TITLES, 'Меню — Ещё')
 
 
 @pytest.fixture
@@ -96,6 +97,7 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
     bot = MagicMock()
     bot.send_message = AsyncMock()
     bot.send_rich_message = AsyncMock()
+    bot.edit_message_reply_markup = AsyncMock()
     bot.session.close = AsyncMock()
     monkeypatch.setattr(preview_screens, 'create_bot', lambda *args, **kwargs: bot)
     try:
@@ -108,7 +110,7 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
     rich = [screen for screen in screens if screen.rich]
     plain = [screen for screen in screens if not screen.rich]
     assert sent == len(screens)
-    assert len(rich) == len(MENU_TITLES)
+    assert len(rich) == len(RICH_TITLES)
 
     # Подписи всех экранов + тела обычных экранов — sendMessage без превью ссылок.
     assert bot.send_message.await_count == len(screens) + len(plain)
@@ -174,8 +176,60 @@ async def test_welcome_title_follows_actual_variant(theme_on, monkeypatch):
 async def test_more_submenu_screen(theme_on):
     screens = {screen.title: screen for screen in await preview_screens.build_screens('ru')}
     more = screens['Меню — Ещё']
-    assert not more.rich
-    buttons = [button for row in more.markup.inline_keyboard for button in row]
+    # Тело и главная клавиатура — как у «подключиться»; подменю приходит заменой кнопок после отправки.
+    assert more.rich
+    assert more.text == screens['Меню — подключиться'].text
+    assert more.markup == screens['Меню — подключиться'].markup
+    buttons = [button for row in more.then_markup.inline_keyboard for button in row]
     assert not any(button.style == 'success' for button in buttons)
     assert buttons[-1].callback_data == 'back_to_menu'
     assert {'menu_promocode', 'menu_info'} <= {button.callback_data for button in buttons}
+    assert all(screen.then_markup is None for title, screen in screens.items() if title != 'Меню — Ещё')
+
+
+@pytest.mark.asyncio
+async def test_send_screens_swaps_buttons_of_more_menu_after_sending(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    monkeypatch.setattr(settings, 'MAIN_MENU_RICH_INLINE_BUTTONS', False, raising=False)
+    loader.clear_locale_cache()
+    sent_ids = iter(range(100, 200))
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    bot.send_rich_message = AsyncMock(side_effect=lambda **kwargs: MagicMock(message_id=next(sent_ids)))
+    bot.edit_message_reply_markup = AsyncMock()
+    bot.session.close = AsyncMock()
+    monkeypatch.setattr(preview_screens, 'create_bot', lambda *args, **kwargs: bot)
+    try:
+        await preview_screens.send_screens(42, 'ru')
+        screens = await preview_screens.build_screens('ru')
+    finally:
+        loader.clear_locale_cache()
+
+    rich = [screen for screen in screens if screen.rich]
+    more_index = next(index for index, screen in enumerate(rich) if screen.title == 'Меню — Ещё')
+    bot.edit_message_reply_markup.assert_awaited_once()
+    kwargs = bot.edit_message_reply_markup.await_args.kwargs
+    assert kwargs['chat_id'] == 42
+    # id — именно того сообщения, которое было отправлено как «Меню — Ещё».
+    assert kwargs['message_id'] == 100 + more_index
+    assert bot.send_rich_message.await_args_list[more_index].kwargs['chat_id'] == 42
+    assert kwargs['reply_markup'].inline_keyboard[-1][0].callback_data == 'back_to_menu'
+    assert kwargs['reply_markup'] == rich[more_index].then_markup
+
+
+@pytest.mark.asyncio
+async def test_send_screens_fails_loudly_when_telegram_rejects_button_swap(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    bot.send_rich_message = AsyncMock(return_value=MagicMock(message_id=1))
+    bot.edit_message_reply_markup = AsyncMock(side_effect=RuntimeError('rejected'))
+    bot.session.close = AsyncMock()
+    monkeypatch.setattr(preview_screens, 'create_bot', lambda *args, **kwargs: bot)
+    try:
+        with pytest.raises(RuntimeError, match='rejected'):
+            await preview_screens.send_screens(42, 'ru')
+    finally:
+        loader.clear_locale_cache()
+    bot.session.close.assert_awaited_once()
