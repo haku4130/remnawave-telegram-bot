@@ -258,6 +258,27 @@ class TestLogoAndTimeout:
         assert bot.send_rich_message.await_count == 2
         assert '<img' not in bot.send_rich_message.await_args.kwargs['rich_message'].html
 
+    async def test_rich_photo_no_media_found_retries_without_logo(self, monkeypatch):
+        """Настоящий код отказа rich-сообщения, когда Telegram не скачал картинку шапки.
+
+        Его не было среди маркеров, и каждое уведомление с логотипом уезжало в
+        классику вместо повтора тем же rich без картинки.
+        """
+        monkeypatch.setattr(rich_notify, '_resolve_rich_logo_url', lambda: 'https://cdn.example/logo.png')
+        monkeypatch.setattr(rich_notify, '_mark_logo_unavailable_once', lambda error: True)
+
+        bot = AsyncMock()
+        bot.send_rich_message.side_effect = [
+            TelegramBadRequest(method=None, message='Bad Request: RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND'),
+            None,
+        ]
+
+        sent = await try_send_rich_notification(bot, 42, 'текст', with_logo=True)
+
+        assert sent is True
+        assert bot.send_rich_message.await_count == 2
+        assert '<img' not in bot.send_rich_message.await_args.kwargs['rich_message'].html
+
     async def test_timeout_propagates_instead_of_retrying(self, monkeypatch):
         """Повтор с тем же таймаутом удвоил бы бюджет цикла на получателя."""
         import asyncio

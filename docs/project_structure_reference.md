@@ -3117,6 +3117,9 @@
 - `tests/cabinet/test_best_value_reaches_every_showcase.py` — Python-модуль
   Классы: нет
   Функции: `test_gift_config_marks_the_highlighted_period`, `test_gift_config_marks_the_highlighted_tariff`, `test_gift_config_marks_nothing_without_a_highlight` — Без отметки оператора витрина остаётся ровной — как была., `test_landing_marks_the_highlighted_period_and_tariff`, `test_landing_marks_nothing_when_the_highlighted_period_is_not_offered` — Лендинг вправе сузить набор периодов: отметка на выброшенном периоде, `test_every_client_period_model_carries_the_best_value_flag`, `test_admin_only_exceptions_still_exist` — Список исключений не должен гнить: исчезнувшая модель прячет новую слепую., `test_the_guard_actually_sees_the_showcases` — Сторож бесполезен, если ничего не находит: три известные витрины обязаны
+- `tests/cabinet/test_branding_bot_logo_http.py` — Python-модуль
+  Классы: нет
+  Функции: `bot_logo`, `test_head_answers_like_get_without_body`, `test_head_without_logo_is_404_not_405`
 - `tests/cabinet/test_branding_favicon.py` — Python-модуль
   Классы: нет
   Функции: `test_without_logo_returns_png_monogram_of_the_first_letter`, `test_empty_name_falls_back_to_v`, `test_unset_name_uses_build_default`, `test_render_failure_falls_back_to_svg`, `test_monogram_png_is_a_square_raster_with_the_letter_drawn`, `test_corner_ratio_stays_below_the_safari_plate_threshold`, `test_with_logo_serves_a_rounded_tile_with_short_cache`, `test_rounded_tile_is_cached_until_the_logo_file_changes`, `test_svg_logo_is_served_as_is`, `test_unreadable_logo_falls_back_to_the_raw_file`, `test_logo_endpoint_keeps_its_hour_cache`, `test_monogram_escapes_and_uppercases`
@@ -4719,7 +4722,7 @@
   Классы: нет
   Функции: `theme`, `test_rich_menu_has_no_serif_headings`, `test_no_referral_hint_when_commission_zero`, `test_rich_menu_sections_separated_by_lines`, `test_subscription_block_is_three_short_lines`, `test_status_line_per_state`, `test_daily_tariff_is_not_expiring`, `test_expired_subscription_shows_only_status_and_date`, `test_lines_without_end_date_and_device_limit_are_omitted`, `test_usage_line_omitted_when_subscription_not_active`, `test_unlimited_devices_shown_as_infinity`, `test_english_block`, `test_no_subscription`, `test_footer_text_comes_from_fork`, `test_theme_off_keeps_upstream_block`
 - `tests/utils/test_rich_notify.py` — Python-модуль
-  Классы: `TestBuildHtml` (12 методов), `TestSend` (8 методов), `TestDeliveryIntegration` (3 методов), `TestLogoAndTimeout` (4 методов), `TestMonitoringIntegration` (4 методов), `TestBroadcastIntegration` (5 методов), `TestUnsupportedServer` (1 методов)
+  Классы: `TestBuildHtml` (12 методов), `TestSend` (8 методов), `TestDeliveryIntegration` (3 методов), `TestLogoAndTimeout` (5 методов), `TestMonitoringIntegration` (4 методов), `TestBroadcastIntegration` (5 методов), `TestUnsupportedServer` (1 методов)
   Функции: нет
 - `tests/utils/test_security.py` — Python-модуль
   Классы: нет

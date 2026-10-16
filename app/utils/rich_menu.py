@@ -91,6 +91,8 @@ _MEDIA_FETCH_ERROR_MARKERS = (
     'photo_invalid',
     'image_process',
     'wrong type of the web page',
+    # RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND — rich-сообщение: картинку <img> не скачали.
+    'no_media_found',
 )
 
 # Теги, которые допускает sanitize_html, но не понимает rich-HTML: спойлерный
