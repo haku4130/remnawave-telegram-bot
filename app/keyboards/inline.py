@@ -2598,30 +2598,40 @@ def get_support_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
     except Exception:
         tickets_enabled = True
         contact_enabled = True
-    rows: list[list[InlineKeyboardButton]] = []
+    create_button = InlineKeyboardButton(
+        text=texts.t('CREATE_TICKET_BUTTON', '🎫 Создать тикет'), callback_data='create_ticket'
+    )
+    my_tickets_button = InlineKeyboardButton(
+        text=texts.t('MY_TICKETS_BUTTON', '📋 Мои тикеты'), callback_data='my_tickets'
+    )
+    contact_button = None
+    if contact_enabled and settings.get_support_contact_url():
+        contact_button = InlineKeyboardButton(
+            text=texts.t('CONTACT_SUPPORT_BUTTON', '💬 Связаться с поддержкой'),
+            url=settings.get_support_contact_url() or 'https://t.me/',
+        )
+    back_button = InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')
+
+    if settings.PREMIUM_THEME_ENABLED:
+        # Главное действие — написать: обращением в боте, а если режим «только контакт» — напрямую.
+        rows: list[list[InlineKeyboardButton]] = []
+        if tickets_enabled:
+            rows.append([create_button.model_copy(update={'style': 'success'})])
+            rows.append([my_tickets_button] + ([contact_button] if contact_button else []))
+        elif contact_button:
+            rows.append([contact_button.model_copy(update={'style': 'success'})])
+        rows.append([back_button])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    rows = []
     # Tickets
     if tickets_enabled:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CREATE_TICKET_BUTTON', '🎫 Создать тикет'), callback_data='create_ticket'
-                )
-            ]
-        )
-        rows.append(
-            [InlineKeyboardButton(text=texts.t('MY_TICKETS_BUTTON', '📋 Мои тикеты'), callback_data='my_tickets')]
-        )
+        rows.append([create_button])
+        rows.append([my_tickets_button])
     # Direct contact
-    if contact_enabled and settings.get_support_contact_url():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CONTACT_SUPPORT_BUTTON', '💬 Связаться с поддержкой'),
-                    url=settings.get_support_contact_url() or 'https://t.me/',
-                )
-            ]
-        )
-    rows.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
+    if contact_button:
+        rows.append([contact_button])
+    rows.append([back_button])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -3822,6 +3832,25 @@ def get_ticket_view_keyboard(
     texts = get_texts(language)
     keyboard = []
 
+    if settings.PREMIUM_THEME_ENABLED:
+        # Главное действие карточки — ответить (единственная зелёная кнопка); закрытому обращению отвечать нельзя.
+        if not is_closed:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=fork_text(texts, 'FORK_TICKET_REPLY_BUTTON', '💬 Ответить'),
+                        callback_data=f'reply_ticket_{ticket_id}',
+                        style='success',
+                    ),
+                    InlineKeyboardButton(
+                        text=fork_text(texts, 'FORK_TICKET_CLOSE_BUTTON', '🔒 Закрыть тикет'),
+                        callback_data=f'close_ticket_{ticket_id}',
+                    ),
+                ]
+            )
+        keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='my_tickets')])
+        return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
     if not is_closed:
         keyboard.append(
             [
@@ -3847,14 +3876,10 @@ def get_ticket_view_keyboard(
 
 def get_ticket_reply_cancel_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
+    # CANCEL_REPLY делят с админкой, поэтому текст форка лежит в своём ключе.
+    label = fork_text(texts, 'FORK_TICKET_REPLY_CANCEL_BUTTON', texts.t('CANCEL_REPLY', '❌ Отменить ответ'))
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CANCEL_REPLY', '❌ Отменить ответ'), callback_data='cancel_ticket_reply'
-                )
-            ]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=label, callback_data='cancel_ticket_reply')]]
     )
 
 

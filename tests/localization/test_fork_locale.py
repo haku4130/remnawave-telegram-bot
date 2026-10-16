@@ -22,6 +22,10 @@ FORK_DIR = ROOT / 'app' / 'localization' / 'fork'
 FORK_LANGS = ('ru', 'en')
 MARKER_RE = re.compile(r'\{e:([^}]*)\}')
 PLACEHOLDER_RE = re.compile(r'\{(?!e:)[^}]*\}')
+# Апстримный SUPPORT_INFO в локали мёртв для ru/en: бот показывает текст из _DYNAMIC_LANGUAGE_CONFIGS, а
+# литерал «{settings.SUPPORT_USERNAME}» из локали никто не форматирует. Текст форка отдаётся как есть,
+# без .format(), поэтому плейсхолдеров в нём быть не должно (проверяет test_fork_support_info_has_no_placeholders).
+UNFORMATTED_UPSTREAM_KEYS = frozenset({'SUPPORT_INFO'})
 
 
 def _read(path: Path) -> dict:
@@ -70,11 +74,17 @@ def test_fork_placeholders_match_upstream(lang):
     upstream = _read(UPSTREAM_DIR / f'{lang}.json')
     problems = []
     for key, value in _read(FORK_DIR / f'{lang}.json').items():
-        if key not in upstream:
+        if key not in upstream or key in UNFORMATTED_UPSTREAM_KEYS:
             continue
         if sorted(PLACEHOLDER_RE.findall(value)) != sorted(PLACEHOLDER_RE.findall(upstream[key])):
             problems.append(key)
     assert not problems, f'{{плейсхолдеры}} разошлись с апстримом: {problems}'
+
+
+@pytest.mark.parametrize('lang', FORK_LANGS)
+def test_fork_support_info_has_no_placeholders(lang):
+    # get_support_info_text отдаёт SUPPORT_INFO без .format(): фигурная скобка дошла бы до пользователя.
+    assert '{' not in MARKER_RE.sub('', _read(FORK_DIR / f'{lang}.json')['SUPPORT_INFO'])
 
 
 def test_fork_placeholders_match_between_languages():

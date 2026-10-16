@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database.crud.ticket import TicketCRUD, TicketMessageCRUD
 from app.database.models import Ticket, TicketStatus, User
+from app.handlers.tickets import build_user_ticket_reply_notification
 from app.keyboards.inline import (
     get_admin_ticket_reply_cancel_keyboard,
     get_admin_ticket_view_keyboard,
@@ -1055,29 +1056,7 @@ async def notify_user_about_ticket_reply(bot: Bot, ticket: Ticket, reply_text: s
         chat_id = int(user.telegram_id)
         texts = get_texts(user.language)
 
-        # Формируем уведомление. Превью экранируем ПОСЛЕ обрезки: бот шлёт с
-        # parse_mode=HTML, и угловая скобка в ответе поддержки («откройте
-        # <config>») ломает разбор — уведомление не доходит вовсе. Экранировать
-        # до обрезки нельзя: срез разорвал бы `&quot;` с тем же результатом.
-        base_text = texts.t(
-            'TICKET_REPLY_NOTIFICATION',
-            '🎫 Получен ответ по тикету #{ticket_id}\n\n{reply_preview}\n\nНажмите кнопку ниже, чтобы перейти к тикету:',
-        ).format(ticket_id=ticket.id, reply_preview=html.escape(preview_text(reply_text)))
-        keyboard = types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    types.InlineKeyboardButton(
-                        text=texts.t('VIEW_TICKET', '👁️ Посмотреть тикет'), callback_data=f'view_ticket_{ticket.id}'
-                    )
-                ],
-                [
-                    types.InlineKeyboardButton(
-                        text=texts.t('CLOSE_NOTIFICATION', '❌ Закрыть уведомление'),
-                        callback_data=f'close_ticket_notification_{ticket.id}',
-                    )
-                ],
-            ]
-        )
+        base_text, keyboard = build_user_ticket_reply_notification(texts, ticket.id, reply_text)
 
         # Если было фото в последнем ответе админа — отправим как фото
         last_message = await TicketMessageCRUD.get_last_message(db, ticket.id)

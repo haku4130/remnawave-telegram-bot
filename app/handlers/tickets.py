@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InaccessibleMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database.crud.ticket import TicketCRUD, TicketMessageCRUD
 from app.database.crud.user import get_user_by_id
 from app.database.models import Ticket, TicketStatus, User
@@ -20,6 +21,7 @@ from app.keyboards.inline import (
     get_ticket_reply_cancel_keyboard,
     get_ticket_view_keyboard,
 )
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.utils.cache import RateLimitCache, cache, cache_key
@@ -42,6 +44,167 @@ class TicketStates(StatesGroup):
     waiting_for_title = State()
     waiting_for_message = State()
     waiting_for_reply = State()
+
+
+def _green(button: types.InlineKeyboardButton) -> types.InlineKeyboardButton:
+    """Главное действие экрана — зелёная кнопка; без темы кнопка остаётся как у апстрима."""
+    return button.model_copy(update={'style': 'success'}) if settings.PREMIUM_THEME_ENABLED else button
+
+
+def _ticket_created_message(
+    texts, ticket: Ticket, title: str, media_type: str | None
+) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Подтверждение создания обращения: текст и кнопки."""
+    # Ограничим длину подтверждения чтобы не упереться в лимиты
+    safe_title = html.escape(title if len(title) <= 200 else (title[:197] + '...'))
+    if settings.PREMIUM_THEME_ENABLED:
+        attachment = texts.FORK_TICKET_CREATED_PHOTO if media_type == 'photo' else ''
+        creation_text = texts.FORK_TICKET_CREATED.format(id=ticket.id, title=safe_title, attachment=attachment)
+    else:
+        creation_text = (
+            f'✅ <b>Тикет #{ticket.id} создан</b>\n\n'
+            f'📝 Заголовок: {safe_title}\n'
+            f'📊 Статус: {ticket.status_emoji} '
+            f'{texts.t("TICKET_STATUS_OPEN", "Открыт")}\n'
+            f'📅 Создан: {format_local_datetime(ticket.created_at, "%d.%m.%Y %H:%M")}\n'
+            + ('📎 Вложение: фото\n' if media_type == 'photo' else '')
+        )
+    return creation_text, _ticket_opened_keyboard(texts, ticket.id)
+
+
+def _ticket_opened_keyboard(texts, ticket_id: int) -> types.InlineKeyboardMarkup:
+    """«Посмотреть тикет» и «В главное меню» — после создания обращения и после ответа."""
+    view_button = types.InlineKeyboardButton(
+        text=fork_text(texts, 'FORK_TICKET_OPEN_BUTTON', texts.t('VIEW_TICKET', '👁️ Посмотреть тикет')),
+        callback_data=f'view_ticket_{ticket_id}',
+    )
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_green(view_button)],
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('BACK_TO_MENU', '🏠 В главное меню'), callback_data='back_to_menu'
+                )
+            ],
+        ]
+    )
+
+
+def _close_notification_keyboard(texts, ticket_id: int) -> types.InlineKeyboardMarkup:
+    """Одна кнопка «Закрыть уведомление» под сообщением о закрытом обращении."""
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(
+                    text=fork_text(
+                        texts,
+                        'FORK_TICKET_NOTIFY_CLOSE_BUTTON',
+                        texts.t('CLOSE_NOTIFICATION', '❌ Закрыть уведомление'),
+                    ),
+                    callback_data=f'close_ticket_notification_{ticket_id}',
+                )
+            ]
+        ]
+    )
+
+
+def _ticket_pages(texts, ticket: Ticket) -> list[str]:
+    """Страницы карточки обращения: шапка и переписка."""
+    if settings.PREMIUM_THEME_ENABLED:
+        return _fork_ticket_pages(texts, ticket)
+
+    status_text = {
+        TicketStatus.OPEN.value: texts.t('TICKET_STATUS_OPEN', 'Открыт'),
+        TicketStatus.ANSWERED.value: texts.t('TICKET_STATUS_ANSWERED', 'Отвечен'),
+        TicketStatus.CLOSED.value: texts.t('TICKET_STATUS_CLOSED', 'Закрыт'),
+        TicketStatus.PENDING.value: texts.t('TICKET_STATUS_PENDING', 'В ожидании'),
+    }.get(ticket.status, ticket.status)
+
+    header = (
+        f'🎫 Тикет #{ticket.id}\n\n'
+        f'📝 Заголовок: {html.escape(ticket.title or "")}\n'
+        f'📊 Статус: {ticket.status_emoji} {status_text}\n'
+        f'📅 Создан: {format_local_datetime(ticket.created_at, "%d.%m.%Y %H:%M")}\n\n'
+    )
+    message_blocks: list[str] = []
+    if ticket.messages:
+        message_blocks.append(f'💬 Сообщения ({len(ticket.messages)}):\n\n')
+        for msg in ticket.messages:
+            sender = '👤 Вы' if msg.is_user_message else '🛠️ Поддержка'
+            block = f'{sender} ({format_local_datetime(msg.created_at, "%d.%m %H:%M")}):\n{html.escape(msg.message_text or "")}\n\n'
+            if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':
+                block += '📎 Вложение: фото\n\n'
+            message_blocks.append(block)
+    return build_ticket_pages(header, message_blocks, max_len=TICKET_PAGE_MAX_LEN)
+
+
+_FORK_STATUS_KEYS = {
+    TicketStatus.OPEN.value: 'FORK_TICKET_STATUS_OPEN',
+    TicketStatus.ANSWERED.value: 'FORK_TICKET_STATUS_ANSWERED',
+    TicketStatus.CLOSED.value: 'FORK_TICKET_STATUS_CLOSED',
+    TicketStatus.PENDING.value: 'FORK_TICKET_STATUS_PENDING',
+}
+
+
+def _fork_ticket_pages(texts, ticket: Ticket) -> list[str]:
+    """Карточка под темой: заголовок, статус и дата одной строкой, у сообщений — отправитель и время."""
+    status_key = _FORK_STATUS_KEYS.get(ticket.status)
+    header = (
+        texts.FORK_TICKET_VIEW_HEADER.format(
+            id=ticket.id,
+            title=html.escape(ticket.title or ''),
+            status=texts.get(status_key, ticket.status) if status_key else html.escape(str(ticket.status)),
+            created=format_local_datetime(ticket.created_at, '%d.%m.%Y'),
+        )
+        + '\n\n'
+    )
+    message_blocks: list[str] = []
+    for msg in ticket.messages or []:
+        sender = texts.FORK_TICKET_MSG_YOU if msg.is_user_message else texts.FORK_TICKET_MSG_SUPPORT
+        when = format_local_datetime(msg.created_at, '%d.%m.%Y %H:%M')
+        block = f'{sender.format(when=when)}\n{html.escape(msg.message_text or "")}\n\n'
+        if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':
+            block += f'{texts.FORK_TICKET_PHOTO_NOTE}\n\n'
+        message_blocks.append(block)
+    return build_ticket_pages(header, message_blocks, max_len=TICKET_PAGE_MAX_LEN)
+
+
+def build_user_ticket_reply_notification(
+    texts, ticket_id: int, reply_text: str
+) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Текст и кнопки уведомления пользователю об ответе поддержки.
+
+    Превью экранируем ПОСЛЕ обрезки: бот шлёт с parse_mode=HTML, и угловая скобка в ответе
+    поддержки («откройте <config>») ломает разбор — уведомление не доходит вовсе. Экранировать
+    до обрезки нельзя: срез разорвал бы `&quot;` с тем же результатом.
+    """
+    text = texts.t(
+        'TICKET_REPLY_NOTIFICATION',
+        '🎫 Получен ответ по тикету #{ticket_id}\n\n{reply_preview}\n\nНажмите кнопку ниже, чтобы перейти к тикету:',
+    ).format(ticket_id=ticket_id, reply_preview=html.escape(preview_text(reply_text)))
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(
+                    # VIEW_TICKET и CLOSE_NOTIFICATION делят с админкой, поэтому текст форка лежит в своих ключах.
+                    text=fork_text(texts, 'FORK_TICKET_OPEN_BUTTON', texts.t('VIEW_TICKET', '👁️ Посмотреть тикет')),
+                    callback_data=f'view_ticket_{ticket_id}',
+                    style='success' if settings.PREMIUM_THEME_ENABLED else None,
+                )
+            ],
+            [
+                types.InlineKeyboardButton(
+                    text=fork_text(
+                        texts,
+                        'FORK_TICKET_NOTIFY_CLOSE_BUTTON',
+                        texts.t('CLOSE_NOTIFICATION', '❌ Закрыть уведомление'),
+                    ),
+                    callback_data=f'close_ticket_notification_{ticket_id}',
+                )
+            ],
+        ]
+    )
+    return text, keyboard
 
 
 async def show_ticket_priority_selection(
@@ -278,34 +441,11 @@ async def handle_ticket_message_input(message: types.Message, state: FSMContext,
             pass
 
         texts = get_texts(db_user.language)
-        # Ограничим длину подтверждения чтобы не упереться в лимиты
-        safe_title = html.escape(title if len(title) <= 200 else (title[:197] + '...'))
-        creation_text = (
-            f'✅ <b>Тикет #{ticket.id} создан</b>\n\n'
-            f'📝 Заголовок: {safe_title}\n'
-            f'📊 Статус: {ticket.status_emoji} '
-            f'{texts.t("TICKET_STATUS_OPEN", "Открыт")}\n'
-            f'📅 Создан: {format_local_datetime(ticket.created_at, "%d.%m.%Y %H:%M")}\n'
-            + ('📎 Вложение: фото\n' if media_type == 'photo' else '')
-        )
+        creation_text, keyboard = _ticket_created_message(texts, ticket, title, media_type)
 
         data_prompt = await state.get_data()
         prompt_chat_id = data_prompt.get('prompt_chat_id')
         prompt_message_id = data_prompt.get('prompt_message_id')
-        keyboard = types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    types.InlineKeyboardButton(
-                        text=texts.t('VIEW_TICKET', '👁️ Посмотреть тикет'), callback_data=f'view_ticket_{ticket.id}'
-                    )
-                ],
-                [
-                    types.InlineKeyboardButton(
-                        text=texts.t('BACK_TO_MENU', '🏠 В главное меню'), callback_data='back_to_menu'
-                    )
-                ],
-            ]
-        )
         if prompt_chat_id and prompt_message_id:
             try:
                 await message.bot.edit_message_text(
@@ -363,20 +503,31 @@ async def show_my_tickets(callback: types.CallbackQuery, db_user: User, db: Asyn
     # Проверка на отсутствие тикетов совсем (ни открытых, ни закрытых)
     has_closed_any = await TicketCRUD.count_user_tickets_by_statuses(db, db_user.id, [TicketStatus.CLOSED.value]) > 0
     if not open_tickets and not has_closed_any:
+        create_row = [
+            _green(
+                types.InlineKeyboardButton(
+                    text=texts.t('CREATE_TICKET_BUTTON', '🎫 Создать тикет'), callback_data='create_ticket'
+                )
+            )
+        ]
+        # Закрытых тикетов нет вовсе: под темой кнопка «Закрытые» вела бы в пустой экран.
+        closed_rows = (
+            []
+            if settings.PREMIUM_THEME_ENABLED
+            else [
+                [
+                    types.InlineKeyboardButton(
+                        text=texts.t('VIEW_CLOSED_TICKETS', '🟢 Закрытые тикеты'), callback_data='my_tickets_closed'
+                    )
+                ]
+            ]
+        )
         await callback.message.edit_text(
             texts.t('NO_TICKETS', 'У вас пока нет тикетов.'),
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('CREATE_TICKET_BUTTON', '🎫 Создать тикет'), callback_data='create_ticket'
-                        )
-                    ],
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('VIEW_CLOSED_TICKETS', '🟢 Закрытые тикеты'), callback_data='my_tickets_closed'
-                        )
-                    ],
+                    create_row,
+                    *closed_rows,
                     [types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_support')],
                 ]
             ),
@@ -394,14 +545,16 @@ async def show_my_tickets(callback: types.CallbackQuery, db_user: User, db: Asyn
         page_prefix='my_tickets_page_',
     )
     # Добавим кнопку перехода к закрытым
-    keyboard.inline_keyboard.insert(
-        0,
-        [
-            types.InlineKeyboardButton(
-                text=texts.t('VIEW_CLOSED_TICKETS', '🟢 Закрытые тикеты'), callback_data='my_tickets_closed'
-            )
-        ],
-    )
+    closed_row = [
+        types.InlineKeyboardButton(
+            text=texts.t('VIEW_CLOSED_TICKETS', '🟢 Закрытые тикеты'), callback_data='my_tickets_closed'
+        )
+    ]
+    if not settings.PREMIUM_THEME_ENABLED:
+        keyboard.inline_keyboard.insert(0, closed_row)
+    elif has_closed_any:
+        # Под темой переход к закрытым стоит под списком, перед «Назад», и есть только когда есть что открывать.
+        keyboard.inline_keyboard.insert(len(keyboard.inline_keyboard) - 1, closed_row)
     # Всегда используем фото-рендер с логотипом (утилита сама сделает фоллбек при необходимости)
     await edit_or_answer_photo(
         callback=callback,
@@ -455,14 +608,15 @@ async def show_my_tickets_closed(callback: types.CallbackQuery, db_user: User, d
         language=db_user.language,
         page_prefix='my_tickets_closed_page_',
     )
-    kb.inline_keyboard.insert(
-        0,
-        [
-            types.InlineKeyboardButton(
-                text=texts.t('BACK_TO_OPEN_TICKETS', '🔴 Открытые тикеты'), callback_data='my_tickets'
-            )
-        ],
-    )
+    open_row = [
+        types.InlineKeyboardButton(
+            text=texts.t('BACK_TO_OPEN_TICKETS', '🔴 Открытые тикеты'), callback_data='my_tickets'
+        )
+    ]
+    if settings.PREMIUM_THEME_ENABLED:
+        kb.inline_keyboard.insert(len(kb.inline_keyboard) - 1, open_row)
+    else:
+        kb.inline_keyboard.insert(0, open_row)
     await edit_or_answer_photo(
         callback=callback,
         caption=texts.t('CLOSED_TICKETS_TITLE', '🟢 Закрытые тикеты:'),
@@ -498,30 +652,7 @@ async def view_ticket(callback: types.CallbackQuery, db_user: User, db: AsyncSes
 
     texts = get_texts(db_user.language)
 
-    # Формируем текст тикета
-    status_text = {
-        TicketStatus.OPEN.value: texts.t('TICKET_STATUS_OPEN', 'Открыт'),
-        TicketStatus.ANSWERED.value: texts.t('TICKET_STATUS_ANSWERED', 'Отвечен'),
-        TicketStatus.CLOSED.value: texts.t('TICKET_STATUS_CLOSED', 'Закрыт'),
-        TicketStatus.PENDING.value: texts.t('TICKET_STATUS_PENDING', 'В ожидании'),
-    }.get(ticket.status, ticket.status)
-
-    header = (
-        f'🎫 Тикет #{ticket.id}\n\n'
-        f'📝 Заголовок: {html.escape(ticket.title or "")}\n'
-        f'📊 Статус: {ticket.status_emoji} {status_text}\n'
-        f'📅 Создан: {format_local_datetime(ticket.created_at, "%d.%m.%Y %H:%M")}\n\n'
-    )
-    message_blocks: list[str] = []
-    if ticket.messages:
-        message_blocks.append(f'💬 Сообщения ({len(ticket.messages)}):\n\n')
-        for msg in ticket.messages:
-            sender = '👤 Вы' if msg.is_user_message else '🛠️ Поддержка'
-            block = f'{sender} ({format_local_datetime(msg.created_at, "%d.%m %H:%M")}):\n{html.escape(msg.message_text or "")}\n\n'
-            if getattr(msg, 'has_media', False) and getattr(msg, 'media_type', None) == 'photo':
-                block += '📎 Вложение: фото\n\n'
-            message_blocks.append(block)
-    pages = build_ticket_pages(header, message_blocks, max_len=TICKET_PAGE_MAX_LEN)
+    pages = _ticket_pages(texts, ticket)
     total_pages = len(pages)
     page = total_pages if page is None else min(page, total_pages)
 
@@ -750,7 +881,11 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
     if len(reply_text) < 5:
         texts = get_texts(db_user.language)
         await message.answer(
-            texts.t('TICKET_REPLY_TOO_SHORT', 'Ответ должен содержать минимум 5 символов. Попробуйте еще раз:')
+            fork_text(
+                texts,
+                'FORK_TICKET_REPLY_TOO_SHORT',
+                texts.t('TICKET_REPLY_TOO_SHORT', 'Ответ должен содержать минимум 5 символов. Попробуйте еще раз:'),
+            )
         )
         return
 
@@ -758,9 +893,13 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
     if len(reply_text) > TICKET_MESSAGE_MAX_LENGTH:
         texts = get_texts(db_user.language)
         await message.answer(
-            texts.t(
-                'TICKET_REPLY_TOO_LONG',
-                'Ответ слишком длинный. Максимум {limit} символов. Сократите текст и отправьте еще раз:',
+            fork_text(
+                texts,
+                'FORK_TICKET_REPLY_TOO_LONG',
+                texts.t(
+                    'TICKET_REPLY_TOO_LONG',
+                    'Ответ слишком длинный. Максимум {limit} символов. Сократите текст и отправьте еще раз:',
+                ),
             ).format(limit=TICKET_MESSAGE_MAX_LENGTH)
         )
         return
@@ -770,7 +909,9 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
 
     if not ticket_id:
         texts = get_texts(db_user.language)
-        await message.answer(texts.t('TICKET_REPLY_ERROR', 'Ошибка: не найден ID тикета.'))
+        await message.answer(
+            fork_text(texts, 'FORK_TICKET_REPLY_ERROR', texts.t('TICKET_REPLY_ERROR', 'Ошибка: не найден ID тикета.'))
+        )
         await state.clear()
         return
 
@@ -785,17 +926,8 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
         if ticket.status == TicketStatus.CLOSED.value:
             texts = get_texts(db_user.language)
             await message.answer(
-                texts.t('TICKET_CLOSED', '✅ Тикет закрыт.'),
-                reply_markup=types.InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            types.InlineKeyboardButton(
-                                text=texts.t('CLOSE_NOTIFICATION', '❌ Закрыть уведомление'),
-                                callback_data=f'close_ticket_notification_{ticket.id}',
-                            )
-                        ]
-                    ]
-                ),
+                fork_text(texts, 'FORK_TICKET_ALREADY_CLOSED', texts.t('TICKET_CLOSED', '✅ Тикет закрыт.')),
+                reply_markup=_close_notification_keyboard(texts, ticket.id),
             )
             await state.clear()
             return
@@ -805,16 +937,7 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
             texts = get_texts(db_user.language)
             await message.answer(
                 texts.t('TICKET_CLOSED_NO_REPLY', '❌ Тикет закрыт, ответить невозможно.'),
-                reply_markup=types.InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            types.InlineKeyboardButton(
-                                text=texts.t('CLOSE_NOTIFICATION', '❌ Закрыть уведомление'),
-                                callback_data=f'close_ticket_notification_{ticket.id}',
-                            )
-                        ]
-                    ]
-                ),
+                reply_markup=_close_notification_keyboard(texts, ticket.id),
             )
             await state.clear()
             return
@@ -835,20 +958,7 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
 
         await message.answer(
             texts.t('TICKET_REPLY_SENT', '✅ Ваш ответ отправлен!'),
-            reply_markup=types.InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('VIEW_TICKET', '👁️ Посмотреть тикет'), callback_data=f'view_ticket_{ticket_id}'
-                        )
-                    ],
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('BACK_TO_MENU', '🏠 В главное меню'), callback_data='back_to_menu'
-                        )
-                    ],
-                ]
-            ),
+            reply_markup=_ticket_opened_keyboard(texts, ticket_id),
         )
 
         await state.clear()
@@ -863,7 +973,11 @@ async def handle_ticket_reply(message: types.Message, state: FSMContext, db_user
         logger.error('Error adding ticket reply', error=e)
         texts = get_texts(db_user.language)
         await message.answer(
-            texts.t('TICKET_REPLY_ERROR', '❌ Произошла ошибка при отправке ответа. Попробуйте позже.')
+            fork_text(
+                texts,
+                'FORK_TICKET_REPLY_ERROR',
+                texts.t('TICKET_REPLY_ERROR', '❌ Произошла ошибка при отправке ответа. Попробуйте позже.'),
+            )
         )
 
 
@@ -928,7 +1042,7 @@ async def cancel_ticket_reply(callback: types.CallbackQuery, state: FSMContext, 
     texts = get_texts(db_user.language)
 
     await callback.message.edit_text(
-        texts.t('TICKET_REPLY_CANCELLED', 'Ответ отменен.'),
+        fork_text(texts, 'FORK_TICKET_REPLY_CANCELLED', texts.t('TICKET_REPLY_CANCELLED', 'Ответ отменен.')),
         reply_markup=types.InlineKeyboardMarkup(
             inline_keyboard=[
                 [types.InlineKeyboardButton(text=texts.t('BACK_TO_TICKETS', '⬅️ К тикетам'), callback_data='my_tickets')]

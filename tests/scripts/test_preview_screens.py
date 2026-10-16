@@ -713,3 +713,63 @@ async def test_referral_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in REFERRAL_TITLES)
+
+
+SUPPORT_TITLES = (
+    'Поддержка — главный экран',
+    'Обращение — тема',
+    'Обращение — описание',
+    'Обращение — создано',
+    'Обращения — список',
+    'Обращения — пусто',
+    'Обращения — закрытые',
+    'Обращение — карточка',
+    'Обращение — карточка (закрыто)',
+    'Обращение — ответ (ввод)',
+    'Обращение — ответ отправлен',
+    'Обращение — ответила поддержка (уведомление)',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_support_screens_present(theme_on, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in SUPPORT_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.startswith('<b>'), title
+        assert screen.text.count('<tg-emoji') <= 2, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        assert '{' not in screen.text, title
+        buttons = (
+            [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
+        )
+        assert sum(1 for button in buttons if button.style == 'success') <= 1, title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
+
+    support = [b for row in screens['Поддержка — главный экран'].markup.inline_keyboard for b in row]
+    assert support[0].callback_data == 'create_ticket' and support[0].style == 'success'
+    card = [b for row in screens['Обращение — карточка'].markup.inline_keyboard for b in row]
+    assert card[0].callback_data == 'reply_ticket_17' and card[0].style == 'success'
+    assert 'reply_ticket_17' not in [
+        b.callback_data for row in screens['Обращение — карточка (закрыто)'].markup.inline_keyboard for b in row
+    ]
+
+
+@pytest.mark.asyncio
+async def test_support_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in SUPPORT_TITLES)

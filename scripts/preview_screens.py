@@ -28,7 +28,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 from app.bot_factory import create_bot
 from app.config import settings
 from app.database.models import Subscription
-from app.handlers import referral as referral_handler
+from app.handlers import referral as referral_handler, support as support_handler, tickets as tickets_handler
 from app.handlers.balance import main as balance_main, rollypay as rollypay_handler
 from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
@@ -938,6 +938,161 @@ async def _referral_screens(language: str) -> list[PreviewScreen]:
     return screens
 
 
+async def _support_screens(language: str) -> list[PreviewScreen]:
+    """Поддержка и обращения: теми же обработчиками и сборщиками, что у бота, на выдуманных данных (без БД)."""
+    ru = language == 'ru'
+    user = SimpleNamespace(id=1, language=language, telegram_id=42)
+    texts = get_texts(language)
+    created = datetime.now(UTC) - timedelta(hours=2)
+    replied = created + timedelta(minutes=40)
+
+    def message(text: str, mine: bool, when: datetime) -> SimpleNamespace:
+        return SimpleNamespace(
+            created_at=when, message_text=text, is_user_message=mine, has_media=False, media_type=None
+        )
+
+    def ticket(status: str, title: str, messages: list[SimpleNamespace]) -> SimpleNamespace:
+        emoji = {'open': '🔴', 'answered': '🟡', 'closed': '🟢', 'pending': '⏳'}[status]
+        return SimpleNamespace(
+            id=17,
+            user_id=user.id,
+            title=title,
+            status=status,
+            status_emoji=emoji,
+            is_closed=status == 'closed',
+            is_user_reply_blocked=False,
+            created_at=created,
+            messages=messages,
+        )
+
+    title = 'Не подключается на iPhone' if ru else "Can't connect on iPhone"
+    question = (
+        'После обновления приложение пишет «нет сети», а Wi-Fi работает.'
+        if ru
+        else ('After the update the app says "no network" while Wi-Fi works.')
+    )
+    answer = (
+        'Попробуйте обновить подписку в приложении и подключиться ещё раз. Если не поможет — напишите, разберёмся.'
+        if ru
+        else 'Please refresh the subscription in the app and connect again. If that does not help, let us know.'
+    )
+    answered = ticket('answered', title, [message(question, True, created), message(answer, False, replied)])
+    closed = ticket('closed', title, answered.messages)
+    sent: dict = {}
+
+    async def capture(callback, caption, keyboard, parse_mode='HTML', **kwargs):
+        sent['text'], sent['markup'] = caption, keyboard
+
+    def callback(data: str = '') -> MagicMock:
+        fake = MagicMock()
+        fake.data = data
+        fake.answer = AsyncMock()
+        fake.message.edit_text = AsyncMock()
+        fake.message.answer = AsyncMock()
+        return fake
+
+    def edited(fake: MagicMock) -> tuple[str, InlineKeyboardMarkup]:
+        call = fake.message.edit_text.await_args
+        return call.args[0], call.kwargs['reply_markup']
+
+    def state() -> MagicMock:
+        fake = MagicMock()
+        fake.set_state, fake.update_data, fake.clear = AsyncMock(), AsyncMock(), AsyncMock()
+        fake.get_state = AsyncMock(return_value=tickets_handler.TicketStates.waiting_for_title)
+        fake.get_data = AsyncMock(return_value={'prompt_chat_id': 42, 'prompt_message_id': 5})
+        return fake
+
+    async def counted(open_tickets: list, closed_total: int):
+        async def count(db, user_id, statuses):
+            return closed_total if statuses == ['closed'] else len(open_tickets)
+
+        return AsyncMock(side_effect=count)
+
+    screens: list[PreviewScreen] = []
+    with (
+        patch.object(support_handler, 'edit_or_answer_photo', capture),
+        patch.object(tickets_handler, 'edit_or_answer_photo', capture),
+    ):
+        await support_handler.show_support_info(callback('menu_support'), user)
+        screens.append(PreviewScreen('Поддержка — главный экран', sent['text'], sent['markup']))
+
+        with (
+            patch.object(tickets_handler.TicketCRUD, 'is_user_globally_blocked', AsyncMock(return_value=None)),
+            patch.object(tickets_handler.TicketCRUD, 'user_has_active_ticket', AsyncMock(return_value=False)),
+        ):
+            fake = callback('create_ticket')
+            await tickets_handler.show_ticket_priority_selection(fake, state(), user, MagicMock())
+        screens.append(PreviewScreen('Обращение — тема', *edited(fake)))
+
+        # Описание: настоящий обработчик ввода темы редактирует сообщение-подсказку.
+        message_fake = MagicMock()
+        message_fake.text, message_fake.chat.id, message_fake.message_id = title, 42, 7
+        message_fake.bot.edit_message_text = AsyncMock()
+        with (
+            patch.object(tickets_handler.TicketCRUD, 'is_user_globally_blocked', AsyncMock(return_value=None)),
+            patch.object(tickets_handler, '_try_delete_message_later', AsyncMock()),
+        ):
+            await tickets_handler.handle_ticket_title_input(message_fake, state(), user, MagicMock())
+        edit = message_fake.bot.edit_message_text.await_args.kwargs
+        screens.append(PreviewScreen('Обращение — описание', edit['text'], edit['reply_markup']))
+
+        created_text, created_markup = tickets_handler._ticket_created_message(texts, answered, title, 'photo')
+        screens.append(PreviewScreen('Обращение — создано', created_text, created_markup))
+
+        for screen_title, open_tickets, closed_total in (
+            ('Обращения — список', [ticket('open', title, answered.messages[:1])], 2),
+            ('Обращения — пусто', [], 0),
+        ):
+            fake = callback('my_tickets')
+            with (
+                patch.object(
+                    tickets_handler.TicketCRUD,
+                    'count_user_tickets_by_statuses',
+                    await counted(open_tickets, closed_total),
+                ),
+                patch.object(
+                    tickets_handler.TicketCRUD, 'get_user_tickets_by_statuses', AsyncMock(return_value=open_tickets)
+                ),
+            ):
+                await tickets_handler.show_my_tickets(fake, user, MagicMock())
+            if 'text' in sent and fake.message.edit_text.await_args is None:
+                screens.append(PreviewScreen(screen_title, sent['text'], sent['markup']))
+            else:
+                screens.append(PreviewScreen(screen_title, *edited(fake)))
+
+        with (
+            patch.object(tickets_handler.TicketCRUD, 'count_user_tickets_by_statuses', AsyncMock(return_value=1)),
+            patch.object(tickets_handler.TicketCRUD, 'get_user_tickets_by_statuses', AsyncMock(return_value=[closed])),
+        ):
+            await tickets_handler.show_my_tickets_closed(callback('my_tickets_closed'), user, MagicMock())
+        screens.append(PreviewScreen('Обращения — закрытые', sent['text'], sent['markup']))
+
+    for screen_title, shown in (('Обращение — карточка', answered), ('Обращение — карточка (закрыто)', closed)):
+        fake = callback(f'view_ticket_{shown.id}')
+        with (
+            patch.object(tickets_handler.TicketCRUD, 'get_ticket_by_id', AsyncMock(return_value=shown)),
+            patch.object(tickets_handler, 'safe_edit_or_resend', AsyncMock()) as show,
+        ):
+            await tickets_handler.view_ticket(fake, user, MagicMock())
+        screens.append(PreviewScreen(screen_title, show.await_args.args[1], show.await_args.args[2]))
+
+    reply_prompt = callback('reply_ticket_17')
+    await tickets_handler.reply_to_ticket(reply_prompt, state(), user)
+    screens.append(PreviewScreen('Обращение — ответ (ввод)', *edited(reply_prompt)))
+    screens.append(
+        PreviewScreen(
+            'Обращение — ответ отправлен',
+            texts.t('TICKET_REPLY_SENT', ''),
+            tickets_handler._ticket_opened_keyboard(texts, 17),
+        )
+    )
+    notification_text, notification_markup = tickets_handler.build_user_ticket_reply_notification(texts, 17, answer)
+    screens.append(
+        PreviewScreen('Обращение — ответила поддержка (уведомление)', notification_text, notification_markup)
+    )
+    return screens
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -949,6 +1104,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(await _balance_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_topup_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _referral_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _support_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _monitoring_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _webhook_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
