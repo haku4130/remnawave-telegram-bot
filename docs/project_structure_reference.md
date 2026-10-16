@@ -2091,7 +2091,7 @@
   Функции: `canonical_email` — Вид адреса для сравнения: тот же ящик — та же строка., `is_email_alias_of` — Оба адреса ведут в один ящик, но записаны по-разному., `email_domain` — Домен адреса с учётом слияния доменов-близнецов (ya.ru → yandex.ru)., `has_alias_forms` — У этого адреса вообще бывают алиасы — есть ли смысл искать двойников., `sibling_domains` — Домены, письма с которых попадают в тот же ящик, включая сам домен., `alias_match_clause` — SQLAlchemy-условие: колонка хранит адрес того же ящика, что и ``email``.
 - `app/utils/fork_onboarding.py` — Python-модуль
   Классы: нет
-  Функции: `resolve_auto_language`, `is_trial_available` — Бесплатный пробный, который пользователь может включить прямо сейчас., `format_days` — «3 дня» / «5 дней» / «3 days» по ключам FORK_DAYS_*.
+  Функции: `resolve_auto_language`, `is_trial_available` — Бесплатный пробный, который пользователь может включить прямо сейчас., `format_days` — «3 дня» / «5 дней» / «3 days» по ключам FORK_DAYS_*., `rules_url`, `send_rules_screen` — Правила сервиса по ссылке из приветствия. Новичку кнопки не нужно — приветствие
 - `app/utils/formatters.py` — Python-модуль
   Классы: нет
   Функции: `format_datetime`, `format_date`, `format_time_ago`, `format_days_declension`, `format_duration`, `format_bytes`, `format_percentage`, `format_number`, `format_price_range`, `truncate_text`, `format_username`, `format_username_link` — Telegram-логин явной ссылкой — для rich-сообщений., `format_subscription_status`, `format_traffic_usage`, `format_boolean`
@@ -3761,7 +3761,7 @@
   Функции: `test_cancel_button_reopens_device_list`, `test_typed_cancel_reopens_device_list`, `test_valid_name_saves_and_reopens`, `test_empty_after_normalize_keeps_state_for_retry`
 - `tests/handlers/test_fork_start_flow.py` — Python-модуль
   Классы: нет
-  Функции: `test_auto_language_skips_prompt_and_stores_detected`, `test_without_auto_language_prompt_is_shown`
+  Функции: `test_auto_language_skips_prompt_and_stores_detected`, `test_without_auto_language_prompt_is_shown`, `test_rules_deeplink_for_new_user_shows_rules_without_registration`, `test_rules_deeplink_for_registered_user_uses_own_language_and_menu_button`, `test_send_rules_screen_paginates_and_adds_menu_button`, `test_send_rules_screen_without_menu_button_has_no_markup`, `test_rules_url`
 - `tests/handlers/test_gift_deeplink_activation.py` — Python-модуль
   Классы: `TestGiftDeeplinkActivation` (7 методов), `TestGiftSubscriptionActivationMultiTariff` (3 методов), `TestGiftSubscriptionActivationSingleTariff` (3 методов), `TestGiftProvisioningInvariants` (2 методов)
   Функции: нет

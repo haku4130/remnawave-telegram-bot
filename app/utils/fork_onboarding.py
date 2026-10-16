@@ -7,8 +7,12 @@
 from __future__ import annotations
 
 import structlog
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
+from app.database.crud.rules import get_current_rules_content
+from app.localization.texts import get_rules, get_texts
+from app.utils.telegram_html import stored_html_to_telegram_pages
 
 
 logger = structlog.get_logger(__name__)
@@ -55,3 +59,33 @@ def format_days(texts, days: int) -> str:
     else:
         template = texts.FORK_DAYS_ONE if days == 1 else texts.FORK_DAYS_MANY
     return template.format(n=days)
+
+
+def rules_url() -> str:
+    username = settings.get_bot_username()
+    return f'https://t.me/{username}?start=rules' if username else ''
+
+
+async def send_rules_screen(message, db, language: str, *, with_menu_button: bool) -> None:
+    """Правила сервиса по ссылке из приветствия. Новичку кнопки не нужно — приветствие
+    с кнопкой пробного остаётся сообщением выше; зарегистрированному — «В меню»."""
+    texts = get_texts(language)
+    rules_text = await get_current_rules_content(db, language) or await get_rules(language)
+    pages = stored_html_to_telegram_pages(rules_text, max_length=3500) or ['']
+    header = texts.t('RULES_HEADER', '📋 <b>Правила сервиса</b>')
+    for index, page in enumerate(pages):
+        text = f'{header}\n\n{page}' if index == 0 else page
+        if index == len(pages) - 1 and with_menu_button:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '⬅️ В главное меню'),
+                            callback_data='back_to_menu',
+                        )
+                    ]
+                ]
+            )
+            await message.answer(text, reply_markup=keyboard)
+        else:
+            await message.answer(text)

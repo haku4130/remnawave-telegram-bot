@@ -1407,6 +1407,23 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
         # Unregistered → fall through to normal /start (contests need a subscription anyway).
         start_parameter = None
 
+    # Ссылка «правила сервиса» из приветствия форка (PREMIUM_THEME_ENABLED): правила
+    # показываются и новичку, и зарегистрированному, регистрация не запускается.
+    if start_parameter == 'rules' and settings.PREMIUM_THEME_ENABLED:
+        from app.utils import fork_onboarding
+
+        user = db_user or await get_user_by_telegram_id(db, message.from_user.id)
+        registered = bool(user and user.status != UserStatus.DELETED.value)
+        language = (
+            (user.language if registered else None)
+            or fork_onboarding.resolve_auto_language(
+                getattr(message.from_user, 'language_code', None), settings.get_available_languages()
+            )
+            or settings.DEFAULT_LANGUAGE
+        )
+        await fork_onboarding.send_rules_screen(message, db, language, with_menu_button=registered)
+        return
+
     # Диплинк «активировать триал» из rich-меню: /start trial.
     # Зарегистрированному юзеру бесплатный триал выдаётся ниже
     # (_activate_pending_trial) перед показом меню — меню сразу отрисует новую
