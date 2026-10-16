@@ -44,6 +44,52 @@ def test_resolve_primary_action(monkeypatch, subscription, trial_ok, expected):
     assert fork_layout.resolve_primary_action(SimpleNamespace(), subscription) == expected
 
 
+class _RaisingDailySub:
+    """Как ORM-подписка с незагруженным tariff: чтение is_daily_tariff в async падает (MissingGreenlet)."""
+
+    actual_status = 'active'
+    is_trial = False
+    days_left = 2
+    is_pending_trial = False
+
+    @property
+    def is_daily_tariff(self):
+        raise RuntimeError('MissingGreenlet')
+
+
+def test_resolve_primary_action_survives_unreadable_daily_flag(monkeypatch):
+    monkeypatch.setattr(fork_layout, 'is_trial_available', lambda user: False)
+    assert fork_layout.resolve_primary_action(SimpleNamespace(), _RaisingDailySub()) == 'extend'
+
+
+def test_resolve_primary_action_does_not_lazy_load_tariff(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.orm import make_transient_to_detached
+
+    from app.database.models import Subscription, Tariff
+
+    monkeypatch.setattr(fork_layout, 'is_trial_available', lambda user: False)
+    expiring = Subscription(id=1, status='active', is_trial=False, end_date=datetime.now(UTC) + timedelta(days=2))
+    # Подписка вне сессии с незагруженным tariff: ленивая загрузка упала бы (в async — MissingGreenlet).
+    make_transient_to_detached(expiring)
+    assert fork_layout.resolve_primary_action(SimpleNamespace(), expiring) == 'extend'
+    expiring.tariff = Tariff(name='day', is_daily=True)
+    assert fork_layout._is_daily_tariff(expiring) is True
+    assert fork_layout.resolve_primary_action(SimpleNamespace(), expiring) == 'connect'
+
+
+def test_fork_primary_action_returns_none_when_resolve_fails(monkeypatch):
+    from app.keyboards import inline
+
+    def boom(user, subscription):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', True)
+    monkeypatch.setattr(fork_layout, 'resolve_primary_action', boom)
+    assert inline._fork_primary_action(SimpleNamespace(), SimpleNamespace()) is None
+
+
 def _visible(context: MenuContext) -> list[tuple[str, str | None]]:
     config = fork_layout.build_fork_menu_config()
     result = []

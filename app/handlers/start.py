@@ -2282,7 +2282,11 @@ async def _welcome_offer(db: AsyncSession, user, tg_user) -> tuple[str | None, t
     if settings.PREMIUM_THEME_ENABLED:
         from app.utils.fork_onboarding import build_welcome_screen
 
-        return build_welcome_screen(user, tg_user)
+        try:
+            return build_welcome_screen(user, tg_user)
+        except Exception:
+            # Приветствие из таблицы лучше, чем регистрация, оборванная на последнем шаге.
+            logger.error('Не удалось собрать приветствие форка, берём текст из БД', exc_info=True)
 
     from app.database.crud.welcome_text import get_welcome_text_for_user
 

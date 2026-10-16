@@ -14,7 +14,8 @@
 
 Reply-клавиатуры не трогаем: текст reply-кнопки бот получает обратно сообщением,
 и срезанный эмодзи сломал бы обработчики по тексту. Ошибка оформления не мешает
-отправке — запрос уходит как есть.
+отправке — запрос уходит как есть. Если Telegram отверг оформленный запрос
+(TelegramBadRequest), он один раз повторяется без оформления.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import structlog
 from aiogram import Bot
 from aiogram.client.default import Default
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextRequestMiddlewareType
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import AnswerCallbackQuery, TelegramMethod
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -48,6 +50,11 @@ _KNOWN_IDS = frozenset(entry.emoji_id for entry in CATALOG.values())
 # Поле текста и поле его сущностей: при готовых сущностях текст менять нельзя —
 # их смещения посчитаны по исходной строке.
 _TEXT_FIELDS = (('text', 'entities'), ('caption', 'caption_entities'))
+# Всё, что меняет _apply. Он не мутирует значения, а подменяет их новыми объектами,
+# поэтому снимка этих полей достаточно, чтобы восстановить исходный запрос (без
+# глубокой копии всего метода — в нём бывают файлы).
+_THEMED_FIELDS = ('reply_markup', 'text', 'caption')
+_NOT_MODIFIED = 'message is not modified'
 
 
 def to_plain(value: str) -> str:
@@ -148,9 +155,29 @@ class PremiumThemeMiddleware(BaseRequestMiddleware):
         bot: Bot,
         method: TelegramMethod[Any],
     ) -> Any:
-        if settings.PREMIUM_THEME_ENABLED:
-            try:
-                _apply(bot, method)
-            except Exception:
-                logger.warning('Тема Premium не применена', method=type(method).__name__, exc_info=True)
-        return await make_request(bot, method)
+        if not settings.PREMIUM_THEME_ENABLED:
+            return await make_request(bot, method)
+
+        fields = type(method).model_fields
+        original = {name: getattr(method, name) for name in _THEMED_FIELDS if name in fields}
+        try:
+            _apply(bot, method)
+        except Exception:
+            logger.warning('Тема Premium не применена', method=type(method).__name__, exc_info=True)
+        changed = {name: value for name, value in original.items() if getattr(method, name) != value}
+        if not changed:
+            return await make_request(bot, method)
+
+        try:
+            return await make_request(bot, method)
+        except TelegramBadRequest as error:
+            # «Не изменено» — не вина оформления; повтор без темы заменил бы оформленное сообщение голым.
+            if _NOT_MODIFIED in error.message.lower():
+                raise
+            # Оформление могло сломать запрос (иконка, стиль, тег) — повторяем один раз как было.
+            logger.warning(
+                'Telegram отверг оформленный запрос, повтор без темы',
+                method=type(method).__name__,
+                error=error.message,
+            )
+            return await make_request(bot, method.model_copy(update=changed))

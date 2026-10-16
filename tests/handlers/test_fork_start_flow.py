@@ -159,3 +159,19 @@ async def test_welcome_offer_uses_db_text_when_theme_off(monkeypatch):
     monkeypatch.setattr('app.database.crud.welcome_text.get_welcome_text_for_user', AsyncMock(return_value='ИЗ БД'))
     text, keyboard = await start._welcome_offer(AsyncMock(), SimpleNamespace(language='ru'), SimpleNamespace())
     assert text == 'ИЗ БД' and keyboard is None
+
+
+@pytest.mark.asyncio
+async def test_welcome_offer_falls_back_to_db_text_when_fork_screen_fails(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.utils import fork_onboarding
+
+    def boom(user, tg):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', True)
+    monkeypatch.setattr(fork_onboarding, 'build_welcome_screen', boom)
+    monkeypatch.setattr('app.database.crud.welcome_text.get_welcome_text_for_user', AsyncMock(return_value='ИЗ БД'))
+    text, keyboard = await start._welcome_offer(AsyncMock(), SimpleNamespace(language='ru'), SimpleNamespace())
+    assert text == 'ИЗ БД' and keyboard is None

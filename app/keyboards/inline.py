@@ -30,7 +30,12 @@ def _fork_primary_action(user, subscription) -> str | None:
         return None
     from app.services.menu_layout.fork_layout import resolve_primary_action
 
-    return resolve_primary_action(user, subscription)
+    try:
+        return resolve_primary_action(user, subscription)
+    except Exception:
+        # Меню без главной кнопки лучше, чем меню, которое не открылось.
+        logger.error('Не удалось выбрать главное действие меню форка', exc_info=True)
+        return None
 
 
 async def get_main_menu_keyboard_async(

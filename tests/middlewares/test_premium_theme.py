@@ -232,3 +232,80 @@ def test_tag_label_without_icons_falls_back_to_plain():
     out = mw.theme_button(InlineKeyboardButton(text=f'{ROCKET} Go', callback_data='x'), allow_icons=False)
     assert out.text == '🚀 Go'
     assert out.icon_custom_emoji_id is None
+
+
+def _bad_request(method, message='Bad Request: invalid custom emoji identifier'):
+    from aiogram.exceptions import TelegramBadRequest
+
+    return TelegramBadRequest(method=method, message=message)
+
+
+async def _run_failing(method, failures):
+    """make_request падает TelegramBadRequest первые `failures` раз; возвращает (результат|ошибка, вызовы)."""
+    calls = []
+
+    async def make_request(_bot, sent):
+        calls.append(sent.model_copy(deep=True))
+        if len(calls) <= failures:
+            raise _bad_request(sent, f'Bad Request: attempt {len(calls)}')
+        return 'ok'
+
+    try:
+        result = await mw.PremiumThemeMiddleware()(make_request, _bot(), method)
+    except Exception as error:
+        result = error
+    return result, calls
+
+
+@pytest.mark.asyncio
+async def test_rejected_themed_request_is_retried_unthemed():
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f'{ROCKET} Подключиться', callback_data='subscription_connect')]]
+    )
+    result, calls = await _run_failing(SendMessage(chat_id=1, text='x', reply_markup=markup), failures=1)
+    assert result == 'ok'
+    assert len(calls) == 2
+    assert calls[0].reply_markup.inline_keyboard[0][0].icon_custom_emoji_id == '5445284980978621387'
+    retried = calls[1].reply_markup.inline_keyboard[0][0]
+    assert retried.icon_custom_emoji_id is None
+    assert retried.text == f'{ROCKET} Подключиться'
+    assert retried.style is None
+
+
+@pytest.mark.asyncio
+async def test_unthemed_request_error_is_not_retried():
+    from aiogram.exceptions import TelegramBadRequest
+
+    result, calls = await _run_failing(SendMessage(chat_id=1, text='plain'), failures=1)
+    assert isinstance(result, TelegramBadRequest)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_failure_raises_retry_error():
+    from aiogram.exceptions import TelegramBadRequest
+
+    result, calls = await _run_failing(SendMessage(chat_id=1, text=f'{ROCKET} x', parse_mode=None), failures=2)
+    assert isinstance(result, TelegramBadRequest)
+    assert 'attempt 2' in result.message
+    assert len(calls) == 2
+    assert calls[1].text == f'{ROCKET} x'
+
+
+@pytest.mark.asyncio
+async def test_not_modified_error_is_not_retried_unthemed():
+    from aiogram.exceptions import TelegramBadRequest
+
+    calls = []
+
+    async def make_request(_bot, sent):
+        calls.append(sent)
+        raise _bad_request(sent, 'Bad Request: message is not modified: specified new message content is the same')
+
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f'{ROCKET} Подключиться', callback_data='subscription_connect')]]
+    )
+    method = EditMessageText(chat_id=1, message_id=1, text='x', reply_markup=markup)
+    with pytest.raises(TelegramBadRequest):
+        await mw.PremiumThemeMiddleware()(make_request, _bot(), method)
+    assert len(calls) == 1

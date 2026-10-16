@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardMarkup
 from app.config import settings
 from app.localization import loader
 from app.localization.emoji_catalog import CATALOG
+from app.utils import fork_onboarding
 from scripts import preview_screens
 
 
@@ -64,6 +65,7 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
 @pytest.mark.parametrize('language', ['ru', 'en'])
 def test_stage_two_screens_present(theme_on, monkeypatch, language):
     monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
+    monkeypatch.setattr(fork_onboarding, 'is_trial_available', lambda user: True)
     screens = preview_screens.build_screens(language)
     titles = [screen.title for screen in screens]
     for expected in (
@@ -86,7 +88,7 @@ def test_stage_two_screens_absent_without_theme(monkeypatch):
         titles = [screen.title for screen in preview_screens.build_screens('ru')]
     finally:
         loader.clear_locale_cache()
-    assert 'Приветствие — пробный' not in titles
+    assert not any(title.startswith('Приветствие') for title in titles)
 
 
 def test_stage_two_menus_have_one_green_button(theme_on, monkeypatch):
@@ -95,3 +97,23 @@ def test_stage_two_menus_have_one_green_button(theme_on, monkeypatch):
     for title in ('Меню — пробный', 'Меню — подключиться', 'Меню — продлить', 'Меню — тариф'):
         buttons = [button for row in screens[title].markup.inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') == 1, title
+
+
+def test_welcome_title_follows_actual_variant(theme_on, monkeypatch):
+    monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
+    monkeypatch.setattr(fork_onboarding, 'is_trial_available', lambda user: False)
+    screens = {screen.title: screen for screen in preview_screens.build_screens('ru')}
+    assert 'Приветствие — пробный' not in screens
+    welcome = screens['Приветствие — без пробного']
+    assert welcome.markup.inline_keyboard[0][0].callback_data == 'menu_buy'
+
+
+def test_stage_one_menus_have_one_green_button(theme_on):
+    screens = {screen.title: screen for screen in preview_screens.build_screens('ru')}
+    expected = {'Главное меню — новичок': 'trial_activate', 'Главное меню — подписчик': None}
+    for title, green_callback in expected.items():
+        buttons = [button for row in screens[title].markup.inline_keyboard for button in row]
+        greens = [button for button in buttons if button.style == 'success']
+        assert len(greens) == 1, title
+        if green_callback:
+            assert greens[0].callback_data == green_callback, title

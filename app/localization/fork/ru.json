@@ -14,7 +14,7 @@
   "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Подписка",
   "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Подписки",
   "MAIN_MENU_RICH_BALANCE": "Баланс: {balance}",
-  "MAIN_MENU_RICH_TRIAL_BUTTON": "{e:gift} Попробовать бесплатно",
+  "MAIN_MENU_RICH_TRIAL_BUTTON": "Попробовать бесплатно",
   "MAIN_MENU_RICH_CONNECT": "Подключиться",
   "MAIN_MENU_RICH_RENEW": "Продлить",
   "MAIN_MENU_RICH_TRIAL_ACTIVATED": "{e:party} <b>Пробный доступ включён</b>",

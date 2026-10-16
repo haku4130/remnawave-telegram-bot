@@ -11,6 +11,9 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import NoInspectionAvailable
+
 from app.services.menu_layout.constants import DEFAULT_MENU_CONFIG
 from app.utils.fork_onboarding import is_trial_available
 
@@ -20,6 +23,20 @@ _ACTIVE_STATUSES = frozenset({'active', 'trial', 'limited'})
 _ENDED_STATUSES = frozenset({'expired', 'disabled'})
 
 
+def _is_daily_tariff(subscription) -> bool:
+    """Как Subscription.is_daily_tariff, но без ленивой загрузки tariff (в async она даёт MissingGreenlet):
+    у ORM-объекта берём только уже загруженную связь."""
+    try:
+        state = sa_inspect(subscription)
+    except NoInspectionAvailable:
+        try:
+            return bool(getattr(subscription, 'is_daily_tariff', False))
+        except Exception:
+            return False
+    tariff = state.dict.get('tariff')
+    return bool(tariff and getattr(tariff, 'is_daily', False))
+
+
 def resolve_primary_action(user, subscription) -> str:
     if subscription is not None and not getattr(subscription, 'is_pending_trial', False):
         status = getattr(subscription, 'actual_status', None)
@@ -27,7 +44,7 @@ def resolve_primary_action(user, subscription) -> str:
         if status in _ACTIVE_STATUSES:
             # У суточного тарифа days_left всегда ≤ 1 — «заканчивается» он каждый день, продлевать нечего.
             expiring = getattr(subscription, 'days_left', EXPIRING_DAYS + 1) <= EXPIRING_DAYS
-            if not is_trial and expiring and not getattr(subscription, 'is_daily_tariff', False):
+            if not is_trial and expiring and not _is_daily_tariff(subscription):
                 return 'extend'
             return 'connect'
         if status in _ENDED_STATUSES and not is_trial:

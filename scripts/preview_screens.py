@@ -100,6 +100,9 @@ def _stage_two_screens(language: str) -> list[PreviewScreen]:
     )
     tg_user = SimpleNamespace(first_name='Андрей' if language == 'ru' else 'Andrew', username=None)
     welcome_text, welcome_kb = fork_onboarding.build_welcome_screen(newcomer, tg_user)
+    # Вариант приветствия зависит от настроек пробного на сервере — подпись берём по факту.
+    with_trial = welcome_kb.inline_keyboard[0][0].callback_data == 'trial_activate'
+    welcome_title = 'Приветствие — пробный' if with_trial else 'Приветствие — без пробного'
     connect_kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.CONNECT_BUTTON, web_app=WebAppInfo(url='https://example.com/sub'))],
@@ -109,7 +112,7 @@ def _stage_two_screens(language: str) -> list[PreviewScreen]:
     ready_text, ready_kb = fork_onboarding.build_trial_ready_screen(texts, '19.10.2026', connect_kb)
     active = {'has_active_subscription': True, 'subscription_is_active': True}
     return [
-        PreviewScreen('Приветствие — пробный', welcome_text, welcome_kb),
+        PreviewScreen(welcome_title, welcome_text, welcome_kb),
         PreviewScreen('Пробный включён', ready_text, ready_kb),
         PreviewScreen('Меню — пробный', 'Меню: новичок', _menu_keyboard(language, primary_action='trial')),
         PreviewScreen(
@@ -133,14 +136,20 @@ def build_screens(language: str) -> list[PreviewScreen]:
         PreviewScreen(
             'Главное меню — новичок',
             _menu_text(language, texts.t('SUB_STATUS_NONE', '❌ Отсутствует')),
-            _menu_keyboard(language, balance_kopeks=0),
+            _menu_keyboard(language, balance_kopeks=0, primary_action='trial'),
         ),
         PreviewScreen(
             'Главное меню — подписчик',
             _menu_text(
                 language, texts.t('SUB_STATUS_ACTIVE_LONG', '💎 Активна').format(end_date='15.11.2026', days=30)
             ),
-            _menu_keyboard(language, has_active_subscription=True, subscription_is_active=True, balance_kopeks=15000),
+            _menu_keyboard(
+                language,
+                has_active_subscription=True,
+                subscription_is_active=True,
+                balance_kopeks=15000,
+                primary_action='connect',
+            ),
         ),
         *(_stage_two_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]

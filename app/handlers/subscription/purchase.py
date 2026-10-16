@@ -787,6 +787,27 @@ def _get_trial_payment_keyboard(language: str, can_pay_from_balance: bool = Fals
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def _maybe_fork_trial_ready(
+    texts, subscription, text: str, keyboard: InlineKeyboardMarkup, payment_note: str
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Экран «пробный готов» форка вместо текста апстрима (в text апстрима payment_note уже есть).
+
+    Ошибка сборки экрана форка не должна оставлять пользователя без ссылки — тогда
+    возвращаются текст и клавиатура апстрима как есть.
+    """
+    if not settings.PREMIUM_THEME_ENABLED or len(keyboard.inline_keyboard) < 2:
+        return text, keyboard
+    try:
+        from app.utils.fork_onboarding import build_trial_ready_screen
+
+        end_date_text = format_local_datetime(subscription.end_date, '%d.%m.%Y')
+        fork_text, fork_keyboard = build_trial_ready_screen(texts, end_date_text, keyboard)
+    except Exception:
+        logger.error('Не удалось собрать экран пробного форка, показываем экран апстрима', exc_info=True)
+        return text, keyboard
+    return fork_text + payment_note, fork_keyboard
+
+
 async def activate_trial(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     from app.services.trial_activation_service import get_trial_activation_charge_amount
 
@@ -1270,12 +1291,9 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     ]
                 )
 
-            if settings.PREMIUM_THEME_ENABLED and len(connect_keyboard.inline_keyboard) >= 2:
-                from app.utils.fork_onboarding import build_trial_ready_screen
-
-                end_date_text = format_local_datetime(subscription.end_date, '%d.%m.%Y')
-                trial_success_text, connect_keyboard = build_trial_ready_screen(texts, end_date_text, connect_keyboard)
-                trial_success_text += payment_note
+            trial_success_text, connect_keyboard = _maybe_fork_trial_ready(
+                texts, subscription, trial_success_text, connect_keyboard, payment_note
+            )
 
             await callback.message.edit_text(
                 trial_success_text,
