@@ -30,8 +30,8 @@ from aiogram.methods import AnswerCallbackQuery, TelegramMethod
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
-from app.localization.emoji_catalog import by_unicode
-from app.utils.button_theme import style_for_button
+from app.localization.emoji_catalog import CATALOG, by_unicode
+from app.utils.button_theme import is_navigation, style_for_button
 from app.utils.miniapp_buttons import strip_leading_emoji
 
 
@@ -42,6 +42,9 @@ _LEADING_TG_EMOJI_RE = re.compile(r'^\s*<tg-emoji emoji-id="(\d+)">.*?</tg-emoji
 _ESCAPED_TG_EMOJI_RE = re.compile(
     r'&lt;tg-emoji emoji-id=(?:&quot;|")(\d+)(?:&quot;|")&gt;(.*?)&lt;/tg-emoji&gt;', re.DOTALL
 )
+# Восстанавливаем только свои эмодзи: тексты форка несут id из каталога, а чужой
+# экранированный тег — это пользовательский контент, и оживлять его нельзя.
+_KNOWN_IDS = frozenset(entry.emoji_id for entry in CATALOG.values())
 # Поле текста и поле его сущностей: при готовых сущностях текст менять нельзя —
 # их смещения посчитаны по исходной строке.
 _TEXT_FIELDS = (('text', 'entities'), ('caption', 'caption_entities'))
@@ -52,21 +55,27 @@ def to_plain(value: str) -> str:
 
 
 def restore_escaped(value: str) -> str:
-    return _ESCAPED_TG_EMOJI_RE.sub(
-        lambda match: f'<tg-emoji emoji-id="{match.group(1)}">{match.group(2)}</tg-emoji>', value
-    )
+    def revive(match: re.Match[str]) -> str:
+        if match.group(1) not in _KNOWN_IDS:
+            return match.group(0)
+        return f'<tg-emoji emoji-id="{match.group(1)}">{match.group(2)}</tg-emoji>'
+
+    return _ESCAPED_TG_EMOJI_RE.sub(revive, value)
 
 
-def theme_button(button: InlineKeyboardButton) -> InlineKeyboardButton:
+def theme_button(button: InlineKeyboardButton, allow_icons: bool = True) -> InlineKeyboardButton:
     text = button.text or ''
     update: dict[str, Any] = {}
+    navigation = is_navigation(button)
+    # Навигация — без иконки и без цвета; вне личных чатов иконки тоже не выносим.
+    icons = allow_icons and not navigation
 
-    leading_tag = _LEADING_TG_EMOJI_RE.match(text)
+    leading_tag = _LEADING_TG_EMOJI_RE.match(text) if icons else None
     if leading_tag and text[leading_tag.end() :].strip():
         if not button.icon_custom_emoji_id:
             update['icon_custom_emoji_id'] = leading_tag.group(1)
         text = text[leading_tag.end() :]
-    elif not leading_tag and not button.icon_custom_emoji_id:
+    elif icons and not leading_tag and not button.icon_custom_emoji_id:
         rest = strip_leading_emoji(text)
         leading = text[: len(text) - len(rest)].strip()
         entry = by_unicode(leading) if leading else None
@@ -78,16 +87,16 @@ def theme_button(button: InlineKeyboardButton) -> InlineKeyboardButton:
         text = to_plain(text)
     if text != button.text:
         update['text'] = text
-    if button.style is None:
+    if button.style is None and not navigation:
         style = style_for_button(button)
         if style:
             update['style'] = style
     return button.model_copy(update=update) if update else button
 
 
-def theme_markup(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+def theme_markup(markup: InlineKeyboardMarkup, allow_icons: bool = True) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[theme_button(button) for button in row] for row in markup.inline_keyboard]
+        inline_keyboard=[[theme_button(button, allow_icons) for button in row] for row in markup.inline_keyboard]
     )
 
 
@@ -100,7 +109,10 @@ def _is_html(bot: Bot, parse_mode: Any) -> bool:
 def _apply(bot: Bot, method: TelegramMethod[Any]) -> None:
     markup = getattr(method, 'reply_markup', None)
     if isinstance(markup, InlineKeyboardMarkup):
-        method.reply_markup = theme_markup(markup)
+        # Анимированные иконки — только в личных чатах; канал и inline-сообщения не проверены.
+        chat_id = getattr(method, 'chat_id', None)
+        allow_icons = isinstance(chat_id, int) and chat_id > 0
+        method.reply_markup = theme_markup(markup, allow_icons=allow_icons)
 
     if isinstance(method, AnswerCallbackQuery):
         if method.text and '<tg-emoji' in method.text:
@@ -122,7 +134,7 @@ def _apply(bot: Bot, method: TelegramMethod[Any]) -> None:
                 logger.warning(
                     'Восстановлен экранированный <tg-emoji> — место экранирует наш текст',
                     method=type(method).__name__,
-                    text=value[:80],
+                    restored=len(_ESCAPED_TG_EMOJI_RE.findall(value)) - len(_ESCAPED_TG_EMOJI_RE.findall(restored)),
                 )
                 setattr(method, text_field, restored)
         else:
@@ -139,6 +151,6 @@ class PremiumThemeMiddleware(BaseRequestMiddleware):
         if settings.PREMIUM_THEME_ENABLED:
             try:
                 _apply(bot, method)
-            except Exception as error:
-                logger.warning('Тема Premium не применена', method=type(method).__name__, error=str(error))
+            except Exception:
+                logger.warning('Тема Premium не применена', method=type(method).__name__, exc_info=True)
         return await make_request(bot, method)

@@ -15,7 +15,8 @@ from aiogram.types import InlineKeyboardButton
 # (вид совпадения, значение, стиль). Вид: exact | prefix | contains.
 _RULES: tuple[tuple[str, str, str | None], ...] = (
     ('exact', 'back_to_menu', None),
-    ('prefix', 'back', None),
+    ('exact', 'back', None),
+    ('prefix', 'back_', None),
     ('exact', 'noop', None),
     ('exact', 'rules_decline', 'danger'),
     ('exact', 'privacy_policy_decline', 'danger'),
@@ -56,6 +57,12 @@ def _matches(kind: str, pattern: str, data: str) -> bool:
     if kind == 'prefix':
         return data.startswith(pattern)
     return pattern in data
+
+
+def is_navigation(button: InlineKeyboardButton) -> bool:
+    """«Назад», «в меню» и заглушки: такие кнопки без цвета и без анимированной иконки."""
+    data = button.callback_data
+    return bool(data) and (data in ('back', 'back_to_menu', 'noop') or data.startswith('back_'))
 
 
 def style_for_button(button: InlineKeyboardButton) -> str | None:

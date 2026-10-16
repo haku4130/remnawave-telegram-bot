@@ -73,7 +73,7 @@ def test_emoji_only_label_is_not_emptied():
 
 def test_explicit_style_and_icon_win():
     button = InlineKeyboardButton(
-        text=f'{ROCKET} Купить', callback_data='back_to_menu', style='danger', icon_custom_emoji_id='111'
+        text=f'{ROCKET} Купить', callback_data='trial_activate', style='danger', icon_custom_emoji_id='111'
     )
     out = mw.theme_button(button)
     assert out.style == 'danger'
@@ -176,3 +176,59 @@ def test_registered_in_bot_factory():
     bot = create_bot(token='123456:' + 'A' * 35)
     names = [type(m).__name__ for m in bot.session.middleware._middlewares]
     assert 'PremiumThemeMiddleware' in names
+
+
+HOME = '<tg-emoji emoji-id="5312486108309757006">🏠</tg-emoji>'
+
+
+def test_navigation_button_gets_no_icon_and_no_color():
+    out = mw.theme_button(InlineKeyboardButton(text='🏠 В главное меню', callback_data='back_to_menu'))
+    assert out.text == '🏠 В главное меню'
+    assert out.icon_custom_emoji_id is None
+    assert out.style is None
+
+
+def test_navigation_button_with_tag_falls_back_to_plain():
+    out = mw.theme_button(InlineKeyboardButton(text=f'{HOME} В главное меню', callback_data='back_to_menu'))
+    assert out.text == '🏠 В главное меню'
+    assert out.icon_custom_emoji_id is None
+    assert out.style is None
+
+
+@pytest.mark.asyncio
+async def test_unknown_escaped_tag_stays_escaped():
+    escaped = '&lt;tg-emoji emoji-id=&quot;1234567890123456789&quot;&gt;🚀&lt;/tg-emoji&gt; привет'
+    sent = await _run(EditMessageText(chat_id=1, message_id=2, text=escaped))
+    assert sent.text == escaped
+
+
+def test_restore_escaped_only_known_ids():
+    known = '&lt;tg-emoji emoji-id=&quot;5445284980978621387&quot;&gt;🚀&lt;/tg-emoji&gt;'
+    assert mw.restore_escaped(known) == ROCKET
+
+
+@pytest.mark.asyncio
+async def test_group_chat_gets_color_but_no_icon():
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='🎁 Попробовать', callback_data='trial_activate')]]
+    )
+    sent = await _run(SendMessage(chat_id=-1001234567890, text='x', reply_markup=markup))
+    button = sent.reply_markup.inline_keyboard[0][0]
+    assert button.icon_custom_emoji_id is None
+    assert button.text == '🎁 Попробовать'
+    assert button.style == 'success'
+
+
+@pytest.mark.asyncio
+async def test_inline_message_edit_gets_no_icon():
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='🎁 Попробовать', callback_data='trial_activate')]]
+    )
+    sent = await _run(EditMessageText(inline_message_id='x', text='y', reply_markup=markup))
+    assert sent.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id is None
+
+
+def test_tag_label_without_icons_falls_back_to_plain():
+    out = mw.theme_button(InlineKeyboardButton(text=f'{ROCKET} Go', callback_data='x'), allow_icons=False)
+    assert out.text == '🚀 Go'
+    assert out.icon_custom_emoji_id is None

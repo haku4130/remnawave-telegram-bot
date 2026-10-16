@@ -45,3 +45,18 @@ def test_callback_rules(callback_data, expected):
 def test_non_callback_buttons_have_no_theme_color():
     assert style_for_button(InlineKeyboardButton(text='x', url='https://example.com')) is None
     assert style_for_button(InlineKeyboardButton(text='x', web_app=WebAppInfo(url='https://example.com'))) is None
+
+
+def test_backup_callbacks_are_not_navigation():
+    from app.utils.button_theme import is_navigation
+
+    button = _cb('backup_delete_confirm_1')
+    assert style_for_button(button) == 'danger'
+    assert is_navigation(button) is False
+
+
+@pytest.mark.parametrize('callback_data', ['back', 'back_to_menu', 'back_to_tariffs', 'noop'])
+def test_is_navigation(callback_data):
+    from app.utils.button_theme import is_navigation
+
+    assert is_navigation(_cb(callback_data)) is True
