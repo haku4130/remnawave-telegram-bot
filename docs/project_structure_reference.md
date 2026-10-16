@@ -1311,9 +1311,10 @@
 - `app/localization/emoji_catalog.py` — Python-модуль
   Классы: `CatalogEmoji`
   Функции: `tag` — HTML-тег кастомного эмодзи с запасным символом внутри., `by_unicode` — Запись каталога по обычному эмодзи (вариационный селектор U+FE0F не важен).
+- `app/localization/fork/`
 - `app/localization/loader.py` — Python-модуль
   Классы: нет
-  Функции: `ensure_locale_templates`, `load_locale`, `clear_locale_cache`
+  Функции: `ensure_locale_templates`, `resolve_emoji_markers` — {e:имя} → <tg-emoji> из каталога. Делается при загрузке, до любого .format():, `load_locale`, `clear_locale_cache`
 - `app/localization/locales/`
 - `app/localization/texts.py` — Python-модуль
   Классы: `Texts` (9 методов)
@@ -1323,6 +1324,11 @@
 
 - `app/localization/default_locales/en.yml` — файл
 - `app/localization/default_locales/ru.yml` — файл
+
+#### app/localization/fork
+
+- `app/localization/fork/en.json` — файл
+- `app/localization/fork/ru.json` — файл
 
 #### app/localization/locales
 
@@ -3872,6 +3878,9 @@
 - `tests/localization/test_emoji_catalog.py` — Python-модуль
   Классы: нет
   Функции: `test_ids_are_numeric_and_names_are_snake_case`, `test_fallbacks_are_unique_single_emoji`, `test_tag_renders_tg_emoji_with_fallback`, `test_tag_unknown_name_raises_value_error`, `test_by_unicode_ignores_variation_selector`, `test_module_exposes_only_public_api`
+- `tests/localization/test_fork_locale.py` — Python-модуль
+  Классы: нет
+  Функции: `theme_on`, `theme_off`, `test_fork_files_have_identical_keys`, `test_fork_keys_exist_upstream_or_are_prefixed`, `test_fork_values_are_strings_with_known_emoji`, `test_fork_placeholders_match_upstream`, `test_fork_placeholders_match_between_languages`, `test_resolve_emoji_markers`, `test_fork_layer_overrides_upstream_when_enabled`, `test_fork_layer_skipped_when_disabled`, `test_unknown_emoji_keeps_upstream_value_and_does_not_crash`, `test_server_overrides_still_win_over_fork`
 
 ### tests/middlewares
 

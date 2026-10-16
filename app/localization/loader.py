@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from functools import cache
@@ -11,6 +12,7 @@ from typing import Any
 import structlog
 
 from app.config import settings
+from app.localization.emoji_catalog import tag
 
 
 _logger = structlog.get_logger(__name__)
@@ -19,6 +21,12 @@ _FALLBACK_LANGUAGE = 'ru'
 
 _BASE_DIR = Path(__file__).resolve().parent
 _DEFAULT_LOCALES_DIR = _BASE_DIR / 'locales'
+
+# Тексты форка: переписанные ключи апстрима и новые (FORK_*). Слой лежит между
+# апстримом и пользовательскими файлами LOCALES_PATH и включается флагом
+# PREMIUM_THEME_ENABLED — так файлы апстрима не меняются и синк не конфликтует.
+FORK_LOCALES_DIR = _BASE_DIR / 'fork'
+_EMOJI_MARKER_RE = re.compile(r'\{e:([^}]*)\}')
 
 
 def _normalize_language_code(value: Any) -> str:
@@ -254,6 +262,33 @@ def _load_user_locale(language: str) -> dict[str, Any]:
     return {}
 
 
+def resolve_emoji_markers(value: str) -> str:
+    """{e:имя} → <tg-emoji> из каталога. Делается при загрузке, до любого .format():
+    иначе .format() прочёл бы {e:rocket} как поле «e»."""
+    return _EMOJI_MARKER_RE.sub(lambda match: tag(match.group(1)), value)
+
+
+def _load_fork_locale(language: str) -> dict[str, Any]:
+    if not settings.PREMIUM_THEME_ENABLED:
+        return {}
+    path = FORK_LOCALES_DIR / f'{language}.json'
+    if not path.exists():
+        return {}
+
+    resolved: dict[str, Any] = {}
+    for key, value in _normalize_locale_dict(_load_locale_file(path)).items():
+        if not isinstance(value, str):
+            resolved[key] = value
+            continue
+        try:
+            resolved[key] = resolve_emoji_markers(value)
+        except ValueError as error:
+            # Опечатка в имени эмодзи не должна ронять все тексты бота: ключ
+            # остаётся апстримным, а тест fork-локалей в CI падает.
+            _logger.error('Ключ форка пропущен: неизвестный эмодзи', key=key, language=language, error=str(error))
+    return resolved
+
+
 def _load_locale_file(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     try:
@@ -289,8 +324,9 @@ def _merge_dicts(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, A
 def load_locale(language: str) -> dict[str, Any]:
     language = language or DEFAULT_LANGUAGE
     defaults = _load_default_locale(language)
+    fork = _load_fork_locale(language)
     overrides = _load_user_locale(language)
-    merged = _merge_dicts(defaults, overrides)
+    merged = _merge_dicts(_merge_dicts(defaults, fork), overrides)
 
     if not merged and language != DEFAULT_LANGUAGE:
         _logger.warning(
