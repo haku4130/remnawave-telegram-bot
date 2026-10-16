@@ -206,15 +206,6 @@ async def test_no_subscription(theme, language, expected):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(('language', 'expected'), [('ru', 'Подписки пока нет'), ('en', 'No subscription yet')])
-async def test_no_subscription(theme, language, expected):
-    html_out = await rich_menu.build_main_menu_rich_html(_make_user(None), get_texts(language), AsyncMock())
-    part = _subscription_part(html_out)
-    assert f'<p>{expected}</p>' in part
-    assert '<table' not in part
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(('language', 'expected'), [('ru', 'Выберите действие'), ('en', 'Choose an option')])
 async def test_footer_text_comes_from_fork(theme, language, expected):
     user = _make_user(_make_subscription(datetime.now(UTC)))
