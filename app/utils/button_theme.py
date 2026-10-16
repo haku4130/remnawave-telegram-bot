@@ -19,6 +19,9 @@ from aiogram.types import InlineKeyboardButton
 _NAV_ARROWS = ('⬅', '◀', '↩', '🔙')
 _VARIATION_SELECTOR = '\ufe0f'
 _LEADING_TG_EMOJI_RE = re.compile(r'^\s*<tg-emoji emoji-id="\d+">(.*?)</tg-emoji>', re.DOTALL)
+# Кнопки «вперёд» к оформлению: подпись может начинаться со стрелки, но это не возврат назад,
+# и они должны оставаться зелёными главными действиями.
+_FORWARD_CTA_CALLBACKS = frozenset({'return_to_saved_cart', 'subscription_resume_checkout', 'return_to_gift_cart'})
 
 
 # (вид совпадения, значение, стиль). Вид: exact | prefix | contains.
@@ -84,6 +87,8 @@ def is_navigation(button: InlineKeyboardButton) -> bool:
     data = button.callback_data
     if data and (data in ('back', 'back_to_menu', 'noop') or data.startswith('back_')):
         return True
+    if data in _FORWARD_CTA_CALLBACKS:
+        return False
     return _label_is_navigation(button.text)
 
 

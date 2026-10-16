@@ -102,5 +102,6 @@
   "SUBSCRIPTION_REVOKE_CONFIRM_BTN": "{e:refresh} Reissue",
   "SUBSCRIPTION_REVOKE_SUCCESS": "<b>{e:check} Subscription reissued</b>\nYour new link is ready and the old one no longer works.\nAll devices were disconnected — connect them again.",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "{e:rocket} Connect",
-  "SUBSCRIPTION_REVOKE_ERROR": "<b>{e:cross} Couldn’t reissue the subscription</b>\nPlease try again a little later."
+  "SUBSCRIPTION_REVOKE_ERROR": "<b>{e:cross} Couldn’t reissue the subscription</b>\nPlease try again a little later.",
+  "RETURN_TO_SUBSCRIPTION_CHECKOUT": "{e:cart} Back to checkout"
 }

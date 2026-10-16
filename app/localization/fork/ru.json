@@ -102,5 +102,6 @@
   "SUBSCRIPTION_REVOKE_CONFIRM_BTN": "{e:refresh} Перевыпустить",
   "SUBSCRIPTION_REVOKE_SUCCESS": "<b>{e:check} Подписка перевыпущена</b>\nНовая ссылка готова, старая больше не работает.\nВсе устройства отключены — подключите их заново.",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "{e:rocket} Подключиться",
-  "SUBSCRIPTION_REVOKE_ERROR": "<b>{e:cross} Не удалось перевыпустить подписку</b>\nПопробуйте чуть позже."
+  "SUBSCRIPTION_REVOKE_ERROR": "<b>{e:cross} Не удалось перевыпустить подписку</b>\nПопробуйте чуть позже.",
+  "RETURN_TO_SUBSCRIPTION_CHECKOUT": "{e:cart} Вернуться к оформлению"
 }

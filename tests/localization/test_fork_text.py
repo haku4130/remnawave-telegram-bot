@@ -123,3 +123,11 @@ def test_dynamic_support_info_stays_without_theme(theme_off, monkeypatch, tmp_pa
 def test_fork_keys_empty_without_theme(theme_off, monkeypatch, tmp_path):
     _fork_dir(monkeypatch, tmp_path, {'ru': {'FORK_X': 'x'}})
     assert loader.fork_keys('ru') == frozenset()
+
+
+@pytest.mark.parametrize('lang', ['ru', 'en'])
+def test_checkout_return_button_is_not_an_arrow_when_theme_on(theme_on, lang):
+    label = get_texts(lang).RETURN_TO_SUBSCRIPTION_CHECKOUT
+    assert not label.startswith(('⬅', '◀', '↩', '🔙'))
+    assert '{e:' not in label
+    assert '<tg-emoji emoji-id=' in label

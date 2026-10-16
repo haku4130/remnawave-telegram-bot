@@ -57,8 +57,6 @@ def test_backup_callbacks_are_not_navigation():
 
 @pytest.mark.parametrize('callback_data', ['back', 'back_to_menu', 'back_to_tariffs', 'noop'])
 def test_is_navigation(callback_data):
-    from app.utils.button_theme import is_navigation
-
     assert is_navigation(_cb(callback_data)) is True
 
 
@@ -93,3 +91,18 @@ def test_regular_label_keeps_callback_colour():
     button = InlineKeyboardButton(text='🚀 Подключиться', callback_data='subscription_connect')
     assert is_navigation(button) is False
     assert style_for_button(button) == 'success'
+
+
+@pytest.mark.parametrize(
+    ('callback_data', 'expected_style'),
+    [('return_to_saved_cart', 'success'), ('subscription_resume_checkout', 'success')],
+)
+def test_forward_checkout_with_arrow_label_keeps_colour(callback_data, expected_style):
+    button = InlineKeyboardButton(text='⬅️ Вернуться к оформлению подписки', callback_data=callback_data)
+    assert is_navigation(button) is False
+    assert style_for_button(button) == expected_style
+
+
+def test_gift_return_with_arrow_label_is_not_navigation():
+    button = InlineKeyboardButton(text='⬅️ Вернуться к подарку', callback_data='return_to_gift_cart')
+    assert is_navigation(button) is False

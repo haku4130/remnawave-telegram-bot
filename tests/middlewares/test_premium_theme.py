@@ -341,3 +341,11 @@ def test_regular_button_still_gets_success_colour():
 def test_explicit_style_is_kept_on_non_navigation_button():
     out = mw.theme_button(InlineKeyboardButton(text='Go', callback_data='menu_subscription', style='danger'))
     assert out.style == 'danger'
+
+
+def test_forward_checkout_button_keeps_success_colour():
+    out = mw.theme_button(
+        InlineKeyboardButton(text='⬅️ Вернуться к оформлению подписки', callback_data='return_to_saved_cart')
+    )
+    assert out.text == '⬅️ Вернуться к оформлению подписки'
+    assert out.style == 'success'
