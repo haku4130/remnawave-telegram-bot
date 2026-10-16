@@ -392,7 +392,7 @@ def _extend_screens(language: str) -> list[PreviewScreen]:
         ),
         PreviewScreen(
             'Продление — не хватает средств',
-            tariff_purchase._extend_insufficient_text(texts, tariff, period, price, balance, still=False)
+            tariff_purchase._tariff_insufficient_text(texts, tariff, period, price, balance, still=False)
             + texts.t('TARIFF_RENEW_CART_SAVED_HINT', ''),
             tariff_purchase.get_tariff_extend_insufficient_balance_keyboard(
                 tariff.id, subscription.id, period, language, missing_kopeks=price - balance
@@ -413,6 +413,73 @@ def _extend_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+def _purchase_screens(language: str) -> list[PreviewScreen]:
+    """Покупка: список тарифов, срок, подтверждение, не хватает средств, готово — теми же сборщиками, что у бота."""
+    texts = get_texts(language)
+    ru = language == 'ru'
+    standard = SimpleNamespace(
+        id=1,
+        name='Стандартный' if ru else 'Standard',
+        description='Для телефона, компьютера и ТВ' if ru else 'For phone, computer and TV',
+        traffic_limit_gb=0,
+        device_limit=3,
+        device_price_kopeks=5500,
+        is_daily=False,
+        is_highlighted=True,
+        highlight_period_days=90,
+        period_prices={'30': 19900, '90': 49900, '180': 89900},
+    )
+    plus = SimpleNamespace(
+        id=2,
+        name='Семейный' if ru else 'Family',
+        description='',
+        traffic_limit_gb=500,
+        device_limit=8,
+        device_price_kopeks=5500,
+        is_daily=False,
+        is_highlighted=False,
+        highlight_period_days=None,
+        period_prices={'30': 34900, '90': 89900},
+    )
+    user = SimpleNamespace(language=language, get_primary_promo_group=lambda: None)
+    subscription = _fake_subscription(30)
+    period = 30
+    price = 19900
+    balance = 5000
+    end_date = datetime.now(UTC) + timedelta(days=period)
+
+    return [
+        PreviewScreen(
+            'Покупка — список тарифов',
+            tariff_purchase.format_tariffs_list_text([standard, plus], user),
+            tariff_purchase.get_tariffs_keyboard([standard, plus], language),
+        ),
+        PreviewScreen(
+            'Покупка — выбор срока',
+            tariff_purchase.format_tariff_info_for_user(standard, language),
+            tariff_purchase.get_tariff_periods_keyboard(standard, language, db_user=user),
+        ),
+        PreviewScreen(
+            'Покупка — подтверждение',
+            tariff_purchase._purchase_confirm_text(texts, standard, 3, period, 0, 0, price, 100000),
+            tariff_purchase.get_tariff_confirm_keyboard(standard.id, period, language),
+        ),
+        PreviewScreen(
+            'Покупка — не хватает средств',
+            tariff_purchase._tariff_insufficient_text(texts, standard, period, price, balance, still=False)
+            + texts.t('TARIFF_PURCHASE_CART_SAVED_HINT', ''),
+            tariff_purchase.get_tariff_insufficient_balance_keyboard(
+                standard.id, period, language, missing_kopeks=price - balance
+            ),
+        ),
+        PreviewScreen(
+            'Покупка — готово',
+            tariff_purchase._purchase_success_text(texts, standard, period, price, end_date),
+            tariff_purchase._purchase_success_keyboard(texts, subscription),
+        ),
+    ]
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -420,6 +487,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_subscription_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_device_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_extend_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(_purchase_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

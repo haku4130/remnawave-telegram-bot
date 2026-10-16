@@ -126,5 +126,22 @@
   "BUY_TARIFF_BUTTON": "{e:gem} Купить тариф",
   "FORK_EXTEND_CHOOSE_TARIFF": "<b>{e:gem} Выберите тариф</b>\nЧтобы пользоваться VPN дальше, оформите подписку.",
   "FORK_EXTEND_LEGACY": "<b>{e:gem} Выберите тариф для продления</b>\nПодписка оформлена до появления тарифов. Текущий срок сохранится.",
-  "FORK_BUTTON_CLOSE": "Закрыть"
+  "FORK_BUTTON_CLOSE": "Закрыть",
+  "TARIFF_PURCHASE_LIST_TITLE": "<b>{e:gem} Выберите тариф</b>",
+  "TARIFF_PURCHASE_PERIOD_DISCOUNTS_HINT": "Скидка зависит от срока.",
+  "FORK_TARIFF_LIST_ROW": "<b>{name}</b> — {traffic} · {devices} устр. · {price}",
+  "TARIFF_PURCHASE_NO_TARIFFS": "<b>{e:hourglass} Тарифов пока нет</b>\nСейчас нечего купить — загляните позже.",
+  "TARIFF_PURCHASE_INFO": "<b>{e:gem} {name}</b>\nТрафик: {traffic} · Устройств: {devices}",
+  "TARIFF_PURCHASE_YOUR_DISCOUNT": "\nВаша скидка: <b>{percent}%</b>",
+  "TARIFF_PURCHASE_CHOOSE_PERIOD": "\n\nВыберите срок подписки.",
+  "TARIFF_PURCHASE_TRAFFIC_SETUP_HINT": "\nТрафик настроите после выбора срока.",
+  "TARIFF_PURCHASE_CONFIRM": "<b>{e:gem} Оформить подписку?</b>\nТариф: <b>{name}</b>\nТрафик: {traffic} · Устройств: {devices}\nСрок: {period}{discount}\nК оплате: <b>{total}</b>\nБаланс: {balance} → останется {after}",
+  "TARIFF_PURCHASE_CONFIRM_BUTTON": "{e:check} Подтвердить",
+  "TARIFF_PURCHASE_CART_SAVED_HINT": "\nПополните баланс — оформим автоматически.",
+  "FORK_PURCHASE_SUCCESS": "<b>{e:party} Подписка оформлена до {date}</b>\nТариф: <b>{name}</b>\nТрафик: {traffic} · Устройств: {devices}\nСписано <b>{price}</b> за {period}",
+  "TARIFF_PURCHASE_ERROR": "<b>{e:cross} Не удалось оформить подписку</b>\nЕсли деньги списались, а подписки нет — напишите в поддержку.",
+  "TARIFF_PURCHASE_ALREADY_ACTIVE_SUB": "<b>{e:cross} Этот тариф уже подключён</b>\nДеньги вернулись на баланс.",
+  "TARIFF_PURCHASE_CART_CORRUPTED": "Данные корзины повреждены",
+  "TARIFF_PURCHASE_NO_LONGER_AVAILABLE": "Тариф больше недоступен",
+  "FORK_CART_NOT_FOUND": "Корзина уже обработана или устарела"
 }

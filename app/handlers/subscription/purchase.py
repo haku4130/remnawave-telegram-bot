@@ -1636,11 +1636,13 @@ async def return_to_saved_cart(callback: types.CallbackQuery, state: FSMContext,
     # Получаем данные корзины из Redis
     cart_data = await user_cart_service.get_user_cart(db_user.id)
 
-    if not cart_data:
-        await callback.answer('❌ Сохраненная корзина не найдена', show_alert=True)
-        return
-
     texts = get_texts(db_user.language)
+
+    if not cart_data:
+        await callback.answer(
+            fork_text(texts, 'FORK_CART_NOT_FOUND', '❌ Сохраненная корзина не найдена'), show_alert=True
+        )
+        return
 
     # Проверяем режим корзины - если это тарифная корзина, перенаправляем на соответствующий обработчик
     cart_mode = cart_data.get('cart_mode')

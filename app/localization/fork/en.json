@@ -126,5 +126,22 @@
   "BUY_TARIFF_BUTTON": "{e:gem} Buy a plan",
   "FORK_EXTEND_CHOOSE_TARIFF": "<b>{e:gem} Choose a plan</b>\nTo keep using the VPN, get a subscription.",
   "FORK_EXTEND_LEGACY": "<b>{e:gem} Choose a plan to renew</b>\nThis subscription was created before plans existed. Your current term is kept.",
-  "FORK_BUTTON_CLOSE": "Close"
+  "FORK_BUTTON_CLOSE": "Close",
+  "TARIFF_PURCHASE_LIST_TITLE": "<b>{e:gem} Choose a plan</b>",
+  "TARIFF_PURCHASE_PERIOD_DISCOUNTS_HINT": "The discount depends on the period.",
+  "FORK_TARIFF_LIST_ROW": "<b>{name}</b> — {traffic} · {devices} devices · {price}",
+  "TARIFF_PURCHASE_NO_TARIFFS": "<b>{e:hourglass} No plans yet</b>\nThere is nothing to buy right now — check back later.",
+  "TARIFF_PURCHASE_INFO": "<b>{e:gem} {name}</b>\nTraffic: {traffic} · Devices: {devices}",
+  "TARIFF_PURCHASE_YOUR_DISCOUNT": "\nYour discount: <b>{percent}%</b>",
+  "TARIFF_PURCHASE_CHOOSE_PERIOD": "\n\nChoose a subscription period.",
+  "TARIFF_PURCHASE_TRAFFIC_SETUP_HINT": "\nYou will set up traffic after choosing a period.",
+  "TARIFF_PURCHASE_CONFIRM": "<b>{e:gem} Buy the subscription?</b>\nPlan: <b>{name}</b>\nTraffic: {traffic} · Devices: {devices}\nPeriod: {period}{discount}\nTo pay: <b>{total}</b>\nBalance: {balance} → {after} left",
+  "TARIFF_PURCHASE_CONFIRM_BUTTON": "{e:check} Confirm",
+  "TARIFF_PURCHASE_CART_SAVED_HINT": "\nTop up your balance — we will activate it automatically.",
+  "FORK_PURCHASE_SUCCESS": "<b>{e:party} Subscription active until {date}</b>\nPlan: <b>{name}</b>\nTraffic: {traffic} · Devices: {devices}\nCharged <b>{price}</b> for {period}",
+  "TARIFF_PURCHASE_ERROR": "<b>{e:cross} Could not set up the subscription</b>\nIf you were charged but have no subscription, contact support.",
+  "TARIFF_PURCHASE_ALREADY_ACTIVE_SUB": "<b>{e:cross} This plan is already active</b>\nThe money was returned to your balance.",
+  "TARIFF_PURCHASE_CART_CORRUPTED": "Cart data is corrupted",
+  "TARIFF_PURCHASE_NO_LONGER_AVAILABLE": "This plan is no longer available",
+  "FORK_CART_NOT_FOUND": "The cart was already processed or has expired"
 }

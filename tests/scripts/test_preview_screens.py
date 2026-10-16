@@ -421,3 +421,57 @@ async def test_extend_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in EXTEND_TITLES)
+
+
+PURCHASE_TITLES = (
+    'Покупка — список тарифов',
+    'Покупка — выбор срока',
+    'Покупка — подтверждение',
+    'Покупка — не хватает средств',
+    'Покупка — готово',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_purchase_screens_present(theme_on, monkeypatch, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    monkeypatch.setattr(settings, 'SALES_MODE', 'tariffs')
+    monkeypatch.setattr(settings, 'CONNECT_BUTTON_MODE', 'miniapp_subscription')
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in PURCHASE_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.startswith('<b>'), title
+        assert '<blockquote' not in screen.text, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        assert screen.text.count('<tg-emoji') <= 2, title
+        buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+        assert sum(1 for button in buttons if button.style == 'success') <= 1, title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', screen.text.replace('₽', '')), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text.replace('₽', '')) for button in buttons), title
+    for title in PURCHASE_TITLES[2:]:
+        buttons = [b for row in theme_markup(screens[title].markup).inline_keyboard for b in row]
+        assert sum(1 for button in buttons if button.style == 'success') == 1, title
+    assert 'tariff_period:1:30' in [
+        b.callback_data for row in screens['Покупка — выбор срока'].markup.inline_keyboard for b in row
+    ]
+    success = screens['Покупка — готово']
+    assert re.search(r'\d{2}\.\d{2}\.\d{4}', success.text)
+    assert success.markup.inline_keyboard[0][0].web_app is not None
+
+
+@pytest.mark.asyncio
+async def test_purchase_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in PURCHASE_TITLES)
