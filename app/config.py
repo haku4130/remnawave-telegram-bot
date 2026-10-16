@@ -1273,6 +1273,14 @@ class Settings(BaseSettings):
     SKIP_RULES_ACCEPT: bool = False
     SKIP_REFERRAL_CODE: bool = False
 
+    # Оформление под Telegram Premium владельца бота (форк): тексты из
+    # app/localization/fork/, анимированные иконки и цвета кнопок через
+    # PremiumThemeMiddleware, новый путь новичка. Выключение — мгновенный откат.
+    PREMIUM_THEME_ENABLED: bool = False
+    # Язык нового пользователя — из настроек Telegram (language_code), без экрана
+    # выбора. Кнопка «Язык» в меню по-прежнему зависит от LANGUAGE_SELECTION_ENABLED.
+    LANGUAGE_AUTO_DETECT: bool = False
+
     DEFAULT_LANGUAGE: str = 'ru'
     AVAILABLE_LANGUAGES: str = 'ru,en,ua,zh,fa'
     LANGUAGE_SELECTION_ENABLED: bool = True

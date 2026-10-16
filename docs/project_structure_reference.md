@@ -1308,6 +1308,9 @@
 ### app/localization
 
 - `app/localization/default_locales/`
+- `app/localization/emoji_catalog.py` — Python-модуль
+  Классы: `CatalogEmoji`
+  Функции: `tag` — HTML-тег кастомного эмодзи с запасным символом внутри., `by_unicode` — Запись каталога по обычному эмодзи (вариационный селектор U+FE0F не важен).
 - `app/localization/loader.py` — Python-модуль
   Классы: нет
   Функции: `ensure_locale_templates`, `load_locale`, `clear_locale_cache`
@@ -2486,10 +2489,12 @@
 #### docs/superpowers/plans
 
 - `docs/superpowers/plans/2026-08-22-remnawave-major-upgrade.md` — файл
+- `docs/superpowers/plans/2026-10-16-premium-bot-redesign-stage-1-2.md` — файл
 
 #### docs/superpowers/specs
 
 - `docs/superpowers/specs/2026-08-22-remnawave-major-upgrade-design.md` — файл
+- `docs/superpowers/specs/2026-10-16-premium-bot-redesign-design.md` — файл
 
 ## migrations
 
@@ -2898,6 +2903,7 @@
 - `tests/handlers/`
 - `tests/integration/`
 - `tests/live/`
+- `tests/localization/`
 - `tests/middlewares/`
 - `tests/services/`
 - `tests/test_config_languages.py` — Python-модуль
@@ -3857,6 +3863,15 @@
 - `tests/live/test_bschek_live.py` — Python-модуль
   Классы: нет
   Функции: `api_key`, `test_operators_shape_and_catalog_parsing`, `test_openapi_core_versions_match_constant` — Версии ядер Xray живут только в описании параметра ``core`` OpenAPI — сверяем константу с ним., `test_account_shape_without_secret`, `test_probe_preview_breakdown`, `test_probe_preview_sni_needs_both_fields`, `test_validation_codes_still_the_same`, `test_scan_preview_rejects_non_24`, `test_scan_preview_shape`, `test_bad_key_is_unauthenticated`
+
+### tests/localization
+
+- `tests/localization/__init__.py` — Python-модуль
+  Классы: нет
+  Функции: нет
+- `tests/localization/test_emoji_catalog.py` — Python-модуль
+  Классы: нет
+  Функции: `test_ids_are_numeric_and_names_are_snake_case`, `test_fallbacks_are_unique_single_emoji`, `test_tag_renders_tg_emoji_with_fallback`, `test_tag_unknown_name_raises_value_error`, `test_by_unicode_ignores_variation_selector`, `test_module_exposes_only_public_api`
 
 ### tests/middlewares
 
