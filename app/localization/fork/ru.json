@@ -1,1 +1,5 @@
-{}
+{
+  "FORK_DAYS_ONE": "{n} день",
+  "FORK_DAYS_FEW": "{n} дня",
+  "FORK_DAYS_MANY": "{n} дней"
+}

@@ -1131,6 +1131,35 @@ async def _prompt_language_selection(message: types.Message, state: FSMContext) 
     )
 
 
+async def _resolve_new_user_language(message: types.Message, state: FSMContext) -> bool:
+    """Язык нового пользователя. False — показан экран выбора языка, регистрация ждёт ответа."""
+    data = await state.get_data() or {}
+    if data.get('language'):
+        return True
+
+    auto_language = None
+    if settings.LANGUAGE_AUTO_DETECT:
+        from app.utils.fork_onboarding import resolve_auto_language
+
+        auto_language = resolve_auto_language(
+            getattr(message.from_user, 'language_code', None), settings.get_available_languages()
+        )
+
+    if not auto_language and settings.is_language_selection_enabled():
+        await _prompt_language_selection(message, state)
+        return False
+
+    default_language = (
+        (settings.DEFAULT_LANGUAGE or DEFAULT_LANGUAGE)
+        if isinstance(settings.DEFAULT_LANGUAGE, str)
+        else DEFAULT_LANGUAGE
+    )
+    data['language'] = auto_language or default_language.split('-')[0].lower()
+    await state.set_data(data)
+    logger.info('🌐 LANGUAGE: язык нового пользователя', language=data['language'], auto=bool(auto_language))
+    return True
+
+
 async def _continue_registration_after_language(
     *,
     message: types.Message | None,
@@ -1752,24 +1781,8 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
     else:
         logger.info('🆕 Новый пользователь, начинаем регистрацию')
 
-    data = await state.get_data() or {}
-    if not data.get('language'):
-        if settings.is_language_selection_enabled():
-            await _prompt_language_selection(message, state)
-            return
-
-        default_language = (
-            (settings.DEFAULT_LANGUAGE or DEFAULT_LANGUAGE)
-            if isinstance(settings.DEFAULT_LANGUAGE, str)
-            else DEFAULT_LANGUAGE
-        )
-        normalized_default = default_language.split('-')[0].lower()
-        data['language'] = normalized_default
-        await state.set_data(data)
-        logger.info(
-            '🌐 LANGUAGE: выбор языка отключен, устанавливаем язык по умолчанию',
-            normalized_default=normalized_default,
-        )
+    if not await _resolve_new_user_language(message, state):
+        return
 
     await _continue_registration_after_language(
         message=message,
