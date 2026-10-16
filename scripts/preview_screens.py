@@ -18,6 +18,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,6 +28,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 from app.bot_factory import create_bot
 from app.config import settings
 from app.database.models import Subscription
+from app.handlers import referral as referral_handler
 from app.handlers.balance import main as balance_main, rollypay as rollypay_handler
 from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
@@ -44,7 +46,7 @@ from app.localization.emoji_catalog import CATALOG, tag
 from app.localization.fork_text import fork_period, fork_traffic
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
-from app.services import subscription_auto_purchase_service as auto_purchase
+from app.services import referral_service, subscription_auto_purchase_service as auto_purchase
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
 from app.services.monitoring_service import MonitoringService
 from app.services.notification_delivery_service import notification_delivery_service
@@ -778,6 +780,164 @@ async def _webhook_notification_screens(language: str) -> list[PreviewScreen]:
     return screens
 
 
+async def _referral_screens(language: str) -> list[PreviewScreen]:
+    """Реферальная программа: теми же обработчиками и сборщиками, что у бота, на выдуманных данных (без БД)."""
+    ru = language == 'ru'
+    user = SimpleNamespace(
+        id=0,
+        language=language,
+        telegram_id=42,
+        referral_code='ZNT7K2',
+        referral_commission_percent=None,
+        full_name='Андрей' if ru else 'Andrew',
+    )
+    friend = SimpleNamespace(language=language, full_name='Иван' if ru else 'Ivan')
+    names = ('Иван', 'Мария', 'Олег') if ru else ('Ivan', 'Maria', 'Oleg')
+    summary = {
+        'invited_count': 5,
+        'paid_referrals_count': 3,
+        'active_referrals_count': 4,
+        'conversion_rate': 60.0,
+        'total_earned_kopeks': 125000,
+        'total_earned_days': 0,
+        'month_earned_kopeks': 45000,
+        'month_earned_days': 0,
+        'recent_earnings': [
+            {
+                'amount_kopeks': 2500,
+                'reason': 'referral_commission_topup',
+                'referral_name': names[0],
+                'days_granted': 0,
+            },
+            {'amount_kopeks': 20000, 'reason': 'referral_first_topup', 'referral_name': names[1], 'days_granted': 0},
+            {
+                'amount_kopeks': 2500,
+                'reason': 'referral_commission_topup',
+                'referral_name': names[2],
+                'days_granted': 0,
+            },
+        ],
+        'earnings_by_type': {},
+    }
+    referrals = [
+        {
+            'full_name': names[0],
+            'status': 'active',
+            'topups_count': 4,
+            'total_earned_kopeks': 60000,
+            'days_earned': 0,
+        },
+        {
+            'full_name': names[1],
+            'status': 'active',
+            'topups_count': 1,
+            'total_earned_kopeks': 20000,
+            'days_earned': 0,
+        },
+        {
+            'full_name': names[2],
+            'status': 'inactive',
+            'topups_count': 0,
+            'total_earned_kopeks': 0,
+            'days_earned': 0,
+        },
+    ]
+    analytics = {
+        'earnings_by_period': {'today': 2500, 'week': 12000, 'month': 45000, 'quarter': 125000},
+        'days_by_period': {},
+        'top_referrals': [
+            {'referral_name': names[0], 'total_earned_kopeks': 60000, 'total_earned_days': 0, 'earnings_count': 4},
+            {'referral_name': names[1], 'total_earned_kopeks': 20000, 'total_earned_days': 0, 'earnings_count': 1},
+        ],
+    }
+    sent: dict = {}
+
+    async def capture(callback, text, keyboard, parse_mode='HTML', **kwargs):
+        sent['text'], sent['markup'] = text, keyboard
+
+    def callback() -> MagicMock:
+        fake = MagicMock()
+        fake.answer = AsyncMock()
+        fake.bot.get_me = AsyncMock(return_value=SimpleNamespace(username='zanity_vpn_bot'))
+        fake.message.edit_media = AsyncMock()
+        return fake
+
+    def page(rows: list[dict]) -> dict:
+        return {
+            'referrals': rows,
+            'total_count': len(rows),
+            'has_next': False,
+            'has_prev': False,
+            'current_page': 1,
+            'total_pages': 1,
+        }
+
+    screens: list[PreviewScreen] = []
+    with (
+        patch.object(referral_handler, 'edit_or_answer_photo', capture),
+        patch.object(
+            type(settings), 'get_cabinet_referral_link', lambda self, code: f'https://my.zanityvpn.com/?ref={code}'
+        ),
+        patch.object(referral_handler, 'get_user_referral_summary', AsyncMock(return_value=summary)),
+        patch.object(referral_handler, 'get_referral_analytics', AsyncMock(return_value=analytics)),
+    ):
+        await referral_handler.show_referral_info(callback(), user, MagicMock())
+        screens.append(PreviewScreen('Рефералы — главный экран', sent['text'], sent['markup']))
+
+        for title, rows in (('Рефералы — список', referrals), ('Рефералы — пустой список', [])):
+            with patch.object(referral_handler, 'get_detailed_referral_list', AsyncMock(return_value=page(rows))):
+                await referral_handler.show_detailed_referral_list(callback(), user, MagicMock())
+            screens.append(PreviewScreen(title, sent['text'], sent['markup']))
+
+        await referral_handler.show_referral_analytics(callback(), user, MagicMock())
+        screens.append(PreviewScreen('Рефералы — аналитика', sent['text'], sent['markup']))
+
+        await referral_handler.create_invite_message(callback(), user, MagicMock())
+        screens.append(PreviewScreen('Рефералы — приглашение', sent['text'], sent['markup']))
+
+        # QR уходит фото с подписью; в предпросмотре подпись — обычным сообщением, картинку рисует настоящая функция.
+        with (
+            tempfile.TemporaryDirectory() as workdir,
+            patch('app.handlers.referral.Path', lambda *a: Path(workdir, *a)),
+        ):
+            qr_callback = callback()
+            await referral_handler.show_referral_qr(qr_callback, user)
+        media = qr_callback.message.edit_media.await_args
+        screens.append(PreviewScreen('Рефералы — QR (подпись)', media.args[0].caption, media.kwargs['reply_markup']))
+
+    percent = referral_service.get_effective_referral_commission_percent(user)
+    screens += [
+        PreviewScreen(
+            'Реферал — приглашённому: добро пожаловать',
+            referral_service._fork_welcome_notification(friend, user.full_name),
+            None,
+        ),
+        PreviewScreen(
+            'Реферал — пригласившему: новый реферал',
+            referral_service._fork_new_referral_notification(user, friend.full_name, percent),
+            None,
+        ),
+        PreviewScreen(
+            'Реферал — приглашённому: бонус',
+            referral_service._fork_first_topup_bonus_notification(friend),
+            None,
+        ),
+        PreviewScreen(
+            'Реферал — пригласившему: награда за первое пополнение',
+            referral_service._fork_first_topup_reward_notification(
+                user, friend.full_name, 50000, 22500, 12500, percent
+            ),
+            None,
+        ),
+        PreviewScreen(
+            'Реферал — пригласившему: комиссия',
+            referral_service._fork_commission_notification(user, friend.full_name, 30000, 7500, percent),
+            None,
+        ),
+    ]
+    return screens
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -788,6 +948,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_purchase_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _balance_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_topup_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _referral_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _monitoring_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _webhook_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]

@@ -2537,24 +2537,28 @@ def get_autopay_notification_keyboard(subscription_id: int, language: str = DEFA
 def get_referral_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                text=texts.t('CREATE_INVITE_BUTTON', '📝 Создать приглашение'), callback_data='referral_create_invite'
-            )
-        ],
-        [InlineKeyboardButton(text=texts.t('SHOW_QR_BUTTON', '📱 Показать QR код'), callback_data='referral_show_qr')],
-        [
-            InlineKeyboardButton(
-                text=texts.t('REFERRAL_LIST_BUTTON', '👥 Список рефералов'), callback_data='referral_list'
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t('REFERRAL_ANALYTICS_BUTTON', '📊 Аналитика'), callback_data='referral_analytics'
-            )
-        ],
-    ]
+    invite_button = InlineKeyboardButton(
+        text=texts.t('CREATE_INVITE_BUTTON', '📝 Создать приглашение'), callback_data='referral_create_invite'
+    )
+    qr_button = InlineKeyboardButton(
+        text=texts.t('SHOW_QR_BUTTON', '📱 Показать QR код'), callback_data='referral_show_qr'
+    )
+    list_button = InlineKeyboardButton(
+        text=texts.t('REFERRAL_LIST_BUTTON', '👥 Список рефералов'), callback_data='referral_list'
+    )
+    analytics_button = InlineKeyboardButton(
+        text=texts.t('REFERRAL_ANALYTICS_BUTTON', '📊 Аналитика'), callback_data='referral_analytics'
+    )
+
+    if settings.PREMIUM_THEME_ENABLED:
+        # Главное действие экрана — позвать друга (единственная зелёная кнопка); остальное вторично.
+        keyboard = [
+            [invite_button.model_copy(update={'style': 'success'})],
+            [list_button, analytics_button],
+            [qr_button],
+        ]
+    else:
+        keyboard = [[invite_button], [qr_button], [list_button], [analytics_button]]
 
     # Кнопка появляется, только когда админ разрешил хотя бы одну из настроек:
     # экран, на котором нечего менять, обещает влияние, которого нет.

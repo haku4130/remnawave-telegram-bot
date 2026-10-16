@@ -14,11 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database.models import User
 from app.keyboards.inline import get_referral_keyboard
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService, NotificationCategory
 from app.services.referral_reward_service import format_reward_total
 from app.services.referral_withdrawal_service import referral_withdrawal_service
 from app.states import ReferralWithdrawalStates
+from app.utils.formatting import shorten_text
 from app.utils.photo_message import edit_or_answer_photo
 from app.utils.user_utils import (
     get_detailed_referral_list,
@@ -52,6 +54,153 @@ async def _reward_tariff_names(db) -> dict[int, str]:
     return {row.id: row.name for row in result.all()}
 
 
+# Имена рефералов в списках делят подпись к логотипу (1024 знака) с остальным текстом.
+_FORK_NAME_LIMIT = 30
+_REFERRALS_PER_PAGE = 10
+_FORK_RECENT_EARNINGS = 3
+_FORK_EARNING_REASON_KEYS = {
+    'referral_first_topup': 'REFERRAL_EARNING_REASON_FIRST_TOPUP',
+    'referral_commission_topup': 'REFERRAL_EARNING_REASON_COMMISSION_TOPUP',
+    'referral_commission': 'REFERRAL_EARNING_REASON_COMMISSION_PURCHASE',
+    'referral_registration_reward': 'REFERRAL_EARNING_REASON_REGISTRATION',
+    'referral_days_reward': 'REFERRAL_EARNING_REASON_DAYS',
+    'referral_days_bonus': 'REFERRAL_EARNING_REASON_DAYS_BONUS',
+}
+
+
+def _fork_name(value) -> str:
+    """Имя реферала для списков под темой: укорочено и экранировано."""
+    return html_escape(shorten_text(str(value or ''), _FORK_NAME_LIMIT))
+
+
+def _fork_recent_earning_lines(texts, summary: dict, language: str) -> list[str]:
+    # Награда днями имеет amount_kopeks == 0 by design, поэтому «только с деньгами» нельзя.
+    meaningful = [
+        earning
+        for earning in summary['recent_earnings'][:5]
+        if earning['amount_kopeks'] > 0 or earning.get('days_granted', 0) > 0
+    ][:_FORK_RECENT_EARNINGS]
+    if not meaningful:
+        return []
+
+    lines = ['', texts.FORK_REFERRAL_RECENT_HEADER]
+    for earning in meaningful:
+        reason_key = _FORK_EARNING_REASON_KEYS.get(earning['reason'])
+        reason = texts.t(reason_key, earning['reason']) if reason_key else earning['reason']
+        lines.append(
+            texts.FORK_REFERRAL_RECENT_ITEM.format(
+                reason=reason,
+                amount=format_reward_total(earning['amount_kopeks'], earning.get('days_granted', 0), language),
+                referral_name=_fork_name(earning['referral_name']),
+            )
+        )
+    return lines
+
+
+def _fork_referral_main_text(texts, db_user: User, summary: dict, bot_link: str, cabinet_link: str | None) -> str:
+    """Главный экран под темой: что получаете, сколько пригласили и заработали, ссылка.
+
+    Только для схемы «legacy» (прод): схема уровней рисуется кодом апстрима.
+    """
+    language = db_user.language
+    percent = get_effective_referral_commission_percent(db_user)
+    if percent > 0:
+        lines = [texts.FORK_REFERRAL_TITLE.format(percent=percent)]
+        if settings.REFERRAL_MAX_COMMISSION_PAYMENTS > 0:
+            lines.append(
+                texts.FORK_REFERRAL_COMMISSION_LIMIT.format(max_payments=settings.REFERRAL_MAX_COMMISSION_PAYMENTS)
+            )
+    else:
+        lines = [texts.FORK_REFERRAL_TITLE_PLAIN]
+
+    if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
+        lines.append(
+            texts.FORK_REFERRAL_FRIEND_BONUS.format(
+                bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS),
+                minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
+            )
+        )
+    if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
+        lines.append(
+            texts.FORK_REFERRAL_INVITER_BONUS.format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
+        )
+
+    lines += [
+        '',
+        texts.FORK_REFERRAL_STATS.format(invited=summary['invited_count'], paid=summary['paid_referrals_count']),
+        texts.FORK_REFERRAL_EARNED.format(
+            total=format_reward_total(summary['total_earned_kopeks'], summary.get('total_earned_days', 0), language),
+            month=format_reward_total(summary['month_earned_kopeks'], summary.get('month_earned_days', 0), language),
+        ),
+        '',
+        texts.FORK_REFERRAL_LINK_BOT.format(link=html_escape(bot_link)),
+    ]
+    if cabinet_link:
+        lines.append(texts.FORK_REFERRAL_LINK_CABINET.format(link=html_escape(cabinet_link)))
+    lines.append(texts.FORK_REFERRAL_CODE.format(code=html_escape(str(db_user.referral_code or ''))))
+    lines += _fork_recent_earning_lines(texts, summary, language)
+    return '\n'.join(lines)
+
+
+def _fork_referral_list_text(texts, db_user: User, referrals_data: dict, page: int) -> str:
+    """Страница списка рефералов под темой: по строке на человека."""
+    lines = [texts.FORK_REFERRAL_LIST_TITLE]
+    if referrals_data['total_pages'] > 1:
+        lines.append(
+            texts.FORK_REFERRAL_LIST_PAGE.format(
+                current=referrals_data['current_page'], total=referrals_data['total_pages']
+            )
+        )
+    for index, referral in enumerate(referrals_data['referrals'], (page - 1) * _REFERRALS_PER_PAGE + 1):
+        note = texts.FORK_REFERRAL_LIST_INACTIVE if referral['status'] != 'active' else ''
+        if referral['topups_count'] > 0 or referral['total_earned_kopeks'] > 0 or referral.get('days_earned', 0) > 0:
+            lines.append(
+                texts.FORK_REFERRAL_LIST_ITEM.format(
+                    index=index,
+                    name=_fork_name(referral['full_name']),
+                    earned=format_reward_total(
+                        referral['total_earned_kopeks'], referral.get('days_earned', 0), db_user.language
+                    ),
+                    count=referral['topups_count'],
+                    note=note,
+                )
+            )
+        else:
+            lines.append(
+                texts.FORK_REFERRAL_LIST_ITEM_NEW.format(index=index, name=_fork_name(referral['full_name']), note=note)
+            )
+    return '\n'.join(lines)
+
+
+def _fork_referral_analytics_text(texts, db_user: User, analytics: dict) -> str:
+    """Аналитика под темой: доходы по периодам и лучшие рефералы."""
+    earnings = analytics['earnings_by_period']
+    days = analytics.get('days_by_period') or {}
+    lines = [texts.FORK_REFERRAL_AN_TITLE]
+    for period, template in (
+        ('today', texts.FORK_REFERRAL_AN_TODAY),
+        ('week', texts.FORK_REFERRAL_AN_WEEK),
+        ('month', texts.FORK_REFERRAL_AN_MONTH),
+        ('quarter', texts.FORK_REFERRAL_AN_QUARTER),
+    ):
+        lines.append(
+            template.format(amount=format_reward_total(earnings[period], days.get(period, 0), db_user.language))
+        )
+    if analytics['top_referrals']:
+        lines += ['', texts.FORK_REFERRAL_AN_TOP]
+        for index, top in enumerate(analytics['top_referrals'], 1):
+            lines.append(
+                texts.FORK_REFERRAL_AN_TOP_ITEM.format(
+                    index=index,
+                    name=_fork_name(top['referral_name']),
+                    amount=format_reward_total(
+                        top['total_earned_kopeks'], top.get('total_earned_days', 0), db_user.language
+                    ),
+                )
+            )
+    return '\n'.join(lines)
+
+
 async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     # Проверяем, включена ли реферальная программа
     if not settings.is_referral_program_enabled():
@@ -70,6 +219,15 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
     bot_username = (await callback.bot.get_me()).username
     bot_referral_link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
     cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
+
+    if settings.PREMIUM_THEME_ENABLED and not settings.is_referral_levels_scheme():
+        await edit_or_answer_photo(
+            callback,
+            _fork_referral_main_text(texts, db_user, summary, bot_referral_link, cabinet_referral_link),
+            get_referral_keyboard(db_user.language),
+        )
+        await callback.answer()
+        return
 
     referral_text = (
         texts.t('REFERRAL_PROGRAM_TITLE', '👥 <b>Реферальная программа</b>')
@@ -380,17 +538,21 @@ async def show_referral_qr(
         inline_keyboard=[[types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_referrals')]]
     )
 
+    # Под темой ссылки лежат в <code>, поэтому экранируются; без темы — как у апстрима.
+    def link_value(link: str) -> str:
+        return html_escape(link) if settings.PREMIUM_THEME_ENABLED else link
+
     caption = texts.t(
         'REFERRAL_QR_BOT_LINK',
         '🤖 Ссылка на бота:\n{link}',
-    ).format(link=bot_referral_link)
+    ).format(link=link_value(bot_referral_link))
 
     cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
     if cabinet_referral_link:
         caption += '\n\n' + texts.t(
             'REFERRAL_QR_CABINET_LINK',
             '🌐 Ссылка на кабинет:\n{link}',
-        ).format(link=cabinet_referral_link)
+        ).format(link=link_value(cabinet_referral_link))
 
     try:
         await callback.message.edit_media(
@@ -406,25 +568,9 @@ async def show_referral_qr(
         )
 
 
-async def show_detailed_referral_list(callback: types.CallbackQuery, db_user: User, db: AsyncSession, page: int = 1):
-    texts = get_texts(db_user.language)
-
-    referrals_data = await get_detailed_referral_list(db, db_user.id, limit=10, offset=(page - 1) * 10)
-
-    if not referrals_data['referrals']:
-        await edit_or_answer_photo(
-            callback,
-            texts.t(
-                'REFERRAL_LIST_EMPTY',
-                '📋 У вас пока нет рефералов.\n\nПоделитесь своей реферальной ссылкой, чтобы начать зарабатывать!',
-            ),
-            types.InlineKeyboardMarkup(
-                inline_keyboard=[[types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_referrals')]]
-            ),
-            parse_mode=None,
-        )
-        await callback.answer()
-        return
+def _referral_list_text(texts, db_user: User, referrals_data: dict, page: int) -> str:
+    if settings.PREMIUM_THEME_ENABLED:
+        return _fork_referral_list_text(texts, db_user, referrals_data, page)
 
     text = (
         texts.t(
@@ -494,6 +640,48 @@ async def show_detailed_referral_list(callback: types.CallbackQuery, db_user: Us
 
         text += '\n'
 
+    return text
+
+
+async def show_detailed_referral_list(callback: types.CallbackQuery, db_user: User, db: AsyncSession, page: int = 1):
+    texts = get_texts(db_user.language)
+
+    referrals_data = await get_detailed_referral_list(
+        db, db_user.id, limit=_REFERRALS_PER_PAGE, offset=(page - 1) * _REFERRALS_PER_PAGE
+    )
+
+    if not referrals_data['referrals']:
+        empty_keyboard = [[types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_referrals')]]
+        if settings.PREMIUM_THEME_ENABLED:
+            # Пустой список — самый подходящий момент позвать друга: главное действие здесь одно.
+            empty_keyboard.insert(
+                0,
+                [
+                    types.InlineKeyboardButton(
+                        text=texts.t('CREATE_INVITE_BUTTON', '📝 Создать приглашение'),
+                        callback_data='referral_create_invite',
+                        style='success',
+                    )
+                ],
+            )
+        await edit_or_answer_photo(
+            callback,
+            fork_text(
+                texts,
+                'FORK_REFERRAL_LIST_EMPTY',
+                texts.t(
+                    'REFERRAL_LIST_EMPTY',
+                    '📋 У вас пока нет рефералов.\n\nПоделитесь своей реферальной ссылкой, чтобы начать зарабатывать!',
+                ),
+            ),
+            types.InlineKeyboardMarkup(inline_keyboard=empty_keyboard),
+            parse_mode=None,
+        )
+        await callback.answer()
+        return
+
+    text = _referral_list_text(texts, db_user, referrals_data, page)
+
     keyboard = []
     nav_buttons = []
 
@@ -524,10 +712,9 @@ async def show_detailed_referral_list(callback: types.CallbackQuery, db_user: Us
     await callback.answer()
 
 
-async def show_referral_analytics(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
-    texts = get_texts(db_user.language)
-
-    analytics = await get_referral_analytics(db, db_user.id)
+def _referral_analytics_text(texts, db_user: User, analytics: dict) -> str:
+    if settings.PREMIUM_THEME_ENABLED:
+        return _fork_referral_analytics_text(texts, db_user, analytics)
 
     text = texts.t('REFERRAL_ANALYTICS_TITLE', '📊 <b>Аналитика рефералов</b>') + '\n\n'
 
@@ -621,6 +808,16 @@ async def show_referral_analytics(callback: types.CallbackQuery, db_user: User, 
         '📈 Продолжайте развивать свою реферальную сеть!',
     )
 
+    return text
+
+
+async def show_referral_analytics(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    texts = get_texts(db_user.language)
+
+    analytics = await get_referral_analytics(db, db_user.id)
+
+    text = _referral_analytics_text(texts, db_user, analytics)
+
     await edit_or_answer_photo(
         callback,
         text,
@@ -698,17 +895,19 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User, db
         ]
     )
 
+    # Под темой заголовок, подсказка и цитата идут подряд, без пустых строк между ними.
+    separator = '\n' if settings.PREMIUM_THEME_ENABLED else '\n\n'
     await edit_or_answer_photo(
         callback,
         (
             texts.t('REFERRAL_INVITE_CREATED_TITLE', '📝 <b>Приглашение создано!</b>')
-            + '\n\n'
+            + separator
             + texts.t(
                 'REFERRAL_INVITE_CREATED_INSTRUCTION',
                 'Нажмите на текст ниже, чтобы скопировать:',
             )
-            + '\n\n'
-            f'<blockquote>{invite_html}</blockquote>'
+            + separator
+            + f'<blockquote>{invite_html}</blockquote>'
         ),
         keyboard,
     )

@@ -657,3 +657,59 @@ async def test_notification_screens_absent_without_theme(monkeypatch):
     titles = [screen.title for screen in screens]
     assert not any(title in titles for title in (*MONITORING_NOTIFICATION_TITLES, *WEBHOOK_NOTIFICATION_TITLES))
     assert not any(screen.notify for screen in screens)
+
+
+REFERRAL_TITLES = (
+    'Рефералы — главный экран',
+    'Рефералы — список',
+    'Рефералы — пустой список',
+    'Рефералы — аналитика',
+    'Рефералы — приглашение',
+    'Рефералы — QR (подпись)',
+    'Реферал — приглашённому: добро пожаловать',
+    'Реферал — пригласившему: новый реферал',
+    'Реферал — приглашённому: бонус',
+    'Реферал — пригласившему: награда за первое пополнение',
+    'Реферал — пригласившему: комиссия',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_referral_screens_present(theme_on, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in REFERRAL_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.startswith('<b>'), title
+        assert screen.text.count('<tg-emoji') <= 2, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        buttons = (
+            [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
+        )
+        assert sum(1 for button in buttons if button.style == 'success') <= 1, title
+        if language == 'en':
+            plain = re.sub('<[^>]+>', '', screen.text).replace('₽', '')
+            assert not re.search('[а-яА-ЯёЁ]', plain), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
+
+    main = [b for row in screens['Рефералы — главный экран'].markup.inline_keyboard for b in row]
+    assert main[0].callback_data == 'referral_create_invite' and main[0].style == 'success'
+    assert 'ZNT7K2' in screens['Рефералы — главный экран'].text
+    assert 'tg-emoji' not in screens['Рефералы — приглашение'].text.split('<blockquote>')[1]
+
+
+@pytest.mark.asyncio
+async def test_referral_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in REFERRAL_TITLES)

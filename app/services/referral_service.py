@@ -11,6 +11,7 @@ from app.config import settings
 from app.database.crud.referral import create_referral_earning, get_commission_payment_count, get_user_campaign_id
 from app.database.crud.user import add_user_balance, get_user_by_id
 from app.database.models import ReferralEarning, TransactionType, User
+from app.localization.texts import get_texts
 from app.services.notification_delivery_service import (
     NotificationType,
     notification_delivery_service,
@@ -548,6 +549,97 @@ async def _send_referral_email(
     )
 
 
+# ---------------------------------------------------------------------------
+# Тексты уведомлений под темой форка (app/localization/fork/): язык — получателя.
+# Без темы уходят строки, которые собирают сами вызывающие функции ниже.
+# ---------------------------------------------------------------------------
+
+
+def _fork_texts(recipient):
+    language = getattr(recipient, 'language', None)
+    return get_texts(language) if language else get_texts()
+
+
+def _fork_welcome_notification(referee, referrer_name: str) -> str:
+    """Приглашённому: кто его пригласил и какой бонус ждёт после первого пополнения."""
+    texts = _fork_texts(referee)
+    text = texts.FORK_REFERRAL_NOTIFY_WELCOME.format(referrer=html.escape(referrer_name))
+    if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
+        text += '\n' + texts.FORK_REFERRAL_NOTIFY_WELCOME_BONUS.format(
+            minimum=settings.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
+            bonus=settings.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS),
+        )
+    return text
+
+
+def _fork_new_referral_notification(referrer, referral_name: str, commission_percent: int) -> str:
+    """Пригласившему: кто пришёл и что он получит, когда тот пополнит баланс."""
+    texts = _fork_texts(referrer)
+    text = texts.FORK_REFERRAL_NOTIFY_NEW.format(name=html.escape(referral_name))
+    parts = []
+    if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
+        parts.append(
+            texts.FORK_REFERRAL_PART_FIXED.format(amount=settings.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
+        )
+    if commission_percent > 0:
+        parts.append(texts.FORK_REFERRAL_PART_PERCENT.format(percent=commission_percent))
+    if parts:
+        text += '\n' + texts.FORK_REFERRAL_NOTIFY_NEW_REWARD.format(
+            minimum=settings.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS), reward=' + '.join(parts)
+        )
+    return text
+
+
+def _fork_first_topup_bonus_notification(referee) -> str:
+    """Приглашённому: бонус за первое пополнение уже на балансе."""
+    return _fork_texts(referee).FORK_REFERRAL_NOTIFY_BONUS.format(
+        bonus=settings.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS)
+    )
+
+
+def _fork_first_topup_reward_notification(
+    referrer, referral_name: str, topup_kopeks: int, reward_kopeks: int, commission_kopeks: int, commission_percent: int
+) -> str:
+    """Пригласившему: награда за первое пополнение друга (фикс + комиссия)."""
+    texts = _fork_texts(referrer)
+    parts = []
+    if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
+        parts.append(
+            texts.FORK_REFERRAL_NOTIFY_REWARD_BONUS.format(
+                amount=settings.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS)
+            )
+        )
+    if commission_kopeks > 0:
+        parts.append(
+            texts.FORK_REFERRAL_NOTIFY_REWARD_COMMISSION.format(
+                percent=commission_percent, amount=settings.format_price(commission_kopeks)
+            )
+        )
+    # Одна составляющая совпала бы с самой суммой награды: расшифровка нужна, только когда их две.
+    breakdown = texts.FORK_REFERRAL_NOTIFY_REWARD_BREAKDOWN.format(parts=' + '.join(parts)) if len(parts) > 1 else ''
+    text = texts.FORK_REFERRAL_NOTIFY_REWARD.format(
+        name=html.escape(referral_name),
+        amount=settings.format_price(topup_kopeks),
+        reward=settings.format_price(reward_kopeks),
+        breakdown=breakdown,
+    )
+    if commission_percent > 0:
+        text += '\n' + texts.FORK_REFERRAL_NOTIFY_ONGOING.format(percent=commission_percent)
+    return text
+
+
+def _fork_commission_notification(
+    referrer, referral_name: str, topup_kopeks: int, commission_kopeks: int, commission_percent: int
+) -> str:
+    """Пригласившему: комиссия с пополнения друга."""
+    return _fork_texts(referrer).FORK_REFERRAL_NOTIFY_COMMISSION.format(
+        name=html.escape(referral_name),
+        amount=settings.format_price(topup_kopeks),
+        commission=settings.format_price(commission_kopeks),
+        percent=commission_percent,
+    )
+
+
 async def send_referral_notification(
     bot: Bot,
     telegram_id: int | None,
@@ -764,6 +856,8 @@ async def process_referral_registration(db: AsyncSession, new_user_id: int, refe
                     f'\n\n💰 При первом пополнении от {settings.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS)} '
                     f'вы получите бонус {settings.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS)}!'
                 )
+            if settings.PREMIUM_THEME_ENABLED and not settings.is_referral_levels_scheme():
+                referral_notification = _fork_welcome_notification(new_user, referrer.full_name)
             await send_referral_notification(
                 bot,
                 new_user.telegram_id,
@@ -824,6 +918,8 @@ async def process_referral_registration(db: AsyncSession, new_user_id: int, refe
                 inviter_notification += (
                     f'📈 С каждого последующего пополнения вы будете получать {commission_percent}% комиссии.'
                 )
+            if settings.PREMIUM_THEME_ENABLED:
+                inviter_notification = _fork_new_referral_notification(referrer, new_user.full_name, commission_percent)
             await send_referral_notification(
                 bot,
                 referrer.telegram_id,
@@ -1078,6 +1174,10 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                                 f'{settings.format_price(commission_amount)}\n\n'
                                 f'💎 Средства зачислены на ваш баланс.'
                             )
+                            if settings.PREMIUM_THEME_ENABLED:
+                                commission_notification = _fork_commission_notification(
+                                    referrer, user.full_name, topup_amount_kopeks, commission_amount, commission_percent
+                                )
                             await send_referral_notification(
                                 bot,
                                 referrer.telegram_id,
@@ -1134,6 +1234,8 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                             f'{settings.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS)}!\n\n'
                             f'💎 Средства зачислены на ваш баланс.'
                         )
+                        if settings.PREMIUM_THEME_ENABLED:
+                            bonus_notification = _fork_first_topup_bonus_notification(user)
                         await send_referral_notification(
                             bot,
                             user.telegram_id,
@@ -1199,6 +1301,15 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                                 f'\n\n📈 Теперь с каждого его пополнения вы будете получать '
                                 f'{commission_percent}% комиссии.'
                             )
+                        if settings.PREMIUM_THEME_ENABLED:
+                            inviter_bonus_notification = _fork_first_topup_reward_notification(
+                                referrer,
+                                user.full_name,
+                                topup_amount_kopeks,
+                                inviter_bonus,
+                                commission_amount,
+                                commission_percent,
+                            )
                         await send_referral_notification(
                             bot,
                             referrer.telegram_id,
@@ -1253,6 +1364,10 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
                         f'{settings.format_price(commission_amount)}\n\n'
                         f'💎 Средства зачислены на ваш баланс.'
                     )
+                    if settings.PREMIUM_THEME_ENABLED:
+                        commission_notification = _fork_commission_notification(
+                            referrer, user.full_name, topup_amount_kopeks, commission_amount, commission_percent
+                        )
                     await send_referral_notification(
                         bot,
                         referrer.telegram_id,
