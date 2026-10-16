@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -75,10 +76,10 @@ async def test_rich_menus_built_without_db(theme_on, db_sources_forbidden, monke
         assert '<hr/>' in screen.text and '<footer>' in screen.text, title
         assert '<h4>' not in screen.text and '<h6>' not in screen.text, title
         assert screen.markup is not None and screen.markup.inline_keyboard, title
-    # Состояния различаются по-настоящему: у подписчика — подписка, у новичка — нет.
+    # Состояния различаются по-настоящему: у подписчика — таблица подписки, у новичка — нет.
     assert 'Алексей' in screens['Меню — подключиться'].text
-    assert 'example.com/sub' in screens['Меню — подключиться'].text
-    assert 'example.com/sub' not in screens['Меню — пробный'].text
+    assert '<table' in screens['Меню — подключиться'].text
+    assert '<table' not in screens['Меню — пробный'].text
 
 
 @pytest.mark.asyncio
@@ -233,3 +234,33 @@ async def test_send_screens_fails_loudly_when_telegram_rejects_button_swap(monke
     finally:
         loader.clear_locale_cache()
     bot.session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('language', 'stale', 'expected'),
+    [('ru', 'Выберите действие:', 'Выберите действие'), ('en', 'Choose an option:', 'Choose an option')],
+)
+async def test_send_screens_ignores_stale_server_locales(monkeypatch, tmp_path, language, stale, expected):
+    # На msk3 LOCALES_PATH — снимок апстрима: он перекрывает слой форка, и подвал меню приходил
+    # с двоеточием апстрима. Предпросмотр показывает тексты, как после выкатки (снимок → {}).
+    (tmp_path / f'{language}.json').write_text(json.dumps({'MAIN_MENU_ACTION_PROMPT': stale}), encoding='utf-8')
+    monkeypatch.setattr(settings, 'LOCALES_PATH', str(tmp_path))
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    monkeypatch.setattr(settings, 'MAIN_MENU_RICH_INLINE_BUTTONS', False, raising=False)
+    loader.clear_locale_cache()
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    bot.send_rich_message = AsyncMock(return_value=MagicMock(message_id=1))
+    bot.edit_message_reply_markup = AsyncMock()
+    bot.session.close = AsyncMock()
+    monkeypatch.setattr(preview_screens, 'create_bot', lambda *args, **kwargs: bot)
+    try:
+        await preview_screens.send_screens(42, language)
+    finally:
+        loader.clear_locale_cache()
+
+    assert str(tmp_path) == settings.LOCALES_PATH
+    assert bot.send_rich_message.await_count == len(RICH_TITLES)
+    for call in bot.send_rich_message.await_args_list:
+        assert f'<footer>{expected}</footer>' in call.kwargs['rich_message'].html

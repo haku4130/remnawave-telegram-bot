@@ -11,7 +11,6 @@
   "FORK_BUTTON_CONNECT": "{e:rocket} Connect",
   "FORK_TRIAL_READY": "{e:party} <b>Done! Access until {end_date}</b>\n\nTap “Connect” below and follow the instructions — it takes a couple of minutes.\n\nStuck? Message us — we’ll help.",
   "FORK_BUTTON_HELP": "{e:speech} Get help",
-  "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Subscription",
   "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Subscriptions",
   "MAIN_MENU_RICH_BALANCE": "Balance: {balance}",
   "MAIN_MENU_RICH_TRIAL_BUTTON": "Try for free",
@@ -20,5 +19,19 @@
   "MAIN_MENU_RICH_TRIAL_ACTIVATED": "{e:party} <b>Trial access is on</b>",
   "MAIN_MENU_ACTION_PROMPT": "Choose an option",
   "MAIN_MENU": "<b>{user_name}</b>\n\n{e:phone} <b>Subscription:</b> {subscription_status}\n\nChoose an option\n",
-  "FORK_MENU_REFERRAL_HINT": "{e:people} Invite a friend — get {percent}% of their payments."
+  "FORK_MENU_REFERRAL_HINT": "{e:people} Invite a friend — get {percent}% of their payments.",
+  "FORK_SUB_ROW_STATUS": "Subscription",
+  "FORK_SUB_ROW_UNTIL": "Valid until",
+  "FORK_SUB_ROW_TRAFFIC": "Traffic",
+  "FORK_SUB_ROW_DEVICES": "Devices",
+  "FORK_SUB_STATUS_ACTIVE": "{e:check} Active",
+  "FORK_SUB_STATUS_EXPIRING": "{e:hourglass} Expires soon",
+  "FORK_SUB_STATUS_TRIAL": "{e:gift} Trial",
+  "FORK_SUB_STATUS_LIMITED": "{e:warning} Traffic limit",
+  "FORK_SUB_STATUS_EXPIRED": "{e:cross} Expired",
+  "FORK_SUB_STATUS_DISABLED": "{e:no_entry} Disabled",
+  "FORK_SUB_STATUS_PENDING": "{e:hourglass} Pending",
+  "FORK_SUB_TRAFFIC_VALUE": "{used} of {limit}",
+  "FORK_GB": "{n} GB",
+  "FORK_SUB_NONE": "No subscription yet"
 }

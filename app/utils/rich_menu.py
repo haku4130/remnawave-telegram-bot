@@ -46,6 +46,8 @@ from app.database.crud.tariff import get_tariff_by_id
 from app.database.crud.user_message import get_random_active_message
 from app.database.models import User
 from app.localization.texts import Texts
+from app.services.menu_layout.fork_layout import EXPIRING_DAYS, _is_daily_tariff
+from app.utils.fork_onboarding import format_days
 from app.utils.formatters import format_username_link
 from app.utils.miniapp_buttons import build_miniapp_startapp_url
 from app.utils.promo_offer import build_promo_offer_hint, build_test_access_hint
@@ -505,6 +507,76 @@ async def _build_single_subscription_block(user: User, texts, db: AsyncSession) 
     return '<blockquote>' + '<br>'.join(lines) + '</blockquote>'
 
 
+def _fork_status_label(subscription, texts) -> str:
+    actual_status = (getattr(subscription, 'actual_status', None) or '').lower()
+    if actual_status == 'limited':
+        return texts.FORK_SUB_STATUS_LIMITED
+    if actual_status == 'expired':
+        return texts.FORK_SUB_STATUS_EXPIRED
+    if actual_status == 'disabled':
+        return texts.FORK_SUB_STATUS_DISABLED
+    is_trial = bool(getattr(subscription, 'is_trial', False)) or actual_status == 'trial'
+    if actual_status in {'active', 'trial'}:
+        # У суточного тарифа дней всегда ≤ 1 — «скоро истекает» он каждый день, это шум.
+        if _fork_days_left(subscription) <= EXPIRING_DAYS and not _is_daily_tariff(subscription):
+            return texts.FORK_SUB_STATUS_EXPIRING
+        return texts.FORK_SUB_STATUS_TRIAL if is_trial else texts.FORK_SUB_STATUS_ACTIVE
+    return texts.FORK_SUB_STATUS_PENDING
+
+
+def _fork_days_left(subscription) -> int:
+    days_left = getattr(subscription, 'days_left', None)
+    if isinstance(days_left, int):
+        return days_left
+    end_date = getattr(subscription, 'end_date', None)
+    if not end_date:
+        return 0
+    return max((end_date - datetime.now(UTC)).days, 0)
+
+
+def _fork_gb(texts, value: float) -> str:
+    return texts.FORK_GB.replace('{n}', f'{value:g}')
+
+
+def _fork_traffic_value(subscription, texts) -> str:
+    used = round(float(getattr(subscription, 'traffic_used_gb', 0) or 0), 1)
+    limit = float(getattr(subscription, 'traffic_limit_gb', 0) or 0)
+    limit_text = _fork_gb(texts, limit) if limit > 0 else '∞'
+    return texts.FORK_SUB_TRAFFIC_VALUE.replace('{used}', _fork_gb(texts, used)).replace('{limit}', limit_text)
+
+
+def _build_fork_subscription_table(user: User, texts) -> str:
+    """Блок подписки с темой форка: таблица «ключ — значение» без цитаты, полоски и ссылки.
+
+    Подключение и продление — кнопками под сообщением, поэтому ссылок здесь нет. Тариф
+    не показываем: на проде он один. Подписи — шаблоны форка (через _rich_text, чтобы
+    сохранить <tg-emoji>), значения из данных экранируются.
+    """
+    subscription = getattr(user, 'subscription', None)
+    if not subscription:
+        return f'<p>{_rich_text(texts.FORK_SUB_NONE)}</p>'
+
+    rows = [(texts.FORK_SUB_ROW_STATUS, _rich_text(_fork_status_label(subscription, texts)))]
+
+    end_date = getattr(subscription, 'end_date', None)
+    if end_date:
+        until = html.escape(format_local_datetime(end_date, '%d.%m.%Y'))
+        if end_date > datetime.now(UTC):
+            relative = _tg_time(end_date, 'r', format_days(texts, _fork_days_left(subscription)))
+            until = f'{until} · {relative}'
+        rows.append((texts.FORK_SUB_ROW_UNTIL, until))
+
+    actual_status = (getattr(subscription, 'actual_status', None) or '').lower()
+    if actual_status in {'active', 'trial', 'limited'}:
+        rows.append((texts.FORK_SUB_ROW_TRAFFIC, html.escape(_fork_traffic_value(subscription, texts))))
+        device_limit = getattr(subscription, 'device_limit', None)
+        if device_limit is not None:
+            rows.append((texts.FORK_SUB_ROW_DEVICES, html.escape(Texts.format_device_limit(device_limit))))
+
+    cells = ''.join(f'<tr><td>{_rich_text(label)}</td><td>{value}</td></tr>' for label, value in rows)
+    return f'<table>{cells}</table>'
+
+
 async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     """Собирает rich-HTML главного меню (контент, без клавиатуры)."""
     blocks: list[str] = []
@@ -538,6 +610,9 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
         else:
             blocks.append(_section_heading(_rich_text(heading)))
             blocks.append(subscription_block)
+    elif settings.PREMIUM_THEME_ENABLED:
+        # Без заголовка «📱 Подписка»: первая строка таблицы и так называет раздел.
+        blocks.append(_build_fork_subscription_table(user, texts))
     else:
         heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '📱 Подписка')
         blocks.append(_section_heading(_rich_text(heading)))

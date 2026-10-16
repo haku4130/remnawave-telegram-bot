@@ -11,7 +11,6 @@
   "FORK_BUTTON_CONNECT": "{e:rocket} Подключиться",
   "FORK_TRIAL_READY": "{e:party} <b>Готово! Доступ до {end_date}</b>\n\nНажмите «Подключиться» ниже и следуйте инструкции — это займёт пару минут.\n\nНе получается? Напишите нам — поможем.",
   "FORK_BUTTON_HELP": "{e:speech} Помощь",
-  "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Подписка",
   "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Подписки",
   "MAIN_MENU_RICH_BALANCE": "Баланс: {balance}",
   "MAIN_MENU_RICH_TRIAL_BUTTON": "Попробовать бесплатно",
@@ -20,5 +19,19 @@
   "MAIN_MENU_RICH_TRIAL_ACTIVATED": "{e:party} <b>Пробный доступ включён</b>",
   "MAIN_MENU_ACTION_PROMPT": "Выберите действие",
   "MAIN_MENU": "<b>{user_name}</b>\n\n{e:phone} <b>Подписка:</b> {subscription_status}\n\nВыберите действие\n",
-  "FORK_MENU_REFERRAL_HINT": "{e:people} Пригласите друга — {percent}% с его оплат."
+  "FORK_MENU_REFERRAL_HINT": "{e:people} Пригласите друга — {percent}% с его оплат.",
+  "FORK_SUB_ROW_STATUS": "Подписка",
+  "FORK_SUB_ROW_UNTIL": "Действует до",
+  "FORK_SUB_ROW_TRAFFIC": "Трафик",
+  "FORK_SUB_ROW_DEVICES": "Устройства",
+  "FORK_SUB_STATUS_ACTIVE": "{e:check} Активна",
+  "FORK_SUB_STATUS_EXPIRING": "{e:hourglass} Скоро истекает",
+  "FORK_SUB_STATUS_TRIAL": "{e:gift} Пробная",
+  "FORK_SUB_STATUS_LIMITED": "{e:warning} Лимит трафика",
+  "FORK_SUB_STATUS_EXPIRED": "{e:cross} Истекла",
+  "FORK_SUB_STATUS_DISABLED": "{e:no_entry} Отключена",
+  "FORK_SUB_STATUS_PENDING": "{e:hourglass} Ожидает",
+  "FORK_SUB_TRAFFIC_VALUE": "{used} из {limit}",
+  "FORK_GB": "{n} ГБ",
+  "FORK_SUB_NONE": "Подписки пока нет"
 }

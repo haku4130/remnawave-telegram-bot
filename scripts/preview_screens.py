@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -223,6 +224,27 @@ async def build_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+@contextmanager
+def _without_server_locales() -> Iterator[None]:
+    """Тексты — как после выкатки: без файлов LOCALES_PATH сервера.
+
+    На msk3 LOCALES_PATH — нетронутый апрельский снимок апстрима, а он по порядку слияния
+    (апстрим → форк → сервер) перекрывает слой форка. Ключи, которые в снимке есть, приходили
+    апстримными (подвал меню «Choose an option:» с двоеточием), а более новые, которых там нет
+    (MAIN_MENU_RICH_BALANCE), — форковыми. Выкатка заменяет снимок на {}; предпросмотр сразу
+    показывает это состояние, а после выхода возвращает настройку и сбрасывает кэш локалей.
+    """
+    saved = settings.LOCALES_PATH
+    with tempfile.TemporaryDirectory(prefix='preview-locales-') as empty_dir:
+        settings.LOCALES_PATH = empty_dir
+        clear_locale_cache()
+        try:
+            yield
+        finally:
+            settings.LOCALES_PATH = saved
+            clear_locale_cache()
+
+
 async def send_screens(chat_id: int, language: str) -> int:
     # Тексты форка читаются при включённой теме и кэшируются — сбрасываем кэш после включения.
     settings.PREMIUM_THEME_ENABLED = True
@@ -232,20 +254,21 @@ async def send_screens(chat_id: int, language: str) -> int:
     bot = create_bot()
     sent = 0
     try:
-        for screen in await build_screens(language):
-            await bot.send_message(chat_id, f'<i>{screen.title}</i>', link_preview_options=_NO_LINK_PREVIEW)
-            if screen.rich:
-                # Тот же путь, что у бота: перенос кнопок в полотно, повтор без tg-time.
-                sent_message = await rich_menu._send_rich_menu(bot, chat_id, screen.text, screen.markup, language)
-                if screen.then_markup is not None:
-                    await bot.edit_message_reply_markup(
-                        chat_id=chat_id, message_id=sent_message.message_id, reply_markup=screen.then_markup
+        with _without_server_locales():
+            for screen in await build_screens(language):
+                await bot.send_message(chat_id, f'<i>{screen.title}</i>', link_preview_options=_NO_LINK_PREVIEW)
+                if screen.rich:
+                    # Тот же путь, что у бота: перенос кнопок в полотно, повтор без tg-time.
+                    sent_message = await rich_menu._send_rich_menu(bot, chat_id, screen.text, screen.markup, language)
+                    if screen.then_markup is not None:
+                        await bot.edit_message_reply_markup(
+                            chat_id=chat_id, message_id=sent_message.message_id, reply_markup=screen.then_markup
+                        )
+                else:
+                    await bot.send_message(
+                        chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW
                     )
-            else:
-                await bot.send_message(
-                    chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW
-                )
-            sent += 1
+                sent += 1
     finally:
         await bot.session.close()
     return sent
