@@ -126,9 +126,11 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
         loader.clear_locale_cache()
 
     rich = [screen for screen in screens if screen.rich]
-    plain = [screen for screen in screens if not screen.rich]
+    notify = [screen for screen in screens if screen.notify]
+    plain = [screen for screen in screens if not screen.rich and not screen.notify]
     assert sent == len(screens)
     assert len(rich) == len(RICH_TITLES)
+    assert notify
 
     # Подписи всех экранов + тела обычных экранов — sendMessage без превью ссылок.
     assert bot.send_message.await_count == len(screens) + len(plain)
@@ -136,13 +138,20 @@ async def test_send_screens_enables_theme_and_sends_everything_to_one_chat(monke
         assert call.args[0] == 42
         assert call.kwargs['link_preview_options'].is_disabled is True
 
-    # Меню — через rich-путь бота, без эффекта, с клавиатурой раскладки форка.
-    assert bot.send_rich_message.await_count == len(rich)
-    for call, screen in zip(bot.send_rich_message.await_args_list, rich, strict=True):
+    # Меню — через rich-путь меню (с полем эффекта), уведомления — через rich-путь уведомлений.
+    rich_calls = bot.send_rich_message.await_args_list
+    menu_calls = [call for call in rich_calls if 'message_effect_id' in call.kwargs]
+    notify_calls = [call for call in rich_calls if 'message_effect_id' not in call.kwargs]
+    assert len(menu_calls) == len(rich)
+    for call, screen in zip(menu_calls, rich, strict=True):
         assert call.kwargs['chat_id'] == 42
         assert call.kwargs['message_effect_id'] is None
         assert '<hr/>' in call.kwargs['rich_message'].html
         assert call.kwargs['reply_markup'] == screen.markup
+    for call, screen in zip(notify_calls, notify, strict=True):
+        assert call.kwargs['chat_id'] == 42
+        assert '<hr/>' not in call.kwargs['rich_message'].html
+        assert call.kwargs.get('reply_markup') == screen.markup
     bot.session.close.assert_awaited_once()
 
 
@@ -278,8 +287,9 @@ async def test_send_screens_ignores_stale_server_locales(monkeypatch, tmp_path, 
         loader.clear_locale_cache()
 
     assert str(tmp_path) == settings.LOCALES_PATH
-    assert bot.send_rich_message.await_count == len(RICH_TITLES)
-    for call in bot.send_rich_message.await_args_list:
+    menu_calls = [call for call in bot.send_rich_message.await_args_list if 'message_effect_id' in call.kwargs]
+    assert len(menu_calls) == len(RICH_TITLES)
+    for call in menu_calls:
         assert f'<footer>{expected}</footer>' in call.kwargs['rich_message'].html
 
 
@@ -584,3 +594,66 @@ async def test_topup_notification_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in TOPUP_NOTIFICATION_TITLES)
+
+
+MONITORING_NOTIFICATION_TITLES = (
+    'Уведомление — подписка закончилась',
+    'Уведомление — пробный закончился',
+    'Уведомление — скоро закончится',
+    'Уведомление — пробный через 2 часа',
+    'Уведомление — день после окончания',
+    'Уведомление — скидка, 2-я волна',
+    'Уведомление — скидка, 3-я волна',
+    'Уведомление — автоплатёж прошёл',
+    'Уведомление — автоплатёж не прошёл',
+)
+WEBHOOK_NOTIFICATION_TITLES = (
+    'Вебхук — ещё не подключились',
+    'Вебхук — первое подключение',
+    'Вебхук — закончится через 3 дня',
+    'Вебхук — закончится завтра',
+    'Вебхук — подписка закончилась',
+    'Вебхук — новое устройство',
+    'Вебхук — израсходовано 80% трафика',
+    'Вебхук — ссылка обновлена',
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_notification_screens_present_and_go_rich(theme_on, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.rich_notify import build_notification_rich_html
+
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in (*MONITORING_NOTIFICATION_TITLES, *WEBHOOK_NOTIFICATION_TITLES):
+        screen = screens[title]
+        assert screen.notify and not screen.rich, title
+        assert screen.text.startswith('<b><tg-emoji '), title
+        assert screen.text.count('<tg-emoji') == 1, title
+        # Тот же сборщик rich-HTML, что у бота: None означало бы отправку классикой.
+        assert build_notification_rich_html(screen.text) is not None, title
+        if screen.markup is not None:
+            buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+            assert sum(1 for button in buttons if button.style == 'success') == 1, title
+            if language == 'en':
+                assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
+    traffic = screens['Уведомление — трафик почти закончился']
+    assert not traffic.notify and traffic.text.startswith('<b><tg-emoji ')
+
+
+@pytest.mark.asyncio
+async def test_notification_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        screens = await preview_screens.build_screens('ru')
+    finally:
+        loader.clear_locale_cache()
+    titles = [screen.title for screen in screens]
+    assert not any(title in titles for title in (*MONITORING_NOTIFICATION_TITLES, *WEBHOOK_NOTIFICATION_TITLES))
+    assert not any(screen.notify for screen in screens)

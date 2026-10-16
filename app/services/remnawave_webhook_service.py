@@ -981,8 +981,20 @@ class RemnaWaveWebhookService:
             return False
         return bool(re.match(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', value))
 
-    def _get_renew_keyboard(self, user: User, subscription_id: int | None = None) -> InlineKeyboardMarkup:
+    def _get_renew_keyboard(
+        self, user: User, subscription_id: int | None = None, *, subscription: Subscription | None = None
+    ) -> InlineKeyboardMarkup:
         texts = get_texts(user.language)
+        if settings.PREMIUM_THEME_ENABLED:
+            # Явный зелёный: помощник кабинета вне кабинет-режима style отбрасывает. У пробной
+            # подписки продлевать нечего — главное действие «Выбрать тариф».
+            if subscription is not None and getattr(subscription, 'is_trial', False):
+                button = build_miniapp_or_callback_button(
+                    text=texts.FORK_BUTTON_CHOOSE_TARIFF, callback_data='menu_buy'
+                )
+            else:
+                button = build_subscription_extend_button(texts.get('WEBHOOK_RENEW_BUTTON'), subscription_id)
+            return InlineKeyboardMarkup(inline_keyboard=[[button.model_copy(update={'style': 'success'})]])
         button_text = texts.get('WEBHOOK_RENEW_BUTTON', 'Renew subscription')
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -993,14 +1005,25 @@ class RemnaWaveWebhookService:
     def _get_subscription_keyboard(self, user: User) -> InlineKeyboardMarkup:
         texts = get_texts(user.language)
         button_text = texts.get('MY_SUBSCRIPTION_BUTTON', 'My subscription')
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                [build_miniapp_or_callback_button(text=button_text, callback_data='menu_subscription')],
-            ]
-        )
+        button = build_miniapp_or_callback_button(text=button_text, callback_data='menu_subscription')
+        if settings.PREMIUM_THEME_ENABLED:
+            # Единственное действие уведомления — оно и главное (таблица темы дала бы синий).
+            button = button.model_copy(update={'style': 'success'})
+        return InlineKeyboardMarkup(inline_keyboard=[[button]])
 
-    def _get_connect_keyboard(self, user: User) -> InlineKeyboardMarkup:
+    def _get_connect_keyboard(
+        self, user: User, subscription: Subscription | None = None, *, with_help: bool = False
+    ) -> InlineKeyboardMarkup:
         texts = get_texts(user.language)
+        if settings.PREMIUM_THEME_ENABLED:
+            # Та же «Подключиться», что на экране подписки: по CONNECT_BUTTON_MODE сразу открывает
+            # подписку, а не промежуточный экран. «Помощь» — тем, кто так и не подключился.
+            from app.keyboards.inline import _fork_connect_button
+
+            rows = [[_fork_connect_button(texts, subscription, 'success')]]
+            if with_help:
+                rows.append([InlineKeyboardButton(text=texts.FORK_BUTTON_HELP, callback_data='menu_support')])
+            return InlineKeyboardMarkup(inline_keyboard=rows)
         button_text = texts.get('CONNECT_BUTTON', 'Connect')
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -1012,6 +1035,14 @@ class RemnaWaveWebhookService:
         texts = get_texts(user.language)
         buy_text = texts.get('BUY_TRAFFIC_BUTTON', 'Buy traffic')
         sub_text = texts.get('MY_SUBSCRIPTION_BUTTON', 'My subscription')
+        if settings.PREMIUM_THEME_ENABLED:
+            buy = build_miniapp_or_callback_button(text=texts.FORK_BUTTON_BUY_TRAFFIC, callback_data='buy_traffic')
+            return InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [buy.model_copy(update={'style': 'success'})],
+                    [build_miniapp_or_callback_button(text=sub_text, callback_data='menu_subscription')],
+                ]
+            )
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [build_miniapp_or_callback_button(text=buy_text, callback_data='buy_traffic')],
@@ -1176,7 +1207,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_EXPIRED',
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1245,7 +1276,10 @@ class RemnaWaveWebhookService:
             await db.commit()
 
         await self._notify_user(
-            user, 'WEBHOOK_SUB_ENABLED', reply_markup=self._get_connect_keyboard(user), subscription=subscription
+            user,
+            'WEBHOOK_SUB_ENABLED',
+            reply_markup=self._get_connect_keyboard(user, subscription),
+            subscription=subscription,
         )
 
     async def _handle_user_limited(
@@ -1593,7 +1627,9 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_DELETED',
-            reply_markup=self._get_renew_keyboard(user, getattr(subscription, 'id', None) if subscription else None),
+            reply_markup=self._get_renew_keyboard(
+                user, getattr(subscription, 'id', None) if subscription else None, subscription=subscription
+            ),
             subscription=subscription,
         )
 
@@ -1631,7 +1667,10 @@ class RemnaWaveWebhookService:
         await db.commit()
 
         await self._notify_user(
-            user, 'WEBHOOK_SUB_REVOKED', reply_markup=self._get_connect_keyboard(user), subscription=subscription
+            user,
+            'WEBHOOK_SUB_REVOKED',
+            reply_markup=self._get_connect_keyboard(user, subscription),
+            subscription=subscription,
         )
 
     async def _handle_user_created(
@@ -1654,7 +1693,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_EXPIRES_72H',
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1667,7 +1706,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_EXPIRES_48H',
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1680,7 +1719,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_EXPIRES_24H',
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1693,7 +1732,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_SUB_EXPIRED_24H_AGO',
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1741,7 +1780,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             text_key,
-            reply_markup=self._get_renew_keyboard(user, subscription.id),
+            reply_markup=self._get_renew_keyboard(user, subscription.id, subscription=subscription),
             subscription=subscription,
         )
 
@@ -1803,7 +1842,7 @@ class RemnaWaveWebhookService:
         await self._notify_user(
             user,
             'WEBHOOK_USER_NOT_CONNECTED',
-            reply_markup=self._get_connect_keyboard(user),
+            reply_markup=self._get_connect_keyboard(user, subscription, with_help=True),
             format_kwargs=format_kwargs or None,
             subscription=subscription,
         )

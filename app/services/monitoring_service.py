@@ -7,6 +7,7 @@ from typing import Any
 
 import structlog
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -52,6 +53,7 @@ from app.external.remnawave_api import (
     RemnaWaveUser,
     is_user_not_found_error,
 )
+from app.localization.fork_text import fork_period
 from app.localization.texts import get_texts
 from app.services.grace_access_runtime import update_panel_user_grace_safe
 from app.services.notification_delivery_service import (
@@ -196,6 +198,158 @@ _CHANNEL_CHECK_BATCH_SIZE: int = 100
 
 
 logger = structlog.get_logger(__name__)
+
+
+# --- Тема форка: тексты и кнопки пользовательских уведомлений ------------------------------------
+# Вызываются только при PREMIUM_THEME_ENABLED и подменяют уже собранные апстримом текст и кнопки
+# перед отправкой — без темы вывод байт-в-байт прежний. Первая строка — <b>…</b>: rich-путь видит
+# <b> и второй раз не оборачивает, а классика (подпись к логотипу, обычное сообщение) тоже
+# показывает заголовок жирным. Цвет кнопок задан явно: помощник кабинета вне кабинет-режима style
+# отбрасывает, а таблица темы покрасила бы «Продлить» и «Пополнить» в зелёный одновременно.
+
+
+def _fork_styled(button: InlineKeyboardButton, style: str) -> InlineKeyboardButton:
+    return button.model_copy(update={'style': style})
+
+
+def _fork_rows(*buttons: InlineKeyboardButton) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[button] for button in buttons])
+
+
+def _fork_extend_button(texts, subscription, style: str) -> InlineKeyboardButton:
+    return _fork_styled(build_subscription_extend_button(texts.FORK_BUTTON_EXTEND, subscription.id), style)
+
+
+def _fork_topup_button(texts, style: str) -> InlineKeyboardButton:
+    return _fork_styled(
+        build_miniapp_or_callback_button(text=texts.FORK_BUTTON_TOPUP, callback_data='balance_topup'), style
+    )
+
+
+def _fork_choose_tariff_button(texts) -> InlineKeyboardButton:
+    return _fork_styled(
+        build_miniapp_or_callback_button(text=texts.FORK_BUTTON_CHOOSE_TARIFF, callback_data='menu_buy'), 'success'
+    )
+
+
+def _fork_help_button(texts) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=texts.FORK_BUTTON_HELP, callback_data='menu_support')
+
+
+def _fork_my_subscription_button(texts) -> InlineKeyboardButton:
+    return build_miniapp_or_callback_button(text=texts.MY_SUBSCRIPTION_BUTTON, callback_data='menu_subscription')
+
+
+def _fork_date(value: datetime) -> str:
+    return format_local_datetime(value, '%d.%m.%Y')
+
+
+def _fork_expired_notification(texts, subscription, tariff_label: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Подписка закончилась. У пробной главное действие — выбрать тариф, а не «продлить»."""
+    if subscription.is_trial:
+        return texts.FORK_NOTIFY_TRIAL_EXPIRED, _fork_rows(_fork_choose_tariff_button(texts), _fork_help_button(texts))
+    return texts.FORK_NOTIFY_SUB_EXPIRED.format(tariff_label=tariff_label), _fork_rows(
+        _fork_extend_button(texts, subscription, 'success'), _fork_topup_button(texts, 'primary')
+    )
+
+
+def _fork_expiring_notification(
+    texts, subscription, days: int, tariff_label: str, balance_kopeks: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    if subscription.autopay_enabled:
+        autopay = texts.FORK_NOTIFY_AUTOPAY_ON.format(balance=settings.format_price(balance_kopeks))
+    else:
+        autopay = texts.FORK_NOTIFY_AUTOPAY_OFF
+    text = texts.FORK_NOTIFY_SUB_EXPIRING.format(
+        tariff_label=tariff_label,
+        days=fork_period(texts, days),
+        date=_fork_date(subscription.end_date),
+        autopay=autopay,
+    )
+    return text, _fork_rows(_fork_extend_button(texts, subscription, 'success'), _fork_topup_button(texts, 'primary'))
+
+
+def _fork_trial_ending_notification(texts) -> tuple[str, InlineKeyboardMarkup]:
+    return texts.FORK_NOTIFY_TRIAL_ENDING, _fork_rows(_fork_choose_tariff_button(texts), _fork_help_button(texts))
+
+
+def _fork_expired_day1_notification(
+    texts, subscription, tariff_label: str, price_kopeks: int, period_days: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    text = texts.FORK_NOTIFY_EXPIRED_1D.format(
+        tariff_label=tariff_label,
+        date=_fork_date(subscription.end_date),
+        price=settings.format_price(price_kopeks),
+        period=fork_period(texts, period_days),
+    )
+    keyboard = _fork_rows(
+        _fork_extend_button(texts, subscription, 'success'),
+        _fork_topup_button(texts, 'primary'),
+        _fork_help_button(texts),
+    )
+    return text, keyboard
+
+
+def _fork_discount_notification(
+    texts,
+    subscription,
+    *,
+    wave: str,
+    percent: int,
+    expires_at: datetime,
+    offer_id: int,
+    trigger_days: int | None,
+    tariff_label: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Волна скидки. Предложение живёт сутки, поэтому у срока оставлено и время."""
+    expires = format_local_datetime(expires_at, '%d.%m.%Y %H:%M')
+    if wave == 'second':
+        text = texts.FORK_NOTIFY_DISCOUNT_WAVE2.format(percent=percent, expires_at=expires, tariff_label=tariff_label)
+    else:
+        text = texts.FORK_NOTIFY_DISCOUNT_WAVE3.format(
+            percent=percent,
+            expires_at=expires,
+            tariff_label=tariff_label,
+            days=fork_period(texts, int(trigger_days or 0)),
+        )
+    claim = _fork_styled(
+        build_miniapp_or_callback_button(
+            text=texts.FORK_BUTTON_CLAIM_DISCOUNT, callback_data=f'claim_discount_{offer_id}'
+        ),
+        'success',
+    )
+    return text, _fork_rows(claim, _fork_extend_button(texts, subscription, 'primary'), _fork_help_button(texts))
+
+
+def _fork_autopay_success_text(texts, amount_kopeks: int, days: int, subscription) -> str:
+    text = texts.FORK_NOTIFY_AUTOPAY_SUCCESS.format(
+        period=fork_period(texts, days), amount=settings.format_price(amount_kopeks)
+    )
+    end_date = getattr(subscription, 'end_date', None) if subscription else None
+    if end_date:
+        text += '\n' + texts.FORK_NOTIFY_ACTIVE_UNTIL.format(date=_fork_date(end_date))
+    return text
+
+
+def _fork_autopay_failed_notification(
+    texts, balance_kopeks: int, required_kopeks: int, subscription, *, is_final: bool
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Автоплатёж не прошёл. Если денег хватало (сорвалось само списание) — «не хватает 0 ₽» не пишем."""
+    missing = required_kopeks - balance_kopeks
+    if missing <= 0:
+        main_button = (
+            _fork_extend_button(texts, subscription, 'success')
+            if subscription is not None
+            else _fork_topup_button(texts, 'success')
+        )
+        return texts.FORK_NOTIFY_AUTOPAY_ERROR, _fork_rows(main_button, _fork_my_subscription_button(texts))
+    template = texts.FORK_NOTIFY_AUTOPAY_FAILED_FINAL if is_final else texts.FORK_NOTIFY_AUTOPAY_FAILED
+    text = template.format(
+        missing=settings.format_price(missing),
+        required=settings.format_price(required_kopeks),
+        balance=settings.format_price(balance_kopeks),
+    )
+    return text, _fork_rows(_fork_topup_button(texts, 'success'), _fork_my_subscription_button(texts))
 
 
 LOGO_PATH = Path(settings.LOGO_FILE)
@@ -1898,6 +2052,8 @@ class MonitoringService:
                     [build_miniapp_or_callback_button(text='💳 Пополнить баланс', callback_data='balance_topup')],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_expired_notification(get_texts(user.language), subscription, tariff_label)
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
@@ -2010,6 +2166,10 @@ class MonitoringService:
                     [build_miniapp_or_callback_button(text=sub_btn_text, callback_data='menu_subscription')],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_expiring_notification(
+                    texts, subscription, days, tariff_label, user.balance_kopeks
+                )
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
@@ -2071,6 +2231,8 @@ class MonitoringService:
                     [build_miniapp_or_callback_button(text='💰 Пополнить баланс', callback_data='balance_topup')],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_trial_ending_notification(get_texts(user.language))
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
@@ -2241,6 +2403,10 @@ class MonitoringService:
                     ],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_expired_day1_notification(
+                    texts, subscription, tariff_label, renewal_price_kopeks, renewal_period
+                )
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
@@ -2351,6 +2517,17 @@ class MonitoringService:
                     ],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_discount_notification(
+                    texts,
+                    subscription,
+                    wave=wave,
+                    percent=percent,
+                    expires_at=expires_at,
+                    offer_id=offer_id,
+                    trigger_days=trigger_days,
+                    tariff_label=tariff_label,
+                )
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
@@ -2392,6 +2569,8 @@ class MonitoringService:
             message = texts.AUTOPAY_SUCCESS.format(days=days, amount=settings.format_price(amount))
             if tariff_label:
                 message += f'\n📦 Тариф:{tariff_label}'
+            if settings.PREMIUM_THEME_ENABLED:
+                message = _fork_autopay_success_text(texts, amount, days, subscription)
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,
                 text=message,
@@ -2449,6 +2628,10 @@ class MonitoringService:
                     [build_miniapp_or_callback_button(text='📱 Моя подписка', callback_data='menu_subscription')],
                 ]
             )
+            if settings.PREMIUM_THEME_ENABLED:
+                message, keyboard = _fork_autopay_failed_notification(
+                    texts, balance, required, subscription, is_final=is_final
+                )
 
             await self._send_message_with_logo(
                 chat_id=user.telegram_id,

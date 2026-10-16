@@ -26,6 +26,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 
 from app.bot_factory import create_bot
 from app.config import settings
+from app.database.models import Subscription
 from app.handlers.balance import main as balance_main, rollypay as rollypay_handler
 from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
@@ -45,10 +46,15 @@ from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
 from app.services import subscription_auto_purchase_service as auto_purchase
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
+from app.services.monitoring_service import MonitoringService
+from app.services.notification_delivery_service import notification_delivery_service
 from app.services.payment import rollypay as rollypay_service
 from app.services.payment.common import PaymentCommonMixin
+from app.services.pricing_engine import pricing_engine
+from app.services.remnawave_webhook_service import RemnaWaveWebhookService
 from app.utils import fork_onboarding, payment_utils, rich_menu
 from app.utils.pagination import paginate_list
+from app.utils.rich_notify import try_send_rich_notification
 
 
 # Лимит Telegram на текст сообщения — 4096 символов; тег эмодзи длинный, поэтому
@@ -69,6 +75,9 @@ class PreviewScreen(NamedTuple):
     # Клавиатура, на которую сразу после отправки меняют кнопки этого сообщения (editMessageReplyMarkup),
     # как делает обработчик «Ещё». Только для rich-экранов; ошибка Telegram роняет предпросмотр.
     then_markup: InlineKeyboardMarkup | None = None
+    # notify=True — уведомление: уходит тем же try_send_rich_notification, что у мониторинга и
+    # вебхуков (rich с логотипом), а если rich не принят — классикой, как у бота.
+    notify: bool = False
 
 
 def _catalog_screens() -> list[PreviewScreen]:
@@ -629,6 +638,146 @@ def _topup_notification_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+def _notification_subscription(*, trial: bool = False) -> Subscription:
+    """Несохранённая модель, а не SimpleNamespace: вебхук в мультитарифе смотрит её через sa_inspect.
+
+    Тариф не загружен — цена продления в «дне после окончания» считается как у подписки без тарифа.
+    """
+    now = datetime.now(UTC)
+    return Subscription(
+        id=1,
+        user_id=0,
+        status='active',
+        is_trial=trial,
+        autopay_enabled=True,
+        start_date=now - timedelta(days=27),
+        end_date=now + timedelta(days=3, hours=1),
+        traffic_limit_gb=0,
+        traffic_used_gb=12.5,
+        device_limit=3,
+        subscription_url='https://example.com/sub',
+    )
+
+
+def _notification_user(language: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=0,
+        telegram_id=1,
+        language=language,
+        balance_kopeks=_SUBSCRIBER_BALANCE_KOPEKS,
+        status='active',
+        notification_settings=None,
+    )
+
+
+async def _monitoring_notification_screens(language: str) -> list[PreviewScreen]:
+    """Уведомления мониторинга — настоящими отправителями сервиса, перехвачена только сама отправка."""
+    service = MonitoringService(bot=MagicMock())
+    service._send_message_with_logo = AsyncMock()
+    user = _notification_user(language)
+    paid, trial = _notification_subscription(), _notification_subscription(trial=True)
+    offer_expires = datetime.now(UTC) + timedelta(hours=24)
+    calls = [
+        ('Уведомление — подписка закончилась', lambda: service._send_subscription_expired_notification(user, paid)),
+        ('Уведомление — пробный закончился', lambda: service._send_subscription_expired_notification(user, trial)),
+        ('Уведомление — скоро закончится', lambda: service._send_subscription_expiring_notification(user, paid, 3)),
+        ('Уведомление — пробный через 2 часа', lambda: service._send_trial_ending_notification(user, trial)),
+        (
+            'Уведомление — день после окончания',
+            lambda: service._send_expired_day1_notification(MagicMock(), user, paid),
+        ),
+        (
+            'Уведомление — скидка, 2-я волна',
+            lambda: service._send_expired_discount_notification(user, paid, 10, offer_expires, 1, 'second'),
+        ),
+        (
+            'Уведомление — скидка, 3-я волна',
+            lambda: service._send_expired_discount_notification(
+                user, paid, 20, offer_expires, 1, 'third', trigger_days=5
+            ),
+        ),
+        (
+            'Уведомление — автоплатёж прошёл',
+            lambda: service._send_autopay_success_notification(user, 19900, 30, subscription=paid),
+        ),
+        (
+            'Уведомление — автоплатёж не прошёл',
+            lambda: service._send_autopay_failed_notification(user, 5000, 19900, subscription=paid),
+        ),
+    ]
+    screens = []
+    with patch.object(
+        pricing_engine, 'calculate_renewal_price', AsyncMock(return_value=SimpleNamespace(final_total=19900))
+    ):
+        for title, make_call in calls:
+            service._send_message_with_logo.reset_mock()
+            await make_call()
+            if not service._send_message_with_logo.await_args:
+                # Отправитель глотает ошибки в лог — без этой проверки экран молча пропал бы.
+                raise RuntimeError(f'{title}: уведомление не собралось (см. лог)')
+            kwargs = service._send_message_with_logo.await_args.kwargs
+            screens.append(PreviewScreen(title, kwargs['text'], kwargs.get('reply_markup'), notify=True))
+    traffic = get_texts(language).get('TRAFFIC_WARNING_ALERT').format(used=45.3, limit=50, percent=90.6)
+    # Предупреждение о трафике бот шлёт обычным HTML-сообщением, не rich.
+    screens.append(PreviewScreen('Уведомление — трафик почти закончился', traffic, None))
+    return screens
+
+
+async def _webhook_notification_screens(language: str) -> list[PreviewScreen]:
+    """Уведомления вебхуков Remnawave — настоящими обработчиками; перехвачена служба доставки."""
+    service = RemnaWaveWebhookService(MagicMock())
+    user = _notification_user(language)
+    subscription = _notification_subscription()
+    device = {'hwidUserDevice': {'deviceModel': 'iPhone 15', 'platform': 'iOS'}}
+    calls = [
+        ('Вебхук — ещё не подключились', lambda: service._handle_user_not_connected(None, user, subscription, {})),
+        ('Вебхук — первое подключение', lambda: service._handle_first_connected(None, user, subscription, {})),
+        (
+            'Вебхук — закончится через 3 дня',
+            lambda: service._handle_user_expiration(None, user, subscription, {'_meta': {'expiration': -72}}),
+        ),
+        (
+            'Вебхук — закончится завтра',
+            lambda: service._handle_user_expiration(None, user, subscription, {'_meta': {'expiration': -24}}),
+        ),
+        (
+            'Вебхук — подписка закончилась',
+            lambda: service._notify_user(
+                user,
+                'WEBHOOK_SUB_EXPIRED',
+                reply_markup=service._get_renew_keyboard(user, subscription.id, subscription=subscription),
+                subscription=subscription,
+            ),
+        ),
+        ('Вебхук — новое устройство', lambda: service._handle_device_added(None, user, subscription, device)),
+        (
+            'Вебхук — израсходовано 80% трафика',
+            lambda: service._handle_bandwidth_threshold(None, user, subscription, {'lastTriggeredThreshold': 80}),
+        ),
+        (
+            'Вебхук — ссылка обновлена',
+            lambda: service._notify_user(
+                user,
+                'WEBHOOK_SUB_REVOKED',
+                reply_markup=service._get_connect_keyboard(user, subscription),
+                subscription=subscription,
+            ),
+        ),
+    ]
+    screens = []
+    send = AsyncMock()
+    with patch.object(notification_delivery_service, 'send_notification', send):
+        for title, make_call in calls:
+            send.reset_mock()
+            await make_call()
+            if not send.await_args:
+                # Событие выключено настройкой WEBHOOK_NOTIFY_* — бот его тоже не шлёт.
+                continue
+            kwargs = send.await_args.kwargs
+            screens.append(PreviewScreen(title, kwargs['telegram_message'], kwargs['telegram_markup'], notify=True))
+    return screens
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -639,6 +788,8 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_purchase_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _balance_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_topup_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _monitoring_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _webhook_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 
@@ -683,9 +834,13 @@ async def send_screens(chat_id: int, language: str) -> int:
                             chat_id=chat_id, message_id=sent_message.message_id, reply_markup=screen.then_markup
                         )
                 else:
-                    await bot.send_message(
-                        chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW
+                    sent_rich = screen.notify and await try_send_rich_notification(
+                        bot, chat_id, screen.text, keyboard=screen.markup, with_logo=settings.ENABLE_LOGO_MODE
                     )
+                    if not sent_rich:
+                        await bot.send_message(
+                            chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW
+                        )
                 sent += 1
     finally:
         await bot.session.close()
