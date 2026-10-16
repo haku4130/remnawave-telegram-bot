@@ -8,5 +8,7 @@
   "FORK_BUTTON_TRY_FREE": "{e:gift} Попробовать бесплатно",
   "FORK_BUTTON_TARIFFS": "{e:gem} Тарифы",
   "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Выбрать тариф",
-  "FORK_BUTTON_CONNECT": "{e:rocket} Подключиться"
+  "FORK_BUTTON_CONNECT": "{e:rocket} Подключиться",
+  "FORK_TRIAL_READY": "{e:party} <b>Готово! Доступ до {end_date}</b>\n\n<b>Шаг 1.</b> Нажмите «Подключиться» — откроется инструкция для вашего устройства.\n<b>Шаг 2.</b> Установите приложение и нажмите в нём «Добавить подписку».\n\nНе получается? Напишите нам — поможем за пару минут.",
+  "FORK_BUTTON_HELP": "{e:speech} Помощь"
 }

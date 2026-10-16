@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from app.config import settings
 from app.utils import fork_onboarding as fo
@@ -135,3 +136,22 @@ def test_welcome_without_bot_username_drops_rules_paragraph(fork_texts, monkeypa
     text, _ = fo.build_welcome_screen(_reg_user(), _tg('Андрей'))
     assert 'href' not in text
     assert '3 дня' in text
+
+
+def test_trial_ready_screen(fork_texts):
+    from app.localization.texts import get_texts
+
+    texts = get_texts('ru')
+    connect = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='🔗 Подключиться', web_app=WebAppInfo(url='https://sub.example/x'))],
+            [InlineKeyboardButton(text='⬅️ В главное меню', callback_data='back_to_menu')],
+        ]
+    )
+    text, kb = fo.build_trial_ready_screen(texts, '19.10.2026', connect)
+    assert 'Доступ до 19.10.2026' in text and 'Шаг 1' in text and 'Шаг 2' in text
+    assert kb.inline_keyboard[0][0].web_app.url == 'https://sub.example/x'
+    assert kb.inline_keyboard[0][0].style == 'success'
+    assert kb.inline_keyboard[1][0].callback_data == 'menu_support'
+    assert kb.inline_keyboard[-1][0].callback_data == 'back_to_menu'
+    assert connect.inline_keyboard[0][0].style is None  # исходная клавиатура не мутирована

@@ -8,5 +8,7 @@
   "FORK_BUTTON_TRY_FREE": "{e:gift} Try for free",
   "FORK_BUTTON_TARIFFS": "{e:gem} Plans",
   "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Choose a plan",
-  "FORK_BUTTON_CONNECT": "{e:rocket} Connect"
+  "FORK_BUTTON_CONNECT": "{e:rocket} Connect",
+  "FORK_TRIAL_READY": "{e:party} <b>Done! Access until {end_date}</b>\n\n<b>Step 1.</b> Tap “Connect” to see instructions for your device.\n<b>Step 2.</b> Install the app and tap “Add subscription” in it.\n\nStuck? Message us — we’ll help in a couple of minutes.",
+  "FORK_BUTTON_HELP": "{e:speech} Get help"
 }

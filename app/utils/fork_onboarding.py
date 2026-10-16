@@ -128,3 +128,21 @@ def build_welcome_screen(user, tg_user) -> tuple[str, InlineKeyboardMarkup]:
         # Без username бота ссылку на правила не построить — убираем последний абзац целиком.
         text = text.rsplit('\n\n', 1)[0]
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_trial_ready_screen(
+    texts, end_date_text: str, connect_keyboard: InlineKeyboardMarkup
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Экран после включения пробного: два шага, зелёное «Подключиться», помощь и «В меню».
+
+    Строки подключения и «В меню» берутся из клавиатуры, собранной по CONNECT_BUTTON_MODE;
+    исходная разметка не мутируется.
+    """
+    rows = [list(row) for row in connect_keyboard.inline_keyboard]
+    connect_rows, menu_row = rows[:-1], rows[-1]
+    if connect_rows and connect_rows[0]:
+        first = connect_rows[0][0]
+        connect_rows[0] = [first.model_copy(update={'style': 'success'}), *connect_rows[0][1:]]
+    help_row = [InlineKeyboardButton(text=texts.FORK_BUTTON_HELP, callback_data='menu_support')]
+    text = texts.FORK_TRIAL_READY.format(end_date=end_date_text)
+    return text, InlineKeyboardMarkup(inline_keyboard=[*connect_rows, help_row, menu_row])
