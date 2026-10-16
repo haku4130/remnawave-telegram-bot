@@ -23,6 +23,7 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
 from app.database.database import AsyncSessionLocal
 from app.database.models import Tariff, Transaction, TransactionType, User
+from app.localization.fork_text import fork_period, fork_text, fork_traffic
 from app.localization.texts import Texts, get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.subscription_service import SubscriptionService
@@ -31,9 +32,24 @@ from app.services.user_cart_service import user_cart_service
 from app.utils.decorators import error_handler
 from app.utils.formatting import format_period, format_price_kopeks, format_traffic
 from app.utils.promo_offer import get_user_active_promo_discount_percent
+from app.utils.timezone import format_local_datetime
 
 
 logger = structlog.get_logger(__name__)
+
+
+def _traffic_label(texts, traffic_gb) -> str:
+    """Трафик тарифа для экрана: под темой форка «50 ГБ»/«∞» на языке пользователя, иначе как у апстрима."""
+    if settings.PREMIUM_THEME_ENABLED:
+        return fork_traffic(texts, traffic_gb)
+    return format_traffic(traffic_gb)
+
+
+def _period_label(texts, days: int) -> str:
+    """Срок для экрана: под темой форка «30 days» для английского, иначе русское склонение апстрима."""
+    if settings.PREMIUM_THEME_ENABLED:
+        return fork_period(texts, days)
+    return format_period(days)
 
 
 async def _persist_failed_refund(
@@ -262,7 +278,7 @@ def _period_button_text(tariff: Tariff, period: int, price_text: str, texts) -> 
     В инлайн-кнопку рамку не нарисовать, поэтому выделение — подпись в начале
     текста: она видна до цены и не теряется среди остальных строк.
     """
-    label = f'{format_period(period)} — {price_text}'
+    label = f'{_period_label(texts, period)} — {price_text}'
     if tariff.highlight_period_days is not None and int(tariff.highlight_period_days) == period:
         return f'{texts.t("TARIFF_PERIOD_BEST_VALUE_BADGE", "⭐ выгодно")} · {label}'
     return label
@@ -464,11 +480,19 @@ def get_tariff_extend_insufficient_balance_keyboard(
             if row and all((button.callback_data or '').startswith('topup_amount|') for button in row)
         ]
         if payment_rows:
+            if settings.PREMIUM_THEME_ENABLED:
+                # Главное действие экрана — первый способ оплаты: ровно одна зелёная кнопка.
+                payment_rows[0][0] = payment_rows[0][0].model_copy(update={'style': 'success'})
             return InlineKeyboardMarkup(inline_keyboard=[*payment_rows, [back_button]])
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'), callback_data='balance_topup')],
+            [
+                InlineKeyboardButton(
+                    text=fork_text(texts, 'FORK_BUTTON_TOPUP', texts.t('BALANCE_TOPUP', '💳 Пополнить баланс')),
+                    callback_data='balance_topup',
+                )
+            ],
             [back_button],
         ]
     )
@@ -2596,7 +2620,9 @@ def get_tariff_extend_keyboard(
         has_discount = price < total_original and total_original > 0
         if has_discount:
             combined_pct = round((1 - price / total_original) * 100)
-            price_text = f'{format_price_kopeks(price)} 🔥−{combined_pct}%'
+            price_text = fork_text(texts, 'FORK_PRICE_DISCOUNTED', '{price} 🔥−{percent}%').format(
+                price=format_price_kopeks(price), percent=combined_pct
+            )
         else:
             price_text = format_price_kopeks(price)
 
@@ -2635,6 +2661,150 @@ def get_tariff_extend_confirm_keyboard(
                 )
             ],
             [InlineKeyboardButton(text=texts.BACK, callback_data='subscription_extend')],
+        ]
+    )
+
+
+def _buy_tariff_button(texts) -> InlineKeyboardButton:
+    """«Купить тариф» на экране, где смена невозможна: единственное действие, под темой зелёное."""
+    return InlineKeyboardButton(
+        text=texts.t('BUY_TARIFF_BUTTON', '📦 Купить тариф'),
+        callback_data='menu_buy',
+        style='success' if settings.PREMIUM_THEME_ENABLED else None,
+    )
+
+
+def _tariff_name_button(texts, tariff: Tariff) -> str:
+    """Подпись кнопки выбора тарифа при продлении подписки без тарифа."""
+    return fork_text(texts, 'FORK_BUTTON_TARIFF_NAME', '📦 {name}').format(name=tariff.name)
+
+
+def _extend_title_text(texts, tariff: Tariff, devices, discount_hint: str) -> str:
+    """Экран выбора срока продления."""
+    return texts.t(
+        'TARIFF_RENEW_TITLE',
+        '🔄 <b>Продление подписки</b>{discount_hint}\n\n'
+        '📦 Тариф: <b>{name}</b>\n'
+        '📊 Трафик: {traffic}\n'
+        '📱 Устройств: {devices}\n\n'
+        'Выберите период продления:',
+    ).format(
+        discount_hint=discount_hint,
+        name=html.escape(tariff.name),
+        traffic=_traffic_label(texts, tariff.traffic_limit_gb),
+        devices=devices,
+    )
+
+
+def _extend_confirm_text(
+    texts,
+    tariff: Tariff,
+    devices,
+    period: int,
+    discount_percent: int,
+    discount_kopeks: int,
+    total: int,
+    balance: int,
+) -> str:
+    """Подтверждение продления (и после выбора срока, и после возврата к корзине)."""
+    discount_text = ''
+    if discount_percent > 0:
+        discount_text = texts.t('TARIFF_PURCHASE_DISCOUNT_SHORT_LINE', '\n🎁 Скидка: {percent}% (-{amount})').format(
+            percent=discount_percent, amount=format_price_kopeks(discount_kopeks)
+        )
+    return texts.t(
+        'TARIFF_RENEW_CONFIRM',
+        '✅ <b>Подтверждение продления</b>\n\n'
+        '📦 Тариф: <b>{name}</b>\n'
+        '📊 Трафик: {traffic}\n'
+        '📱 Устройств: {devices}\n'
+        '📅 Период: {period}\n'
+        '{discount}\n'
+        '💰 <b>К оплате: {total}</b>\n\n'
+        '💳 Ваш баланс: {balance}\n'
+        'После оплаты: {after}',
+    ).format(
+        name=html.escape(tariff.name),
+        traffic=_traffic_label(texts, tariff.traffic_limit_gb),
+        devices=devices,
+        period=_period_label(texts, period),
+        discount=discount_text,
+        total=format_price_kopeks(total),
+        balance=format_price_kopeks(balance),
+        after=format_price_kopeks(balance - total),
+    )
+
+
+def _extend_insufficient_text(texts, tariff: Tariff, period: int, price: int, balance: int, *, still: bool) -> str:
+    """«Не хватает средств» при продлении: сразу после выбора срока или после пополнения (``still``)."""
+    if still:
+        template = texts.t(
+            'TARIFF_PURCHASE_STILL_INSUFFICIENT',
+            '❌ <b>Все еще недостаточно средств</b>\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📅 Период: {period}\n'
+            '💰 Стоимость: {price}\n\n'
+            '💳 Ваш баланс: {balance}\n'
+            '⚠️ Не хватает: <b>{missing}</b>',
+        )
+    else:
+        template = texts.t(
+            'TARIFF_PURCHASE_INSUFFICIENT',
+            '❌ <b>Недостаточно средств</b>\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📅 Период: {period}\n'
+            '💰 Стоимость: {price}\n\n'
+            '💳 Ваш баланс: {balance}\n'
+            '⚠️ Не хватает: <b>{missing}</b>',
+        )
+    return template.format(
+        name=html.escape(tariff.name),
+        period=_period_label(texts, period),
+        price=format_price_kopeks(price),
+        balance=format_price_kopeks(balance),
+        missing=format_price_kopeks(price - balance),
+    )
+
+
+def _extend_success_text(texts, tariff: Tariff, devices, period: int, price: int, end_date) -> str:
+    """Продление выполнено. Под темой в тексте есть дата окончания, которой в ключе апстрима нет."""
+    template = fork_text(
+        texts,
+        'FORK_RENEW_SUCCESS',
+        texts.t(
+            'TARIFF_RENEW_SUCCESS',
+            '🎉 <b>Подписка успешно продлена!</b>\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📊 Трафик: {traffic}\n'
+            '📱 Устройств: {devices}\n'
+            '📅 Добавлено: {period}\n'
+            '💰 Списано: {price}',
+        ),
+    )
+    # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
+    return template.format(
+        name=html.escape(tariff.name),
+        traffic=_traffic_label(texts, tariff.traffic_limit_gb),
+        devices=devices,
+        period=_period_label(texts, period),
+        price=format_price_kopeks(price),
+        date=format_local_datetime(end_date, '%d.%m.%Y') if settings.PREMIUM_THEME_ENABLED and end_date else '',
+    )
+
+
+def _extend_success_keyboard(texts, subscription) -> InlineKeyboardMarkup:
+    """«Моя подписка» и «Назад» под сообщением об успешном продлении."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
+                    callback_data=f'sm:{subscription.id}'
+                    if settings.is_multi_tariff_enabled() and subscription
+                    else 'menu_subscription',
+                )
+            ],
+            [InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')],
         ]
     )
 
@@ -2724,7 +2894,9 @@ async def show_tariff_extend(
         for t in tariffs:
             if t.is_daily:
                 continue
-            keyboard.append([InlineKeyboardButton(text=f'📦 {t.name}', callback_data=f'tariff_select:{t.id}')])
+            keyboard.append(
+                [InlineKeyboardButton(text=_tariff_name_button(texts, t), callback_data=f'tariff_select:{t.id}')]
+            )
         if not keyboard:
             await callback.answer(
                 texts.t('TARIFF_RENEW_NO_TARIFFS', 'Нет доступных тарифов для продления'), show_alert=True
@@ -2764,7 +2936,9 @@ async def show_tariff_extend(
 
         keyboard = []
         for t in active_tariffs:
-            keyboard.append([InlineKeyboardButton(text=f'📦 {t.name}', callback_data=f'tariff_select:{t.id}')])
+            keyboard.append(
+                [InlineKeyboardButton(text=_tariff_name_button(texts, t), callback_data=f'tariff_select:{t.id}')]
+            )
         keyboard.append([InlineKeyboardButton(text=texts.t('BACK_BUTTON', '◀️ Назад'), callback_data='back_to_menu')])
 
         await callback.message.edit_text(
@@ -2779,8 +2953,6 @@ async def show_tariff_extend(
         )
         await callback.answer()
         return
-
-    traffic = format_traffic(tariff.traffic_limit_gb)
 
     # Проверяем есть ли у пользователя скидки по периодам
     promo_group = db_user.get_primary_promo_group() if hasattr(db_user, 'get_primary_promo_group') else None
@@ -2801,19 +2973,7 @@ async def show_tariff_extend(
     actual_device_limit = subscription.device_limit or tariff.device_limit
 
     await callback.message.edit_text(
-        texts.t(
-            'TARIFF_RENEW_TITLE',
-            '🔄 <b>Продление подписки</b>{discount_hint}\n\n'
-            '📦 Тариф: <b>{name}</b>\n'
-            '📊 Трафик: {traffic}\n'
-            '📱 Устройств: {devices}\n\n'
-            'Выберите период продления:',
-        ).format(
-            discount_hint=discount_hint,
-            name=html.escape(tariff.name),
-            traffic=traffic,
-            devices=actual_device_limit,
-        ),
+        _extend_title_text(texts, tariff, actual_device_limit, discount_hint),
         reply_markup=get_tariff_extend_keyboard(
             tariff,
             db_user.language,
@@ -2879,36 +3039,17 @@ async def select_tariff_extend_period(
     # Проверяем баланс
     user_balance = db_user.balance_kopeks or 0
 
-    traffic = format_traffic(tariff.traffic_limit_gb)
-
     if user_balance >= final_price:
-        discount_text = ''
-        if discount_percent > 0:
-            discount_text = texts.t(
-                'TARIFF_PURCHASE_DISCOUNT_SHORT_LINE', '\n🎁 Скидка: {percent}% (-{amount})'
-            ).format(percent=discount_percent, amount=format_price_kopeks(total_discount))
-
         await callback.message.edit_text(
-            texts.t(
-                'TARIFF_RENEW_CONFIRM',
-                '✅ <b>Подтверждение продления</b>\n\n'
-                '📦 Тариф: <b>{name}</b>\n'
-                '📊 Трафик: {traffic}\n'
-                '📱 Устройств: {devices}\n'
-                '📅 Период: {period}\n'
-                '{discount}\n'
-                '💰 <b>К оплате: {total}</b>\n\n'
-                '💳 Ваш баланс: {balance}\n'
-                'После оплаты: {after}',
-            ).format(
-                name=html.escape(tariff.name),
-                traffic=traffic,
-                devices=actual_device_limit,
-                period=format_period(period),
-                discount=discount_text,
-                total=format_price_kopeks(final_price),
-                balance=format_price_kopeks(user_balance),
-                after=format_price_kopeks(user_balance - final_price),
+            _extend_confirm_text(
+                texts,
+                tariff,
+                actual_device_limit,
+                period,
+                discount_percent,
+                total_discount,
+                final_price,
+                user_balance,
             ),
             reply_markup=get_tariff_extend_confirm_keyboard(subscription.id, tariff_id, period, db_user.language),
             parse_mode='HTML',
@@ -2936,21 +3077,7 @@ async def select_tariff_extend_period(
         await user_cart_service.save_user_cart(db_user.id, cart_data)
 
         await callback.message.edit_text(
-            texts.t(
-                'TARIFF_PURCHASE_INSUFFICIENT',
-                '❌ <b>Недостаточно средств</b>\n\n'
-                '📦 Тариф: <b>{name}</b>\n'
-                '📅 Период: {period}\n'
-                '💰 Стоимость: {price}\n\n'
-                '💳 Ваш баланс: {balance}\n'
-                '⚠️ Не хватает: <b>{missing}</b>',
-            ).format(
-                name=html.escape(tariff.name),
-                period=format_period(period),
-                price=format_price_kopeks(final_price),
-                balance=format_price_kopeks(user_balance),
-                missing=format_price_kopeks(missing),
-            )
+            _extend_insufficient_text(texts, tariff, period, final_price, user_balance, still=False)
             + texts.t(
                 'TARIFF_RENEW_CART_SAVED_HINT',
                 '\n\n🛒 <i>Корзина сохранена! После пополнения баланса подписка будет продлена автоматически.</i>',
@@ -3164,37 +3291,11 @@ async def confirm_tariff_extend(
 
         await state.clear()
 
-        traffic = format_traffic(tariff.traffic_limit_gb)
-
         await callback.message.edit_text(
-            texts.t(
-                'TARIFF_RENEW_SUCCESS',
-                '🎉 <b>Подписка успешно продлена!</b>\n\n'
-                '📦 Тариф: <b>{name}</b>\n'
-                '📊 Трафик: {traffic}\n'
-                '📱 Устройств: {devices}\n'
-                '📅 Добавлено: {period}\n'
-                '💰 Списано: {price}',
-            ).format(
-                name=html.escape(tariff.name),
-                traffic=traffic,
-                devices=actual_device_limit,
-                period=format_period(period),
-                price=format_price_kopeks(final_price),
+            _extend_success_text(
+                texts, tariff, actual_device_limit, period, final_price, getattr(subscription, 'end_date', None)
             ),
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data=f'sm:{subscription.id}'
-                            if settings.is_multi_tariff_enabled() and subscription
-                            else 'menu_subscription',
-                        )
-                    ],
-                    [InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')],
-                ]
-            ),
+            reply_markup=_extend_success_keyboard(texts, subscription),
             parse_mode='HTML',
         )
     except Exception as e:
@@ -3397,11 +3498,7 @@ async def show_tariff_switch_list(
             ),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BUY_TARIFF_BUTTON', '📦 Купить тариф'), callback_data='menu_buy'
-                        )
-                    ],
+                    [_buy_tariff_button(texts)],
                     [InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')],
                 ]
             ),
@@ -4580,11 +4677,7 @@ async def show_instant_switch_list(
             ),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BUY_TARIFF_BUTTON', '📦 Купить тариф'), callback_data='menu_buy'
-                        )
-                    ],
+                    [_buy_tariff_button(texts)],
                     [InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')],
                 ]
             ),
@@ -5401,21 +5494,7 @@ async def return_to_saved_tariff_cart(
             # срабатывало. Пересохранение обновляет оба срока.
             await user_cart_service.save_user_cart(db_user.id, cart_data)
             await callback.message.edit_text(
-                texts.t(
-                    'TARIFF_PURCHASE_STILL_INSUFFICIENT',
-                    '❌ <b>Все еще недостаточно средств</b>\n\n'
-                    '📦 Тариф: <b>{name}</b>\n'
-                    '📅 Период: {period}\n'
-                    '💰 Стоимость: {price}\n\n'
-                    '💳 Ваш баланс: {balance}\n'
-                    '⚠️ Не хватает: <b>{missing}</b>',
-                ).format(
-                    name=html.escape(tariff.name),
-                    period=format_period(period),
-                    price=format_price_kopeks(total_price),
-                    balance=format_price_kopeks(user_balance),
-                    missing=format_price_kopeks(missing),
-                ),
+                _extend_insufficient_text(texts, tariff, period, total_price, user_balance, still=True),
                 reply_markup=get_tariff_extend_insufficient_balance_keyboard(
                     tariff_id,
                     cart_data.get('subscription_id'),
@@ -5498,37 +5577,28 @@ async def return_to_saved_tariff_cart(
     elif cart_mode == 'extend':
         period = cart_data.get('period_days', 30)
 
-        discount_text = ''
+        discount_kopeks = 0
         if discount_percent > 0:
-            original_price = int(total_price / (1 - discount_percent / 100))
-            discount_text = texts.t(
-                'TARIFF_PURCHASE_DISCOUNT_SHORT_LINE', '\n🎁 Скидка: {percent}% (-{amount})'
-            ).format(percent=discount_percent, amount=format_price_kopeks(original_price - total_price))
+            discount_kopeks = int(total_price / (1 - discount_percent / 100)) - total_price
 
         # subscription_id обязателен в callback продления (issue #3012), берём из корзины
         _extend_sub_id = cart_data.get('subscription_id')
 
+        # Корзина хранит число устройств подписки, по нему и считалась цена; апстрим показывал лимит тарифа.
+        extend_devices = tariff.device_limit
+        if settings.PREMIUM_THEME_ENABLED and cart_data.get('device_limit'):
+            extend_devices = cart_data['device_limit']
+
         await callback.message.edit_text(
-            texts.t(
-                'TARIFF_RENEW_CONFIRM',
-                '✅ <b>Подтверждение продления</b>\n\n'
-                '📦 Тариф: <b>{name}</b>\n'
-                '📊 Трафик: {traffic}\n'
-                '📱 Устройств: {devices}\n'
-                '📅 Период: {period}\n'
-                '{discount}\n'
-                '💰 <b>К оплате: {total}</b>\n\n'
-                '💳 Ваш баланс: {balance}\n'
-                'После оплаты: {after}',
-            ).format(
-                name=html.escape(tariff.name),
-                traffic=traffic,
-                devices=tariff.device_limit,
-                period=format_period(period),
-                discount=discount_text,
-                total=format_price_kopeks(total_price),
-                balance=format_price_kopeks(user_balance),
-                after=format_price_kopeks(user_balance - total_price),
+            _extend_confirm_text(
+                texts,
+                tariff,
+                extend_devices,
+                period,
+                discount_percent,
+                discount_kopeks,
+                total_price,
+                user_balance,
             ),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[

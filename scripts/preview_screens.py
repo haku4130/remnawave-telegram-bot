@@ -26,7 +26,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 
 from app.bot_factory import create_bot
 from app.config import settings
-from app.handlers.subscription import devices, purchase, revoke
+from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
     get_back_keyboard,
     get_change_devices_keyboard,
@@ -358,12 +358,68 @@ def _device_screens(language: str) -> list[PreviewScreen]:
     ]
 
 
+def _extend_screens(language: str) -> list[PreviewScreen]:
+    """Продление: срок, подтверждение, не хватает средств, готово и тупик смены тарифа — теми же сборщиками, что у бота."""
+    texts = get_texts(language)
+    tariff = SimpleNamespace(
+        id=1,
+        name='Стандартный' if language == 'ru' else 'Standard',
+        traffic_limit_gb=0,
+        device_limit=3,
+        device_price_kopeks=5500,
+        highlight_period_days=None,
+        period_prices={'30': 19900, '90': 49900, '180': 89900},
+    )
+    subscription = _fake_subscription(5)
+    subscription.id = 7
+    period = 30
+    price = 19900
+    balance = 5000
+    end_date = datetime.now(UTC) + timedelta(days=5 + period)
+
+    return [
+        PreviewScreen(
+            'Продление — выбор срока',
+            tariff_purchase._extend_title_text(texts, tariff, 3, ''),
+            tariff_purchase.get_tariff_extend_keyboard(
+                tariff, language, subscription_device_limit=3, subscription_id=subscription.id
+            ),
+        ),
+        PreviewScreen(
+            'Продление — подтверждение',
+            tariff_purchase._extend_confirm_text(texts, tariff, 3, period, 0, 0, price, 100000),
+            tariff_purchase.get_tariff_extend_confirm_keyboard(subscription.id, tariff.id, period, language),
+        ),
+        PreviewScreen(
+            'Продление — не хватает средств',
+            tariff_purchase._extend_insufficient_text(texts, tariff, period, price, balance, still=False)
+            + texts.t('TARIFF_RENEW_CART_SAVED_HINT', ''),
+            tariff_purchase.get_tariff_extend_insufficient_balance_keyboard(
+                tariff.id, subscription.id, period, language, missing_kopeks=price - balance
+            ),
+        ),
+        PreviewScreen(
+            'Продление — готово',
+            tariff_purchase._extend_success_text(texts, tariff, 3, period, price, end_date),
+            tariff_purchase._extend_success_keyboard(texts, subscription),
+        ),
+        PreviewScreen(
+            'Смена тарифа — нет вариантов',
+            texts.TARIFF_SWITCH_NO_TARIFFS,
+            InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')]]
+            ),
+        ),
+    ]
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
         *(await _stage_two_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_subscription_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(_device_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(_extend_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]
 
 

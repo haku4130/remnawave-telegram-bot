@@ -37,7 +37,7 @@ from app.keyboards.inline import (
     get_trial_keyboard,
     get_updated_subscription_settings_keyboard,
 )
-from app.localization.fork_text import fork_devices, fork_period, fork_traffic, fork_traffic_usage
+from app.localization.fork_text import fork_devices, fork_period, fork_text, fork_traffic, fork_traffic_usage
 from app.localization.texts import Texts, get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.pricing_engine import pricing_engine
@@ -1818,6 +1818,36 @@ async def return_to_saved_cart(callback: types.CallbackQuery, state: FSMContext,
     await callback.answer('✅ Корзина восстановлена!')
 
 
+async def _show_extend_choose_tariff(callback: types.CallbackQuery, texts) -> None:
+    """Продлевать нечего (нет подписки или пробный период без тарифа): предлагаем выбрать тариф."""
+    await callback.message.edit_text(
+        fork_text(
+            texts,
+            'FORK_EXTEND_CHOOSE_TARIFF',
+            '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
+        ),
+        reply_markup=types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    types.InlineKeyboardButton(
+                        text=fork_text(texts, 'FORK_BUTTON_BUY_SUBSCRIPTION', texts.MENU_BUY_SUBSCRIPTION),
+                        callback_data='menu_buy',
+                        style='success' if settings.PREMIUM_THEME_ENABLED else None,
+                    )
+                ],
+                [
+                    types.InlineKeyboardButton(
+                        text=fork_text(texts, 'FORK_BUTTON_CLOSE', texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть')),
+                        callback_data='webhook:close',
+                    )
+                ],
+            ]
+        ),
+        parse_mode='HTML',
+    )
+    await callback.answer()
+
+
 async def handle_extend_subscription(
     callback: types.CallbackQuery,
     db_user: User,
@@ -1839,22 +1869,7 @@ async def handle_extend_subscription(
         subscription = db_user.subscription
 
     if not subscription:
-        await callback.message.edit_text(
-            '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
-            reply_markup=types.InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [types.InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy')],
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
-                            callback_data='webhook:close',
-                        )
-                    ],
-                ]
-            ),
-            parse_mode='HTML',
-        )
-        await callback.answer()
+        await _show_extend_choose_tariff(callback, texts)
         return
 
     # Триальная подписка с тарифом — направляем на покупку этого тарифа
@@ -1865,22 +1880,7 @@ async def handle_extend_subscription(
             await show_tariff_extend(callback, db_user, db)
             return
         # Триал без тарифа — предлагаем выбрать
-        await callback.message.edit_text(
-            '🎯 <b>Пробный период заканчивается</b>\n\nЧтобы продолжить пользоваться VPN, выберите подходящий тариф.',
-            reply_markup=types.InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [types.InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy')],
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('WEBHOOK_CLOSE_BUTTON', '✖️ Закрыть'),
-                            callback_data='webhook:close',
-                        )
-                    ],
-                ]
-            ),
-            parse_mode='HTML',
-        )
-        await callback.answer()
+        await _show_extend_choose_tariff(callback, texts)
         return
 
     # Подписка с тарифом — всегда используем тарифный flow,
@@ -1905,13 +1905,23 @@ async def handle_extend_subscription(
     if settings.is_tariffs_mode():
         # У подписки нет тарифа, но режим тарифов включён - предлагаем выбрать тариф
         await callback.message.edit_text(
-            '📦 <b>Выберите тариф для продления</b>\n\n'
-            'Ваша текущая подписка была создана до введения тарифов.\n'
-            'Для продления необходимо выбрать один из доступных тарифов.\n\n'
-            '⚠️ Ваша текущая подписка продолжит действовать до окончания срока.',
+            fork_text(
+                texts,
+                'FORK_EXTEND_LEGACY',
+                '📦 <b>Выберите тариф для продления</b>\n\n'
+                'Ваша текущая подписка была создана до введения тарифов.\n'
+                'Для продления необходимо выбрать один из доступных тарифов.\n\n'
+                '⚠️ Ваша текущая подписка продолжит действовать до окончания срока.',
+            ),
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(text='📦 Выбрать тариф', callback_data='tariff_switch')],
+                    [
+                        types.InlineKeyboardButton(
+                            text=fork_text(texts, 'FORK_BUTTON_CHOOSE_TARIFF', '📦 Выбрать тариф'),
+                            callback_data='tariff_switch',
+                            style='success' if settings.PREMIUM_THEME_ENABLED else None,
+                        )
+                    ],
                     [types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')],
                 ]
             ),
