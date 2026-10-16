@@ -175,3 +175,22 @@ async def test_welcome_offer_falls_back_to_db_text_when_fork_screen_fails(monkey
     monkeypatch.setattr('app.database.crud.welcome_text.get_welcome_text_for_user', AsyncMock(return_value='ИЗ БД'))
     text, keyboard = await start._welcome_offer(AsyncMock(), SimpleNamespace(language='ru'), SimpleNamespace())
     assert text == 'ИЗ БД' and keyboard is None
+
+
+def test_welcome_send_kwargs_disable_link_preview_only_for_fork_welcome():
+    from aiogram.types import InlineKeyboardMarkup
+
+    kwargs = start._welcome_send_kwargs(InlineKeyboardMarkup(inline_keyboard=[]))
+    assert kwargs['link_preview_options'].is_disabled is True
+    # Приветствие из БД: аргумент не передаём вовсе (None перебил бы умолчание бота).
+    assert start._welcome_send_kwargs(None) == {}
+
+
+@pytest.mark.parametrize('handler', ['complete_registration', 'complete_registration_from_callback'])
+def test_welcome_sends_use_link_preview_kwargs(handler):
+    import inspect
+
+    source = inspect.getsource(getattr(start, handler))
+    assert 'welcome_kwargs = _welcome_send_kwargs(fork_keyboard)' in source
+    # Основная отправка и повтор без parse_mode.
+    assert source.count('**welcome_kwargs') == 2

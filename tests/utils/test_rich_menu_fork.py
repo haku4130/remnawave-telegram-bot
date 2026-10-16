@@ -50,3 +50,20 @@ async def test_no_referral_hint_when_commission_zero(theme, monkeypatch):
     user = _make_user(_make_subscription(datetime.now(UTC)))
     html_out = await rich_menu.build_main_menu_rich_html(user, ForkTexts(), AsyncMock())
     assert 'Пригласите друга' not in html_out
+
+
+@pytest.mark.asyncio
+async def test_rich_menu_sections_separated_by_lines(theme):
+    user = _make_user(_make_subscription(datetime.now(UTC)))
+    html_out = await rich_menu.build_main_menu_rich_html(user, ForkTexts(), AsyncMock())
+    header = html_out.index('<p><b>Егор &lt;script&gt;</b></p>')
+    first_line = html_out.index('<hr/>', header)
+    heading = html_out.index('<p><b>📱 Подписка</b></p>')
+    second_line = html_out.index('<hr/>', heading)
+    balance = html_out.index('Баланс:')
+    hint = html_out.index('Пригласите друга')
+    third_line = html_out.index('<hr/>', hint)
+    footer = html_out.index('<footer>')
+    assert header < first_line < heading < second_line < balance < hint < third_line < footer
+    assert html_out.count('<hr/>') == 3
+    assert '<h4>' not in html_out and '<h6>' not in html_out

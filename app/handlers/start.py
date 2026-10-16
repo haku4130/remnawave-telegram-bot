@@ -2293,6 +2293,15 @@ async def _welcome_offer(db: AsyncSession, user, tg_user) -> tuple[str | None, t
     return await get_welcome_text_for_user(db, tg_user), None
 
 
+def _welcome_send_kwargs(fork_keyboard: types.InlineKeyboardMarkup | None) -> dict[str, Any]:
+    """Доп. аргументы отправки приветствия. В тексте форка ссылка на правила —
+    без превью-карточки под сообщением. Для приветствия из БД ничего не передаём:
+    явный None перебил бы умолчание бота."""
+    if fork_keyboard is None:
+        return {}
+    return {'link_preview_options': types.LinkPreviewOptions(is_disabled=True)}
+
+
 async def complete_registration_from_callback(callback: types.CallbackQuery, state: FSMContext, db: AsyncSession):
     logger.info('🎯 COMPLETE: Завершение регистрации для пользователя', from_user_id=callback.from_user.id)
 
@@ -2562,6 +2571,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
             logger.error('Ошибка отправки сообщения о бонусе кампании', error=e)
 
     offer_text, fork_keyboard = await _welcome_offer(db, user, callback.from_user)
+    welcome_kwargs = _welcome_send_kwargs(fork_keyboard)
     pinned_message = await get_active_pinned_message(db)
 
     if offer_text:
@@ -2572,6 +2582,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                 offer_text,
                 reply_markup=fork_keyboard or get_post_registration_keyboard(user.language),
                 parse_mode='HTML',
+                **welcome_kwargs,
             )
             logger.info('✅ Приветственное сообщение отправлено пользователю', telegram_id=user.telegram_id)
             if pinned_message and not pinned_message.send_before_menu:
@@ -2584,6 +2595,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                         offer_text,
                         reply_markup=fork_keyboard or get_post_registration_keyboard(user.language),
                         parse_mode=None,
+                        **welcome_kwargs,
                     )
                     if pinned_message and not pinned_message.send_before_menu:
                         await _send_pinned_message(callback.bot, db, user, pinned_message)
@@ -2947,6 +2959,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
             logger.error('Ошибка отправки сообщения о бонусе кампании', error=e)
 
     offer_text, fork_keyboard = await _welcome_offer(db, user, message.from_user)
+    welcome_kwargs = _welcome_send_kwargs(fork_keyboard)
     pinned_message = await get_active_pinned_message(db)
 
     if offer_text:
@@ -2967,6 +2980,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
                 offer_text,
                 reply_markup=keyboard,
                 parse_mode='HTML',
+                **welcome_kwargs,
             )
             logger.info('✅ Приветственное сообщение отправлено пользователю', telegram_id=user.telegram_id)
             if pinned_message and not pinned_message.send_before_menu:
@@ -2979,6 +2993,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
                         offer_text,
                         reply_markup=keyboard,
                         parse_mode=None,
+                        **welcome_kwargs,
                     )
                     if pinned_message and not pinned_message.send_before_menu:
                         await _send_pinned_message(message.bot, db, user, pinned_message)

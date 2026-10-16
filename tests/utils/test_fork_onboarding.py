@@ -149,7 +149,8 @@ def test_trial_ready_screen(fork_texts):
         ]
     )
     text, kb = fo.build_trial_ready_screen(texts, '19.10.2026', connect)
-    assert 'Доступ до 19.10.2026' in text and 'Шаг 1' in text and 'Шаг 2' in text
+    assert 'Доступ до 19.10.2026' in text and 'следуйте инструкции' in text
+    assert 'Шаг 1' not in text
     assert kb.inline_keyboard[0][0].web_app.url == 'https://sub.example/x'
     assert kb.inline_keyboard[0][0].style == 'success'
     assert kb.inline_keyboard[1][0].callback_data == 'menu_support'

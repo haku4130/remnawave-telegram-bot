@@ -9,7 +9,7 @@
   "FORK_BUTTON_TARIFFS": "{e:gem} Plans",
   "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Choose a plan",
   "FORK_BUTTON_CONNECT": "{e:rocket} Connect",
-  "FORK_TRIAL_READY": "{e:party} <b>Done! Access until {end_date}</b>\n\n<b>Step 1.</b> Tap “Connect” to see instructions for your device.\n<b>Step 2.</b> Install the app and tap “Add subscription” in it.\n\nStuck? Message us — we’ll help in a couple of minutes.",
+  "FORK_TRIAL_READY": "{e:party} <b>Done! Access until {end_date}</b>\n\nTap “Connect” below and follow the instructions — it takes a couple of minutes.\n\nStuck? Message us — we’ll help.",
   "FORK_BUTTON_HELP": "{e:speech} Get help",
   "MAIN_MENU_RICH_SUBSCRIPTION_HEADING": "{e:phone} Subscription",
   "MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING": "{e:phone} Subscriptions",

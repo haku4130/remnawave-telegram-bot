@@ -522,7 +522,7 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
         blocks.append(f'<p><b>{user_name}</b></p>')
     else:
         blocks.append(f'<h4>👤 {user_name}</h4>')
-        blocks.append('<hr/>')
+    blocks.append('<hr/>')
 
     if settings.is_multi_tariff_enabled():
         heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTIONS_HEADING', '📱 Подписки')
@@ -546,6 +546,10 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     trial_link = _trial_offer_link(user, texts)
     if trial_link:
         blocks.append(f'<p>{trial_link}</p>')
+
+    if settings.PREMIUM_THEME_ENABLED:
+        # С темой форка разделы (шапка, подписка, баланс, футер) разделены линиями.
+        blocks.append('<hr/>')
 
     balance_template = texts.t('MAIN_MENU_RICH_BALANCE', '💰 Баланс: {balance}')
     balance_value = f'<b>{html.escape(settings.format_price(user.balance_kopeks))}</b>'
