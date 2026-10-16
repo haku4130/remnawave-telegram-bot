@@ -2895,6 +2895,9 @@
   Классы: нет
   Функции: `tracked_paths` — Файлы проекта: отслеживаемые плюс новые, которые git не игнорирует., `describe_module` — Строки «Классы:» и «Функции:» для модуля., `render_entries`, `render`, `build`, `main`
 - `scripts/install-warp-memory-watchdog.sh` — файл
+- `scripts/preview_screens.py` — Python-модуль
+  Классы: `PreviewScreen`
+  Функции: `build_screens`, `send_screens`, `main`
 - `scripts/sync-env-to-server.sh` — файл
 
 ## tests
@@ -2917,6 +2920,7 @@
 - `tests/live/`
 - `tests/localization/`
 - `tests/middlewares/`
+- `tests/scripts/`
 - `tests/services/`
 - `tests/test_config_languages.py` — Python-модуль
   Классы: нет
@@ -3920,6 +3924,12 @@
 - `tests/middlewares/test_stale_callback_answer.py` — Python-модуль
   Классы: нет
   Функции: `test_phrase_matcher_covers_both_telegram_wordings`, `test_stale_answer_becomes_warning_and_returns_true`, `test_other_errors_on_answer_still_raise`, `test_stale_phrases_on_other_methods_are_not_swallowed` — Middleware узкий: только ответ на нажатие. Редактирование сообщения — не его дело., `test_successful_request_passes_through`, `test_bot_factory_installs_the_middleware_for_every_bot` — Все боты (основной, из кабинета, из фоновых задач) создаются фабрикой — защита общая.
+
+### tests/scripts
+
+- `tests/scripts/test_preview_screens.py` — Python-модуль
+  Классы: нет
+  Функции: `theme_on`, `test_build_screens_contains_catalog_sheets_and_menus`, `test_menu_screens_have_buttons`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`
 
 ### tests/services
 
