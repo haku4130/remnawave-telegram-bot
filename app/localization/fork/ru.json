@@ -1,5 +1,12 @@
 {
   "FORK_DAYS_ONE": "{n} день",
   "FORK_DAYS_FEW": "{n} дня",
-  "FORK_DAYS_MANY": "{n} дней"
+  "FORK_DAYS_MANY": "{n} дней",
+  "FORK_WELCOME_TRIAL": "<b>Привет, {user_name}!</b> {e:wave}\n\nЭто ZanityVPN — быстрый VPN для телефона, компьютера и ТВ. YouTube без рекламы, звонки в WhatsApp и Telegram.\n\n{e:gift} Дарим <b>{trial_days} бесплатно</b> — без оплаты и без карты.\n\n<i>Нажимая кнопку, вы принимаете <a href=\"{rules_url}\">правила сервиса</a>.</i>",
+  "FORK_WELCOME_NO_TRIAL": "<b>Привет, {user_name}!</b> {e:wave}\n\nЭто ZanityVPN — быстрый VPN для телефона, компьютера и ТВ. YouTube без рекламы, звонки в WhatsApp и Telegram.\n\nВыберите тариф — подключение займёт пару минут.\n\n<i>Пользуясь сервисом, вы принимаете <a href=\"{rules_url}\">правила сервиса</a>.</i>",
+  "FORK_WELCOME_HAS_SUBSCRIPTION": "<b>Привет, {user_name}!</b> {e:wave}\n\nПодписка уже активна. Нажмите «Подключиться» — откроется инструкция для вашего устройства.",
+  "FORK_BUTTON_TRY_FREE": "{e:gift} Попробовать бесплатно",
+  "FORK_BUTTON_TARIFFS": "{e:gem} Тарифы",
+  "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Выбрать тариф",
+  "FORK_BUTTON_CONNECT": "{e:rocket} Подключиться"
 }

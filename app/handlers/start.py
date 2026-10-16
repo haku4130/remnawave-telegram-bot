@@ -2276,6 +2276,19 @@ async def process_referral_code_skip(callback: types.CallbackQuery, state: FSMCo
     await complete_registration_from_callback(callback, state, db)
 
 
+async def _welcome_offer(db: AsyncSession, user, tg_user) -> tuple[str | None, types.InlineKeyboardMarkup | None]:
+    """Текст и клавиатура приветствия. С темой форка — экран форка (тексты в коде),
+    иначе — текст из таблицы welcome_texts с клавиатурой по умолчанию (None)."""
+    if settings.PREMIUM_THEME_ENABLED:
+        from app.utils.fork_onboarding import build_welcome_screen
+
+        return build_welcome_screen(user, tg_user)
+
+    from app.database.crud.welcome_text import get_welcome_text_for_user
+
+    return await get_welcome_text_for_user(db, tg_user), None
+
+
 async def complete_registration_from_callback(callback: types.CallbackQuery, state: FSMContext, db: AsyncSession):
     logger.info('🎯 COMPLETE: Завершение регистрации для пользователя', from_user_id=callback.from_user.id)
 
@@ -2544,9 +2557,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
         except Exception as e:
             logger.error('Ошибка отправки сообщения о бонусе кампании', error=e)
 
-    from app.database.crud.welcome_text import get_welcome_text_for_user
-
-    offer_text = await get_welcome_text_for_user(db, callback.from_user)
+    offer_text, fork_keyboard = await _welcome_offer(db, user, callback.from_user)
     pinned_message = await get_active_pinned_message(db)
 
     if offer_text:
@@ -2555,7 +2566,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                 await _send_pinned_message(callback.bot, db, user, pinned_message)
             await callback.message.answer(
                 offer_text,
-                reply_markup=get_post_registration_keyboard(user.language),
+                reply_markup=fork_keyboard or get_post_registration_keyboard(user.language),
                 parse_mode='HTML',
             )
             logger.info('✅ Приветственное сообщение отправлено пользователю', telegram_id=user.telegram_id)
@@ -2567,7 +2578,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
                 try:
                     await callback.message.answer(
                         offer_text,
-                        reply_markup=get_post_registration_keyboard(user.language),
+                        reply_markup=fork_keyboard or get_post_registration_keyboard(user.language),
                         parse_mode=None,
                     )
                     if pinned_message and not pinned_message.send_before_menu:
@@ -2931,9 +2942,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
         except Exception as e:
             logger.error('Ошибка отправки сообщения о бонусе кампании', error=e)
 
-    from app.database.crud.welcome_text import get_welcome_text_for_user
-
-    offer_text = await get_welcome_text_for_user(db, message.from_user)
+    offer_text, fork_keyboard = await _welcome_offer(db, user, message.from_user)
     pinned_message = await get_active_pinned_message(db)
 
     if offer_text:
@@ -2941,7 +2950,9 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
             # Если у пользователя уже есть подписка (например, от промокода), не предлагаем триал
             _subs = getattr(user, 'subscriptions', None) or []
             user_has_subscription = any(s.is_active for s in _subs)
-            if user_has_subscription:
+            if fork_keyboard is not None:
+                keyboard = fork_keyboard
+            elif user_has_subscription:
                 keyboard = get_back_keyboard(user.language, callback_data='back_to_menu')
             else:
                 keyboard = get_post_registration_keyboard(user.language)

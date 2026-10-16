@@ -69,3 +69,69 @@ def test_format_days(days, ru, en):
     )
     assert fo.format_days(ru_texts, days) == ru
     assert fo.format_days(en_texts, days) == en
+
+
+@pytest.fixture
+def fork_texts(monkeypatch):
+    from app.localization import loader
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', True)
+    monkeypatch.setattr(settings, 'BOT_USERNAME', 'zanity_vpn_bot')
+    monkeypatch.setattr(settings, 'TRIAL_DURATION_DAYS', 3)
+    loader.clear_locale_cache()
+    yield
+    loader.clear_locale_cache()
+
+
+def _tg(first_name='Андрей <b>'):
+    return SimpleNamespace(first_name=first_name, username='andrey')
+
+
+def _reg_user(language='ru', active=False):
+    sub = SimpleNamespace(is_active=active)
+    return SimpleNamespace(
+        language=language,
+        subscriptions=[sub] if active else [],
+        auth_type='telegram',
+        is_trial_already_used=MagicMock(return_value=active),
+    )
+
+
+def test_welcome_with_trial(fork_texts, monkeypatch):
+    monkeypatch.setattr(fo, 'is_trial_available', lambda user: True)
+    text, kb = fo.build_welcome_screen(_reg_user(), _tg())
+    assert 'Андрей &lt;b&gt;' in text  # имя экранировано
+    assert '3 дня' in text
+    assert 'https://t.me/zanity_vpn_bot?start=rules' in text
+    assert '<tg-emoji' in text
+    first = kb.inline_keyboard[0][0]
+    assert first.callback_data == 'trial_activate' and first.style == 'success'
+    assert kb.inline_keyboard[1][0].callback_data == 'menu_buy' and kb.inline_keyboard[1][0].style == 'primary'
+
+
+def test_welcome_with_active_subscription(fork_texts, monkeypatch):
+    monkeypatch.setattr(fo, 'is_trial_available', lambda user: False)
+    text, kb = fo.build_welcome_screen(_reg_user(active=True), _tg('Андрей'))
+    assert kb.inline_keyboard[0][0].callback_data == 'subscription_connect'
+    assert len(kb.inline_keyboard) == 1
+
+
+def test_welcome_without_trial(fork_texts, monkeypatch):
+    monkeypatch.setattr(fo, 'is_trial_available', lambda user: False)
+    text, kb = fo.build_welcome_screen(_reg_user(), _tg('Андрей'))
+    assert kb.inline_keyboard[0][0].callback_data == 'menu_buy'
+    assert kb.inline_keyboard[0][0].style == 'success'
+
+
+def test_welcome_english(fork_texts, monkeypatch):
+    monkeypatch.setattr(fo, 'is_trial_available', lambda user: True)
+    text, _ = fo.build_welcome_screen(_reg_user(language='en'), _tg('Ann'))
+    assert '3 days' in text and 'Hi, Ann' in text
+
+
+def test_welcome_without_bot_username_drops_rules_paragraph(fork_texts, monkeypatch):
+    monkeypatch.setattr(settings, 'BOT_USERNAME', None)
+    monkeypatch.setattr(fo, 'is_trial_available', lambda user: True)
+    text, _ = fo.build_welcome_screen(_reg_user(), _tg('Андрей'))
+    assert 'href' not in text
+    assert '3 дня' in text

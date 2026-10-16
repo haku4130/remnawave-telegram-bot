@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import html
+
 import structlog
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -89,3 +91,40 @@ async def send_rules_screen(message, db, language: str, *, with_menu_button: boo
             await message.answer(text, reply_markup=keyboard)
         else:
             await message.answer(text)
+
+
+def _user_name(tg_user) -> str:
+    name = getattr(tg_user, 'first_name', None) or getattr(tg_user, 'username', None) or ''
+    return html.escape(name)
+
+
+def _button(text: str, callback_data: str, style: str) -> list[InlineKeyboardButton]:
+    return [InlineKeyboardButton(text=text, callback_data=callback_data, style=style)]
+
+
+def build_welcome_screen(user, tg_user) -> tuple[str, InlineKeyboardMarkup]:
+    """Приветствие нового пользователя: пробный одной зелёной кнопкой, правила — ссылкой строкой."""
+    texts = get_texts(getattr(user, 'language', None) or settings.DEFAULT_LANGUAGE)
+    user_name = _user_name(tg_user)
+    url = rules_url()
+    has_active = any(getattr(sub, 'is_active', False) for sub in (getattr(user, 'subscriptions', None) or []))
+
+    if has_active:
+        text = texts.FORK_WELCOME_HAS_SUBSCRIPTION.format(user_name=user_name)
+        rows = [_button(texts.FORK_BUTTON_CONNECT, 'subscription_connect', 'success')]
+    elif is_trial_available(user):
+        text = texts.FORK_WELCOME_TRIAL.format(
+            user_name=user_name, trial_days=format_days(texts, settings.TRIAL_DURATION_DAYS), rules_url=url
+        )
+        rows = [
+            _button(texts.FORK_BUTTON_TRY_FREE, 'trial_activate', 'success'),
+            _button(texts.FORK_BUTTON_TARIFFS, 'menu_buy', 'primary'),
+        ]
+    else:
+        text = texts.FORK_WELCOME_NO_TRIAL.format(user_name=user_name, rules_url=url)
+        rows = [_button(texts.FORK_BUTTON_CHOOSE_TARIFF, 'menu_buy', 'success')]
+
+    if not url and 'href=""' in text:
+        # Без username бота ссылку на правила не построить — убираем последний абзац целиком.
+        text = text.rsplit('\n\n', 1)[0]
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)

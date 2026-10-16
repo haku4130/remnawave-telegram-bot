@@ -1,5 +1,12 @@
 {
   "FORK_DAYS_ONE": "{n} day",
   "FORK_DAYS_FEW": "{n} days",
-  "FORK_DAYS_MANY": "{n} days"
+  "FORK_DAYS_MANY": "{n} days",
+  "FORK_WELCOME_TRIAL": "<b>Hi, {user_name}!</b> {e:wave}\n\nThis is ZanityVPN — a fast VPN for your phone, computer and TV. YouTube without ads, WhatsApp and Telegram calls.\n\n{e:gift} Get <b>{trial_days} free</b> — no payment, no card.\n\n<i>By tapping the button you accept the <a href=\"{rules_url}\">terms of service</a>.</i>",
+  "FORK_WELCOME_NO_TRIAL": "<b>Hi, {user_name}!</b> {e:wave}\n\nThis is ZanityVPN — a fast VPN for your phone, computer and TV. YouTube without ads, WhatsApp and Telegram calls.\n\nChoose a plan — setup takes a couple of minutes.\n\n<i>By using the service you accept the <a href=\"{rules_url}\">terms of service</a>.</i>",
+  "FORK_WELCOME_HAS_SUBSCRIPTION": "<b>Hi, {user_name}!</b> {e:wave}\n\nYour subscription is active. Tap “Connect” to see instructions for your device.",
+  "FORK_BUTTON_TRY_FREE": "{e:gift} Try for free",
+  "FORK_BUTTON_TARIFFS": "{e:gem} Plans",
+  "FORK_BUTTON_CHOOSE_TARIFF": "{e:gem} Choose a plan",
+  "FORK_BUTTON_CONNECT": "{e:rocket} Connect"
 }

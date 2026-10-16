@@ -134,3 +134,28 @@ def test_rules_url(monkeypatch):
     assert fork_onboarding.rules_url() == 'https://t.me/zanity_vpn_bot?start=rules'
     monkeypatch.setattr(settings, 'BOT_USERNAME', None)
     assert fork_onboarding.rules_url() == ''
+
+
+@pytest.mark.asyncio
+async def test_welcome_offer_prefers_fork_screen(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.utils import fork_onboarding
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', True)
+    monkeypatch.setattr(fork_onboarding, 'build_welcome_screen', lambda user, tg: ('ФОРК', 'KB'))
+    db_welcome = AsyncMock(return_value='ИЗ БД')
+    monkeypatch.setattr('app.database.crud.welcome_text.get_welcome_text_for_user', db_welcome)
+    text, keyboard = await start._welcome_offer(AsyncMock(), SimpleNamespace(language='ru'), SimpleNamespace())
+    assert (text, keyboard) == ('ФОРК', 'KB')
+    db_welcome.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_welcome_offer_uses_db_text_when_theme_off(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    monkeypatch.setattr('app.database.crud.welcome_text.get_welcome_text_for_user', AsyncMock(return_value='ИЗ БД'))
+    text, keyboard = await start._welcome_offer(AsyncMock(), SimpleNamespace(language='ru'), SimpleNamespace())
+    assert text == 'ИЗ БД' and keyboard is None
