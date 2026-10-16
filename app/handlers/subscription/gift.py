@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database.models import GuestPurchase, GuestPurchaseStatus, User
+from app.handlers.gift_activation import gift_activated_text
 from app.handlers.subscription.purchase import show_subscription_info
 from app.keyboards.inline import get_insufficient_balance_keyboard
 from app.localization.texts import get_texts
@@ -1232,11 +1233,7 @@ async def handle_gift_code_input(
     await state.clear()
 
     tariff_name = html.escape(purchase.tariff.name) if purchase.tariff and purchase.tariff.name else ''
-    period_days = purchase.period_days or 0
-    success_text = texts.t(
-        'GIFT_ACTIVATION_SUCCESS_TEXT',
-        '🎁 <b>Подарок активирован!</b>\n{tariff_name} — {period_days} дн.\n\nВаша подписка обновлена.',
-    ).format(tariff_name=tariff_name, period_days=period_days)
+    success_text = gift_activated_text(texts, tariff_name, purchase.period_days or 0, callback_variant=False)
 
     success_kb = InlineKeyboardMarkup(
         inline_keyboard=[

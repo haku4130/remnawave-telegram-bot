@@ -1,6 +1,7 @@
 """Service for guest (unauthenticated) purchases via landing pages."""
 
 import asyncio
+import html as html_mod
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 
 
 import structlog
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +46,8 @@ from app.database.models import (
     User,
     _aware,
 )
+from app.localization.fork_text import fork_period, fork_text
+from app.localization.texts import get_texts
 from app.services.registration_access_service import (
     RegistrationAccessContext,
     RegistrationAccessDecision,
@@ -1113,6 +1117,68 @@ def _get_receipt_contact(purchase: GuestPurchase, user: User) -> tuple[int | Non
     return None, None
 
 
+def build_gift_received_message(
+    language: str | None,
+    *,
+    tariff_name: str,
+    period_days: int | None,
+    gift_from: str | None,
+    gift_message: str | None,
+    purchase_id: int,
+    is_pending_activation: bool,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Текст и кнопка уведомления «Вам подарили подписку».
+
+    Без темы форка — прежний русский текст апстрима. Под темой — текст и кнопка на языке получателя
+    (срок со склонением); данные дарителя и тариф экранируются, шаблоны — нет.
+    """
+    safe_tariff = html_mod.escape(tariff_name) if tariff_name else ''
+    callback_data = f'gift_activate:{purchase_id}'
+
+    if settings.PREMIUM_THEME_ENABLED:
+        texts = get_texts(language or settings.DEFAULT_LANGUAGE)
+        period = fork_period(texts, period_days) if period_days else ''
+        tariff_text = f'{safe_tariff} · {period}' if safe_tariff and period else (safe_tariff or period)
+        text = fork_text(texts, 'FORK_GIFT_RECEIVED', '').format(
+            tariff_text=tariff_text,
+            gift_from=fork_text(texts, 'FORK_GIFT_FROM', '').format(name=html_mod.escape(gift_from))
+            if gift_from
+            else '',
+            gift_message=fork_text(texts, 'FORK_GIFT_MESSAGE', '').format(message=html_mod.escape(gift_message))
+            if gift_message
+            else '',
+        )
+        keyboard = None
+        if is_pending_activation:
+            text += fork_text(texts, 'FORK_GIFT_PENDING', '')
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=fork_text(texts, 'FORK_GIFT_ACTIVATE_BUTTON', ''),
+                            callback_data=callback_data,
+                            style='success',
+                        )
+                    ]
+                ]
+            )
+        return text, keyboard
+
+    from_line = f'\nОт: {html_mod.escape(gift_from)}' if gift_from else ''
+    message_block = f'\n\n"{html_mod.escape(gift_message)}"' if gift_message else ''
+    period_text = f'{period_days} дн.' if period_days else ''
+    tariff_text = f'{safe_tariff} — {period_text}' if safe_tariff else period_text
+
+    text = f'🎁 <b>Вам подарили VPN подписку!</b>\n{tariff_text}{from_line}{message_block}'
+    keyboard = None
+    if is_pending_activation:
+        text += '\n\nУ вас уже есть активная подписка. Нажмите кнопку ниже, чтобы активировать подарок (текущая подписка будет заменена).'
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text='Активировать подарок', callback_data=callback_data)]]
+        )
+    return text, keyboard
+
+
 async def _send_telegram_gift_notification(
     purchase: GuestPurchase,
     *,
@@ -1127,41 +1193,17 @@ async def _send_telegram_gift_notification(
         return
 
     try:
-        import html as html_mod
-
-        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
         from app.bot_factory import create_bot
 
-        gift_from = ''
-        if purchase.contact_value:
-            safe_name = html_mod.escape(purchase.contact_value)
-            gift_from = f'\nОт: {safe_name}'
-
-        gift_msg = ''
-        if purchase.gift_message:
-            safe_msg = html_mod.escape(purchase.gift_message)
-            gift_msg = f'\n\n"{safe_msg}"'
-
-        safe_tariff = html_mod.escape(tariff_name) if tariff_name else ''
-        period_text = f'{purchase.period_days} дн.' if purchase.period_days else ''
-        tariff_text = f'{safe_tariff} — {period_text}' if safe_tariff else period_text
-
-        text = f'🎁 <b>Вам подарили VPN подписку!</b>\n{tariff_text}{gift_from}{gift_msg}'
-
-        keyboard = None
-        if is_pending_activation:
-            text += '\n\nУ вас уже есть активная подписка. Нажмите кнопку ниже, чтобы активировать подарок (текущая подписка будет заменена).'
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text='Активировать подарок',
-                            callback_data=f'gift_activate:{purchase.id}',
-                        )
-                    ]
-                ]
-            )
+        text, keyboard = build_gift_received_message(
+            user.language,
+            tariff_name=tariff_name,
+            period_days=purchase.period_days,
+            gift_from=purchase.contact_value,
+            gift_message=purchase.gift_message,
+            purchase_id=purchase.id,
+            is_pending_activation=is_pending_activation,
+        )
 
         async with create_bot() as bot:
             await bot.send_message(

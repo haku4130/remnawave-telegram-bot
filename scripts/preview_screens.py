@@ -28,7 +28,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 from app.bot_factory import create_bot
 from app.config import settings
 from app.database.models import Subscription
-from app.handlers import referral as referral_handler, support as support_handler, tickets as tickets_handler
+from app.handlers import (
+    gift_activation as gift_handler,
+    menu as menu_handler,
+    promocode as promocode_handler,
+    referral as referral_handler,
+    start as start_handler,
+    support as support_handler,
+    tickets as tickets_handler,
+)
 from app.handlers.balance import main as balance_main, rollypay as rollypay_handler
 from app.handlers.subscription import devices, purchase, revoke, tariff_purchase
 from app.keyboards.inline import (
@@ -38,6 +46,7 @@ from app.keyboards.inline import (
     get_confirm_change_devices_keyboard,
     get_devices_management_keyboard,
     get_insufficient_balance_keyboard,
+    get_language_selection_keyboard,
     get_payment_methods_keyboard,
     get_subscription_keyboard,
     get_updated_subscription_settings_keyboard,
@@ -47,6 +56,7 @@ from app.localization.fork_text import fork_period, fork_traffic
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
 from app.services import referral_service, subscription_auto_purchase_service as auto_purchase
+from app.services.guest_purchase_service import build_gift_received_message
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
 from app.services.monitoring_service import MonitoringService
 from app.services.notification_delivery_service import notification_delivery_service
@@ -1093,6 +1103,92 @@ async def _support_screens(language: str) -> list[PreviewScreen]:
     return screens
 
 
+async def _misc_screens(language: str) -> list[PreviewScreen]:
+    """Инфо, язык, промокод, подарки и частые ошибки: настоящими обработчиками и сборщиками, на выдуманных данных."""
+    ru = language == 'ru'
+    user = SimpleNamespace(id=1, language=language, telegram_id=42)
+    texts = get_texts(language)
+    back = get_back_keyboard(language)
+    sent: dict = {}
+
+    async def capture(callback, caption, keyboard, parse_mode='HTML', **kwargs):
+        sent['text'], sent['markup'] = caption, keyboard
+
+    def callback(data: str = '') -> MagicMock:
+        fake = MagicMock()
+        fake.data = data
+        fake.answer = AsyncMock()
+        fake.message.edit_text = AsyncMock()
+        return fake
+
+    screens: list[PreviewScreen] = []
+    with (
+        patch.object(menu_handler, 'edit_or_answer_photo', capture),
+        patch.object(menu_handler.PrivacyPolicyService, 'is_policy_enabled', AsyncMock(return_value=True)),
+        patch.object(menu_handler.PublicOfferService, 'is_offer_enabled', AsyncMock(return_value=True)),
+        patch.object(menu_handler.FaqService, 'is_enabled', AsyncMock(return_value=True)),
+        patch.object(menu_handler, 'has_auto_assign_promo_groups', AsyncMock(return_value=False)),
+        patch.object(menu_handler, 'get_all_info_pages', AsyncMock(return_value=[])),
+        patch.object(settings, 'LANGUAGE_SELECTION_ENABLED', True),
+        patch.object(settings, 'AVAILABLE_LANGUAGES', 'ru,en'),
+    ):
+        await menu_handler.show_info_menu(callback('menu_info'), user, MagicMock())
+        screens.append(PreviewScreen('Инфо — меню', sent['text'], sent['markup']))
+        await menu_handler.show_language_menu(callback('menu_language'), user, MagicMock())
+        screens.append(PreviewScreen('Язык — выбор', sent['text'], sent['markup']))
+        screens.append(
+            PreviewScreen(
+                'Язык — при регистрации', start_handler._get_language_prompt_text(), get_language_selection_keyboard()
+            )
+        )
+    screens.append(PreviewScreen('Язык — выбран', texts.LANGUAGE_SELECTED, None))
+
+    prompt = callback('menu_promocode')
+    state = MagicMock()
+    state.get_state, state.get_data = AsyncMock(return_value=None), AsyncMock(return_value={})
+    state.set_state, state.update_data = AsyncMock(), AsyncMock()
+    await promocode_handler.show_promocode_menu(prompt, user, state)
+    call = prompt.message.edit_text.await_args
+    screens.append(PreviewScreen('Промокод — ввод', call.args[0], call.kwargs['reply_markup']))
+    effects = [
+        {'kind': 'days', 'days': 30, 'tariff': ''},
+        {'kind': 'balance', 'kopeks': 15000},
+    ]
+    screens.append(
+        PreviewScreen(
+            'Промокод — активирован',
+            promocode_handler.build_promocode_success_text(texts, {'description': '', 'effects': effects}),
+            back,
+        )
+    )
+    screens.append(PreviewScreen('Промокод — не найден', texts.PROMOCODE_INVALID, back))
+    screens.append(
+        PreviewScreen('Промокод — слишком много попыток', texts.t('PROMO_RATE_LIMITED').format(cooldown=45), back)
+    )
+
+    gift_text, gift_markup = build_gift_received_message(
+        language,
+        tariff_name='Стандартный' if ru else 'Standard',
+        period_days=30,
+        gift_from='Анна' if ru else 'Anna',
+        gift_message='С днём рождения!' if ru else 'Happy birthday!',
+        purchase_id=9,
+        is_pending_activation=True,
+    )
+    screens.append(PreviewScreen('Подарок — получен', gift_text, gift_markup))
+    screens.append(
+        PreviewScreen(
+            'Подарок — активирован',
+            gift_handler.gift_activated_text(texts, 'Стандартный' if ru else 'Standard', 30, callback_variant=True),
+            None,
+        )
+    )
+    screens.append(PreviewScreen('Подарок — свой собственный', texts.GIFT_ACTIVATION_SELF_CLAIM_ERROR, None))
+    screens.append(PreviewScreen('Ошибка — не понял команду', texts.UNKNOWN_COMMAND_MESSAGE, back))
+    screens.append(PreviewScreen('Ошибка — что-то пошло не так', texts.ERROR, back))
+    return screens
+
+
 async def build_screens(language: str) -> list[PreviewScreen]:
     return [
         *_catalog_screens(),
@@ -1105,6 +1201,7 @@ async def build_screens(language: str) -> list[PreviewScreen]:
         *(_topup_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _referral_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _support_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
+        *(await _misc_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _monitoring_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
         *(await _webhook_notification_screens(language) if settings.PREMIUM_THEME_ENABLED else []),
     ]

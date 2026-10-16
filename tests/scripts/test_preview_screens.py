@@ -773,3 +773,63 @@ async def test_support_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in SUPPORT_TITLES)
+
+
+MISC_TITLES = (
+    'Инфо — меню',
+    'Язык — выбор',
+    'Язык — при регистрации',
+    'Язык — выбран',
+    'Промокод — ввод',
+    'Промокод — активирован',
+    'Промокод — не найден',
+    'Промокод — слишком много попыток',
+    'Подарок — получен',
+    'Подарок — активирован',
+    'Подарок — свой собственный',
+    'Ошибка — не понял команду',
+    'Ошибка — что-то пошло не так',
+)
+# Подпись выбора языка при регистрации двуязычная, а кнопки выбора языка подписаны родными названиями («Русский»).
+BILINGUAL_TITLES = ('Язык — при регистрации',)
+NATIVE_NAME_BUTTONS = ('Язык — выбор', 'Язык — при регистрации')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_misc_screens_present(theme_on, language):
+    import re
+
+    from app.middlewares.premium_theme import theme_markup
+    from app.utils.message_patch import caption_exceeds_telegram_limit
+
+    screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
+    for title in MISC_TITLES:
+        screen = screens[title]
+        assert not screen.rich, title
+        assert screen.text.count('<tg-emoji') <= 2, title
+        assert not caption_exceeds_telegram_limit(screen.text), title
+        assert '{' not in screen.text, title
+        buttons = (
+            [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
+        )
+        assert sum(1 for button in buttons if button.style == 'success') <= 1, title
+        if language == 'en' and title not in BILINGUAL_TITLES:
+            assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
+        if language == 'en' and title not in NATIVE_NAME_BUTTONS:
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
+
+    gift = [b for row in screens['Подарок — получен'].markup.inline_keyboard for b in row]
+    assert [b.callback_data for b in gift] == ['gift_activate:9'] and gift[0].style == 'success'
+    assert '150 ₽' in screens['Промокод — активирован'].text
+
+
+@pytest.mark.asyncio
+async def test_misc_screens_absent_without_theme(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    try:
+        titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    finally:
+        loader.clear_locale_cache()
+    assert not any(title in titles for title in MISC_TITLES)

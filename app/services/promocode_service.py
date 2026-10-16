@@ -137,9 +137,10 @@ class PromoCodeService:
                 await self._rollback_keeping_user_usable(db, user)
                 return {'success': False, 'error': 'used'}
 
+            effect_details: list[dict[str, Any]] = []
             try:
                 result_description = await self._apply_promocode_effects(
-                    db, user, promocode, subscription_id=subscription_id
+                    db, user, promocode, subscription_id=subscription_id, details=effect_details
                 )
             except _SelectSubscriptionRequired as e:
                 # Мульти-тариф: нужен выбор подписки — откатываем резерв И claim инкремента.
@@ -208,6 +209,7 @@ class PromoCodeService:
 
                             # Add to result description
                             result_description += f'\n🎁 Назначена промогруппа: {promo_group.name}'
+                            effect_details.append({'kind': 'promo_group', 'name': promo_group.name})
                         else:
                             logger.warning(
                                 '⚠️ Промогруппа ID не найдена для промокода',
@@ -251,6 +253,7 @@ class PromoCodeService:
             return {
                 'success': True,
                 'description': result_description,
+                'effects': effect_details,
                 'promocode': promocode_data,
                 'balance_before_kopeks': balance_before_kopeks,
                 'balance_after_kopeks': balance_after_kopeks,
@@ -332,7 +335,13 @@ class PromoCodeService:
         return target_sub
 
     async def _apply_promocode_effects(
-        self, db: AsyncSession, user: User, promocode: PromoCode, *, subscription_id: int | None = None
+        self,
+        db: AsyncSession,
+        user: User,
+        promocode: PromoCode,
+        *,
+        subscription_id: int | None = None,
+        details: list[dict[str, Any]] | None = None,
     ) -> str:
         """
         Применяет эффекты промокода к пользователю.
@@ -341,6 +350,10 @@ class PromoCodeService:
             db: Сессия базы данных
             user: Пользователь
             promocode: Промокод
+            subscription_id: Подписка, к которой применить дни (мульти-тариф)
+            details: Если передан, получает по записи на каждый эффект (kind + числа/имена) —
+                из них экран собирает текст на языке пользователя; русская строка описания остаётся
+                для админ-уведомлений и API.
 
         Returns:
             Описание примененных эффектов
@@ -349,6 +362,8 @@ class PromoCodeService:
             ValueError: Если у пользователя уже есть активная скидка (для DISCOUNT типа)
         """
         effects = []
+        if details is None:
+            details = []
 
         # Обработка DISCOUNT типа (одноразовая скидка)
         if promocode.type == PromoCodeType.DISCOUNT.value:
@@ -381,10 +396,12 @@ class PromoCodeService:
             if discount_hours > 0:
                 user.promo_offer_discount_expires_at = datetime.now(UTC) + timedelta(hours=discount_hours)
                 effects.append(f'💸 Получена скидка {discount_percent}% (действует {discount_hours} ч.)')
+                details.append({'kind': 'discount', 'percent': discount_percent, 'hours': discount_hours})
             else:
                 # 0 часов = бессрочно до первой покупки
                 user.promo_offer_discount_expires_at = None
                 effects.append(f'💸 Получена скидка {discount_percent}% до первой покупки')
+                details.append({'kind': 'discount', 'percent': discount_percent, 'hours': 0})
 
             await db.flush()
 
@@ -422,9 +439,12 @@ class PromoCodeService:
             await self.subscription_service.update_remnawave_user(db, target_sub)
 
             tariff_label = ''
+            tariff_name = ''
             if settings.is_multi_tariff_enabled() and getattr(target_sub, 'tariff', None):
-                tariff_label = f' «{target_sub.tariff.name}»'
+                tariff_name = target_sub.tariff.name
+                tariff_label = f' «{tariff_name}»'
             effects.append(f'⏰ Подписка{tariff_label} продлена на {promocode.subscription_days} дней')
+            details.append({'kind': 'days', 'days': promocode.subscription_days, 'tariff': tariff_name})
             logger.info(
                 '✅ Подписка пользователя продлена на дней в RemnaWave',
                 _format_user_log=self._format_user_log(user),
@@ -478,6 +498,7 @@ class PromoCodeService:
                     await self.subscription_service.enable_remnawave_user(panel_user_id)
 
                 effects.append(f'📦 Трафик пополнен на {traffic_gb} ГБ')
+                details.append({'kind': 'traffic', 'gb': traffic_gb})
                 logger.info(
                     '✅ Пользователю начислен трафик по промокоду',
                     _format_user_log=self._format_user_log(user),
@@ -493,6 +514,7 @@ class PromoCodeService:
 
             balance_bonus_rubles = promocode.balance_bonus_kopeks / 100
             effects.append(f'💰 Баланс пополнен на {balance_bonus_rubles}₽')
+            details.append({'kind': 'balance', 'kopeks': promocode.balance_bonus_kopeks})
 
         if promocode.type == PromoCodeType.TRIAL_SUBSCRIPTION.value:
             from app.database.crud.subscription import create_trial_subscription
@@ -583,6 +605,9 @@ class PromoCodeService:
                 effects.append(
                     f'⏰ Подписка «{trial_tariff.name if trial_tariff else ""}» продлена на {trial_days} дней'
                 )
+                details.append(
+                    {'kind': 'days', 'days': trial_days, 'tariff': trial_tariff.name if trial_tariff else ''}
+                )
                 logger.info(
                     '✅ Триал промокод: продлена существующая подписка',
                     _format_user_log=self._format_user_log(user),
@@ -620,6 +645,7 @@ class PromoCodeService:
                     raise ValueError('trial_provisioning_failed')
 
                 effects.append(f'🎁 Активирована тестовая подписка на {trial_days} дней')
+                details.append({'kind': 'trial', 'days': trial_days})
                 logger.info(
                     '✅ Создана триал подписка для пользователя на дней',
                     _format_user_log=self._format_user_log(user),

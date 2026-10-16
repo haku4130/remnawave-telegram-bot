@@ -28,6 +28,7 @@ from app.database.crud.user import (
 )
 from app.database.crud.user_message import get_random_active_message
 from app.database.models import GuestPurchase, PinnedMessage, SubscriptionStatus, UserStatus
+from app.handlers.gift_activation import gift_activated_text
 from app.keyboards.inline import (
     get_back_keyboard,
     get_language_selection_keyboard,
@@ -36,6 +37,7 @@ from app.keyboards.inline import (
     get_privacy_policy_keyboard,
     get_rules_keyboard,
 )
+from app.localization.fork_text import fork_text
 from app.localization.loader import DEFAULT_LANGUAGE
 from app.localization.texts import get_privacy_policy, get_rules, get_texts
 from app.middlewares.channel_checker import (
@@ -473,13 +475,7 @@ async def _activate_pending_gift_after_registration(
 
         tariff_name = html.escape(gift_purchase.tariff.name) if gift_purchase.tariff else ''
         await answer_func(
-            texts.t(
-                'GIFT_ACTIVATION_SUCCESS_TEXT',
-                '🎁 <b>Подарок активирован!</b>\n{tariff_name} — {period_days} дн.\n\nВаша подписка обновлена.',
-            ).format(
-                tariff_name=tariff_name,
-                period_days=gift_purchase.period_days,
-            ),
+            gift_activated_text(texts, tariff_name, gift_purchase.period_days, callback_variant=False),
             parse_mode=ParseMode.HTML,
         )
     except Exception:
@@ -1118,7 +1114,10 @@ async def handle_potential_referral_code(message: types.Message, state: FSMConte
 
 
 def _get_language_prompt_text() -> str:
-    return '🌐 Выберите язык / Choose your language:'
+    # Язык пользователя ещё не выбран — подпись двуязычная; под темой форка — в её стиле.
+    return fork_text(
+        get_texts(DEFAULT_LANGUAGE), 'FORK_LANGUAGE_PROMPT_BILINGUAL', '🌐 Выберите язык / Choose your language:'
+    )
 
 
 async def _prompt_language_selection(message: types.Message, state: FSMContext) -> None:
