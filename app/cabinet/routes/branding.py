@@ -515,7 +515,7 @@ async def get_favicon(
     return Response(content=png, media_type='image/png', headers=headers)
 
 
-@router.get('/bot-logo')
+@router.api_route('/bot-logo', methods=['GET', 'HEAD'])
 async def get_bot_logo():
     """
     Get the BOT's menu logo (settings.LOGO_FILE, e.g. vpn_logo.png).
@@ -524,6 +524,11 @@ async def get_bot_logo():
     UI): this serves the same local file the bot attaches to photo-mode menus, so
     the rich main menu can embed it by public URL (rich media accepts only
     HTTP(S) URLs). Public like /logo. 404 if the file is missing.
+
+    HEAD тоже отвечает: картинку качает сам Telegram, и пока здесь был только
+    GET (на HEAD — 405), rich-сообщения с этим URL отклонялись ошибкой
+    RICH_MESSAGE_PHOTO_NO_MEDIA_FOUND, а картинка с HEAD 200 проходила.
+    FileResponse на HEAD шлёт те же заголовки без тела.
     """
     logo_path = Path(settings.LOGO_FILE)
 
