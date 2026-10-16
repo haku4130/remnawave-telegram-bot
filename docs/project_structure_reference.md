@@ -1315,9 +1315,12 @@
   Классы: `CatalogEmoji`
   Функции: `tag` — HTML-тег кастомного эмодзи с запасным символом внутри., `by_unicode` — Запись каталога по обычному эмодзи (вариационный селектор U+FE0F не важен).
 - `app/localization/fork/`
+- `app/localization/fork_text.py` — Python-модуль
+  Классы: нет
+  Функции: `fork_text` — Значение ключа из слоя форка; нет темы или ключа в слое — `default` (строка апстрима)., `fork_traffic` — «12.5 ГБ» / «12.5 GB»; 0 и None (лимит без ограничения) — «∞»., `fork_traffic_usage` — «1.2 ГБ из 50 ГБ» / «1.2 GB of 50 GB»; лимит 0/None — «∞»., `fork_period` — «30 дней» / «30 days» (склонение по языку)., `fork_devices` — «1 из 3» / «1 of 3»; лимит 0/None — «∞».
 - `app/localization/loader.py` — Python-модуль
   Классы: нет
-  Функции: `ensure_locale_templates`, `resolve_emoji_markers` — {e:имя} → <tg-emoji> из каталога. Делается при загрузке, до любого .format():, `load_locale`, `clear_locale_cache`
+  Функции: `ensure_locale_templates`, `resolve_emoji_markers` — {e:имя} → <tg-emoji> из каталога. Делается при загрузке, до любого .format():, `fork_keys` — Ключи, которые язык получил из слоя форка (пусто при выключенной теме)., `load_locale`, `clear_locale_cache`
 - `app/localization/locales/`
 - `app/localization/texts.py` — Python-модуль
   Классы: `Texts` (9 методов)
@@ -2511,6 +2514,7 @@
 
 - `docs/superpowers/plans/2026-08-22-remnawave-major-upgrade.md` — файл
 - `docs/superpowers/plans/2026-10-16-premium-bot-redesign-stage-1-2.md` — файл
+- `docs/superpowers/plans/2026-10-16-premium-bot-redesign-stage-3-5.md` — файл
 
 #### docs/superpowers/specs
 
@@ -3912,6 +3916,9 @@
 - `tests/localization/test_fork_locale.py` — Python-модуль
   Классы: нет
   Функции: `theme_on`, `theme_off`, `test_fork_files_have_identical_keys`, `test_fork_keys_exist_upstream_or_are_prefixed`, `test_fork_values_are_strings_with_known_emoji`, `test_fork_placeholders_match_upstream`, `test_fork_placeholders_match_between_languages`, `test_resolve_emoji_markers`, `test_fork_layer_overrides_upstream_when_enabled`, `test_fork_layer_skipped_when_disabled`, `test_unknown_emoji_keeps_upstream_value_and_does_not_crash`, `test_server_overrides_still_win_over_fork`
+- `tests/localization/test_fork_text.py` — Python-модуль
+  Классы: нет
+  Функции: `theme_on`, `theme_off`, `test_fork_text_returns_fork_value_with_theme`, `test_fork_text_returns_default_without_theme`, `test_fork_text_returns_default_for_missing_key`, `test_fork_text_ignores_upstream_only_keys`, `test_fork_text_keeps_server_override`, `test_fork_traffic`, `test_fork_traffic_usage`, `test_fork_period`, `test_fork_devices`, `test_fork_support_info_beats_dynamic`, `test_dynamic_support_info_stays_without_fork_key`, `test_dynamic_support_info_stays_without_theme`, `test_fork_keys_empty_without_theme`
 
 ### tests/middlewares
 

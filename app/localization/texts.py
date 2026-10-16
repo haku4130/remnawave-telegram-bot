@@ -9,6 +9,7 @@ from app.config import settings
 from app.localization.loader import (
     DEFAULT_LANGUAGE,
     clear_locale_cache,
+    fork_keys,
     load_locale,
 )
 
@@ -154,7 +155,12 @@ class Texts:
 
         self._fallback_values = {key: value for key, value in fallback_data.items() if key not in self._values}
 
-        self._values.update(_build_dynamic_values(self.language))
+        # Динамические значения (цены, SUPPORT_INFO) идут поверх локали, но ключ,
+        # который дал слой форка, переписан намеренно — его не перебиваем.
+        fork_overrides = fork_keys(self.language)
+        self._values.update(
+            {key: value for key, value in _build_dynamic_values(self.language).items() if key not in fork_overrides}
+        )
 
     def __getattr__(self, item: str) -> Any:
         if item == 'language':

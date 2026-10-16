@@ -32,5 +32,6 @@
   "FORK_SUB_DEVICES_PART": "Устройства: {devices}",
   "FORK_SUB_TRAFFIC_VALUE": "{used} из {limit}",
   "FORK_GB": "{n} ГБ",
+  "FORK_DEVICES_OF": "{used} из {limit}",
   "FORK_SUB_NONE": "Подписки пока нет"
 }

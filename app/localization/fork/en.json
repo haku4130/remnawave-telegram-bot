@@ -32,5 +32,6 @@
   "FORK_SUB_DEVICES_PART": "Devices: {devices}",
   "FORK_SUB_TRAFFIC_VALUE": "{used} of {limit}",
   "FORK_GB": "{n} GB",
+  "FORK_DEVICES_OF": "{used} of {limit}",
   "FORK_SUB_NONE": "No subscription yet"
 }

@@ -45,6 +45,7 @@ from app.database.crud.subscription import get_all_subscriptions_by_user_id
 from app.database.crud.tariff import get_tariff_by_id
 from app.database.crud.user_message import get_random_active_message
 from app.database.models import User
+from app.localization.fork_text import fork_traffic_usage
 from app.localization.texts import Texts
 from app.services.menu_layout.fork_layout import EXPIRING_DAYS, _is_daily_tariff
 from app.utils.fork_onboarding import format_days
@@ -536,17 +537,6 @@ def _fork_days_left(subscription) -> int:
     return max((end_date - datetime.now(UTC)).days, 0)
 
 
-def _fork_gb(texts, value: float) -> str:
-    return texts.FORK_GB.replace('{n}', f'{value:g}')
-
-
-def _fork_traffic_value(subscription, texts) -> str:
-    used = round(float(getattr(subscription, 'traffic_used_gb', 0) or 0), 1)
-    limit = float(getattr(subscription, 'traffic_limit_gb', 0) or 0)
-    limit_text = _fork_gb(texts, limit) if limit > 0 else '∞'
-    return texts.FORK_SUB_TRAFFIC_VALUE.replace('{used}', _fork_gb(texts, used)).replace('{limit}', limit_text)
-
-
 def _build_fork_subscription_block(user: User, texts) -> str:
     """Блок подписки с темой форка: три короткие строки в одном абзаце, без таблицы, цитаты и ссылок.
 
@@ -572,7 +562,14 @@ def _build_fork_subscription_block(user: User, texts) -> str:
     if actual_status in {'active', 'trial', 'limited'}:
         parts = [
             _rich_text(texts.FORK_SUB_TRAFFIC_PART).replace(
-                '{traffic}', html.escape(_fork_traffic_value(subscription, texts))
+                '{traffic}',
+                html.escape(
+                    fork_traffic_usage(
+                        texts,
+                        getattr(subscription, 'traffic_used_gb', 0),
+                        getattr(subscription, 'traffic_limit_gb', 0),
+                    )
+                ),
             )
         ]
         device_limit = getattr(subscription, 'device_limit', None)

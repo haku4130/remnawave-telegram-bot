@@ -289,6 +289,12 @@ def _load_fork_locale(language: str) -> dict[str, Any]:
     return resolved
 
 
+@cache
+def fork_keys(language: str) -> frozenset[str]:
+    """Ключи, которые язык получил из слоя форка (пусто при выключенной теме)."""
+    return frozenset(_load_fork_locale(language or DEFAULT_LANGUAGE))
+
+
 def _load_locale_file(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     try:
@@ -338,3 +344,4 @@ def load_locale(language: str) -> dict[str, Any]:
 
 def clear_locale_cache() -> None:
     load_locale.cache_clear()
+    fork_keys.cache_clear()
