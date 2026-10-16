@@ -76,10 +76,27 @@ async def test_rich_menus_built_without_db(theme_on, db_sources_forbidden, monke
         assert '<hr/>' in screen.text and '<footer>' in screen.text, title
         assert '<h4>' not in screen.text and '<h6>' not in screen.text, title
         assert screen.markup is not None and screen.markup.inline_keyboard, title
-    # Состояния различаются по-настоящему: у подписчика — таблица подписки, у новичка — нет.
+    # Состояния различаются по-настоящему: у подписчика есть блок подписки, у новичка — нет.
     assert 'Алексей' in screens['Меню — подключиться'].text
-    assert '<table' in screens['Меню — подключиться'].text
-    assert '<table' not in screens['Меню — пробный'].text
+    if multi_tariff:
+        # Мультитарифная ветка не менялась: там по-прежнему таблица подписок.
+        assert '<table' in screens['Меню — подключиться'].text
+    else:
+        for title in MENU_TITLES:
+            assert '<table' not in screens[title].text, title
+        assert 'Подписка активна' in screens['Меню — подключиться'].text
+        assert 'Подписка активна' not in screens['Меню — пробный'].text
+        assert 'Подписки пока нет' in screens['Меню — пробный'].text
+
+
+@pytest.mark.asyncio
+async def test_menu_keyboard_has_plain_balance_button(theme_on, db_sources_forbidden):
+    screens = {screen.title: screen for screen in await preview_screens.build_screens('ru')}
+    for title in ('Меню — подключиться', 'Меню — пробный'):
+        labels = [button.text for row in screens[title].markup.inline_keyboard for button in row]
+        assert '💰 Баланс' in labels, title
+        assert not any('₽' in label for label in labels), title
+    assert 'Баланс: <b>150 ₽</b>' in screens['Меню — подключиться'].text
 
 
 @pytest.mark.asyncio

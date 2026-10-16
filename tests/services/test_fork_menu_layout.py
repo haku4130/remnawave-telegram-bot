@@ -259,3 +259,16 @@ async def test_build_keyboard_reads_rows_key(monkeypatch):
     main_callbacks = [button.callback_data for row in main.inline_keyboard for button in row]
     assert 'menu_more' in main_callbacks
     assert not {'menu_promocode', 'menu_info', 'menu_language', 'contests_menu'} & set(main_callbacks)
+
+
+def test_balance_button_is_plain_without_amount():
+    balance = fork_layout.build_fork_menu_config()['buttons']['balance']
+    assert balance['text'] == {'ru': '💰 Баланс', 'en': '💰 Balance'}
+    assert balance['dynamic_text'] is False
+    assert balance['action'] == 'menu_balance'
+    assert balance['style'] == 'primary'
+
+
+def test_upstream_default_balance_button_still_shows_amount():
+    balance = MenuLayoutService.get_default_config()['buttons']['balance']
+    assert '{balance}' in balance['text']['ru'] and balance['dynamic_text'] is True

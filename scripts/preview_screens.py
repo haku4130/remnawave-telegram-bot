@@ -38,6 +38,8 @@ from app.utils import fork_onboarding, rich_menu
 _CATALOG_PAGE_BUDGET = 3800
 _CATALOG_TITLE = 'Каталог эмодзи'
 _NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
+# Баланс выдуманного подписчика: один и для текста меню, и для контекста клавиатуры.
+_SUBSCRIBER_BALANCE_KOPEKS = 15000
 
 
 class PreviewScreen(NamedTuple):
@@ -126,7 +128,7 @@ def _fake_user(language: str, subscription: SimpleNamespace | None, *, trial_use
         full_name=name,
         language=language,
         auth_type='telegram',
-        balance_kopeks=15000 if subscription else 0,
+        balance_kopeks=_SUBSCRIBER_BALANCE_KOPEKS if subscription else 0,
         subscription=subscription,
         subscriptions=[subscription] if subscription else [],
         is_trial_already_used=lambda: trial_used,
@@ -185,7 +187,12 @@ async def _stage_two_screens(language: str) -> list[PreviewScreen]:
         ]
     )
     ready_text, ready_kb = fork_onboarding.build_trial_ready_screen(texts, '19.10.2026', connect_kb)
-    active = {'has_active_subscription': True, 'subscription_is_active': True}
+    # Баланс клавиатуры и текста меню один и тот же (см. _fake_user).
+    active = {
+        'has_active_subscription': True,
+        'subscription_is_active': True,
+        'balance_kopeks': _SUBSCRIBER_BALANCE_KOPEKS,
+    }
     newcomer_menu = _fake_user(language, None, trial_used=False)
     subscriber = _fake_user(language, _fake_subscription(30), trial_used=True)
     expiring = _fake_user(language, _fake_subscription(2), trial_used=True)

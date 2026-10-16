@@ -103,6 +103,8 @@ def build_fork_menu_config() -> dict[str, Any]:
     )
     buttons['subscription']['style'] = 'primary'
     buttons['balance']['style'] = 'primary'
+    # Сумма уже в тексте меню — на кнопке она дублировалась бы.
+    buttons['balance'].update(text={'ru': '💰 Баланс', 'en': '💰 Balance'}, dynamic_text=False)
     # Без явного стиля таблица button_theme красит return_to_saved_cart в зелёный — вторая зелёная кнопка.
     buttons['resume_checkout']['style'] = 'primary'
     buttons['referrals']['text'] = {'ru': '👥 Друзья', 'en': '👥 Friends'}

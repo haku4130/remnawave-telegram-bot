@@ -545,18 +545,18 @@ def _fork_traffic_value(subscription, texts) -> str:
     return texts.FORK_SUB_TRAFFIC_VALUE.replace('{used}', _fork_gb(texts, used)).replace('{limit}', limit_text)
 
 
-def _build_fork_subscription_table(user: User, texts) -> str:
-    """Блок подписки с темой форка: таблица «ключ — значение» без цитаты, полоски и ссылки.
+def _build_fork_subscription_block(user: User, texts) -> str:
+    """Блок подписки с темой форка: три короткие строки в одном абзаце, без таблицы, цитаты и ссылок.
 
-    Подключение и продление — кнопками под сообщением, поэтому ссылок здесь нет. Тариф
-    не показываем: на проде он один. Подписи — шаблоны форка (через _rich_text, чтобы
-    сохранить <tg-emoji>), значения из данных экранируются.
+    Статус (жирным), «До даты» и «Трафик · Устройства». Подключение и продление — кнопками под
+    сообщением, поэтому ссылок здесь нет. Тариф не показываем: на проде он один. Шаблоны — из
+    форка (через _rich_text, чтобы сохранить <tg-emoji>), значения из данных экранируются.
     """
     subscription = getattr(user, 'subscription', None)
     if not subscription:
         return f'<p>{_rich_text(texts.FORK_SUB_NONE)}</p>'
 
-    rows = [(texts.FORK_SUB_ROW_STATUS, _rich_text(_fork_status_label(subscription, texts)))]
+    lines = [f'<b>{_rich_text(_fork_status_label(subscription, texts))}</b>']
 
     end_date = getattr(subscription, 'end_date', None)
     if end_date:
@@ -564,17 +564,22 @@ def _build_fork_subscription_table(user: User, texts) -> str:
         if end_date > datetime.now(UTC):
             relative = _tg_time(end_date, 'r', format_days(texts, _fork_days_left(subscription)))
             until = f'{until} · {relative}'
-        rows.append((texts.FORK_SUB_ROW_UNTIL, until))
+        lines.append(_rich_text(texts.FORK_SUB_UNTIL).replace('{date}', until))
 
     actual_status = (getattr(subscription, 'actual_status', None) or '').lower()
     if actual_status in {'active', 'trial', 'limited'}:
-        rows.append((texts.FORK_SUB_ROW_TRAFFIC, html.escape(_fork_traffic_value(subscription, texts))))
+        parts = [
+            _rich_text(texts.FORK_SUB_TRAFFIC_PART).replace(
+                '{traffic}', html.escape(_fork_traffic_value(subscription, texts))
+            )
+        ]
         device_limit = getattr(subscription, 'device_limit', None)
         if device_limit is not None:
-            rows.append((texts.FORK_SUB_ROW_DEVICES, html.escape(Texts.format_device_limit(device_limit))))
+            devices = html.escape(Texts.format_device_limit(device_limit))
+            parts.append(_rich_text(texts.FORK_SUB_DEVICES_PART).replace('{devices}', devices))
+        lines.append(' · '.join(parts))
 
-    cells = ''.join(f'<tr><td>{_rich_text(label)}</td><td>{value}</td></tr>' for label, value in rows)
-    return f'<table>{cells}</table>'
+    return f'<p>{"<br>".join(lines)}</p>'
 
 
 async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
@@ -611,8 +616,8 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
             blocks.append(_section_heading(_rich_text(heading)))
             blocks.append(subscription_block)
     elif settings.PREMIUM_THEME_ENABLED:
-        # Без заголовка «📱 Подписка»: первая строка таблицы и так называет раздел.
-        blocks.append(_build_fork_subscription_table(user, texts))
+        # Без заголовка «📱 Подписка»: жирная строка статуса и так называет раздел.
+        blocks.append(_build_fork_subscription_block(user, texts))
     else:
         heading = texts.t('MAIN_MENU_RICH_SUBSCRIPTION_HEADING', '📱 Подписка')
         blocks.append(_section_heading(_rich_text(heading)))
