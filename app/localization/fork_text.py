@@ -64,3 +64,18 @@ def fork_devices(texts, used: int | str | None, limit: int | str | None) -> str:
     return texts.FORK_DEVICES_OF.replace('{used}', str(used if used is not None else 0)).replace(
         '{limit}', str(limit) if has_limit else _INFINITY
     )
+
+
+def fork_device_count(texts, count: int) -> str:
+    """«1 устройство» / «3 устройства» / «5 устройств» / «5 devices» (склонение по языку)."""
+    if getattr(texts, 'language', 'ru') == 'ru':
+        last_two, last = count % 100, count % 10
+        if last == 1 and last_two != 11:
+            template = texts.FORK_DEVICES_COUNT_ONE
+        elif 2 <= last <= 4 and not 12 <= last_two <= 14:
+            template = texts.FORK_DEVICES_COUNT_FEW
+        else:
+            template = texts.FORK_DEVICES_COUNT_MANY
+    else:
+        template = texts.FORK_DEVICES_COUNT_ONE if count == 1 else texts.FORK_DEVICES_COUNT_MANY
+    return template.format(n=count)

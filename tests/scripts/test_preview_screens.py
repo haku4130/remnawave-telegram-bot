@@ -9,7 +9,7 @@ from app.localization import loader
 from app.localization.emoji_catalog import CATALOG
 from app.utils import fork_onboarding, rich_menu
 from scripts import preview_screens
-from tests.fixtures.fork_pattern import assert_screen_pattern
+from tests.fixtures.fork_pattern import TARIFF_LIST_ICONS, assert_screen_pattern
 
 
 MENU_TITLES = ('Меню — пробный', 'Меню — подключиться', 'Меню — продлить', 'Меню — тариф')
@@ -535,7 +535,10 @@ async def test_purchase_screens_present(theme_on, monkeypatch, language):
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert_screen_pattern(title, screen.text, list_screen=title == 'Покупка — список тарифов')
+        if title == 'Покупка — список тарифов':
+            assert_screen_pattern(title, screen.text, list_screen=True, list_icons=TARIFF_LIST_ICONS)
+        else:
+            assert_screen_pattern(title, screen.text)
         buttons = (
             [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
         )

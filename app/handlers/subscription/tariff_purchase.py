@@ -23,7 +23,7 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import subtract_user_balance
 from app.database.database import AsyncSessionLocal
 from app.database.models import Tariff, Transaction, TransactionType, User
-from app.localization.fork_text import fork_period, fork_text, fork_traffic
+from app.localization.fork_text import fork_device_count, fork_period, fork_text, fork_traffic
 from app.localization.texts import Texts, get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.subscription_service import SubscriptionService
@@ -2778,11 +2778,16 @@ def _purchase_confirm_text(
             'После оплаты: {after}',
         ),
     )
+    # Число устройств влияет на цену, поэтому под темой оно видно, когда отличается от тарифного.
+    devices_note = ''
+    if settings.PREMIUM_THEME_ENABLED and devices != tariff.device_limit:
+        devices_note = f' · {fork_device_count(texts, int(devices))}'
     # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
     return template.format(
         name=html.escape(tariff.name),
         traffic=_traffic_label(texts, tariff.traffic_limit_gb),
         devices=devices,
+        devices_note=devices_note,
         period=_period_label(texts, period),
         discount=discount_text,
         total=format_price_kopeks(total),

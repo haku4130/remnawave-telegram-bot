@@ -12,13 +12,18 @@ from app.utils.message_patch import caption_exceeds_telegram_limit
 
 _BANNED = ('<blockquote', '<h1', '<h2', '<h3', '<p>', '▰', '▓', '━')
 _MAX_ANIMATED = 5
+# Строки списка тарифов: подсказка с иконкой, название тарифа жирным, описание курсивом.
+TARIFF_LIST_ICONS = ('<tg-emoji', '<b>', '<i>')
 
 
-def assert_screen_pattern(name: str, text: str, *, list_screen: bool = False) -> None:
+def assert_screen_pattern(
+    name: str, text: str, *, list_screen: bool = False, list_icons: tuple[str, ...] = ('💰', '💸')
+) -> None:
     """Проверяет текст экрана или уведомления по образцу.
 
     ``list_screen`` — экран-список (история операций): строки списка начинаются обычным эмодзи, а не анимированным
-    (анимированных на сообщение не больше пяти, а строк десять), поэтому блоки списка не проверяются.
+    (анимированных на сообщение не больше пяти, а строк десять): каждая строка списка обязана начинаться
+    одним из ``list_icons``.
     """
     lines = text.splitlines()
     assert text.startswith('<b>') and lines[0].endswith('</b>'), name
@@ -32,6 +37,9 @@ def assert_screen_pattern(name: str, text: str, *, list_screen: bool = False) ->
     assert len(blocks) >= 2, name
     assert '{' not in text and '}' not in text, (name, 'неподставленный плейсхолдер')
     if list_screen:
+        for block in blocks[1:]:
+            for line in block.split('\n'):
+                assert line.startswith(list_icons), (name, line)
         return
     for block in blocks[1:]:
         block_lines = block.split('\n')

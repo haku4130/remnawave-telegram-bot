@@ -545,6 +545,9 @@ def topup_restriction_text(texts, db_user, upstream_template: str) -> str:
     """
     default_reason = fork_text(texts, 'FORK_RESTRICTION_DEFAULT_REASON', 'Действие ограничено администратором')
     reason = html.escape(getattr(db_user, 'restriction_reason', None) or default_reason)
+    if settings.PREMIUM_THEME_ENABLED:
+        # Причина — одна жирная строка блока данных: переводы строк из профиля схлопываем.
+        reason = ' '.join(reason.split())
     return fork_text(texts, 'FORK_TOPUP_RESTRICTED', upstream_template).replace('{reason}', reason)
 
 

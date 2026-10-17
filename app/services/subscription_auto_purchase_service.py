@@ -197,7 +197,9 @@ def _fork_subscription_notification_text(
         data.append(period_block)
     if price_kopeks is not None:
         data.append(
-            fork_text(texts, 'FORK_AUTO_PURCHASE_CHARGED', '💰 {price}').format(price=texts.format_price(price_kopeks))
+            fork_text(texts, 'FORK_AUTO_PURCHASE_CHARGED', '💰 Списано: {price}').format(
+                price=texts.format_price(price_kopeks)
+            )
         )
     text = '\n\n'.join([title, '\n'.join(data)]) if data else title
     note = fork_text(texts, note_key, '') if note_key else ''

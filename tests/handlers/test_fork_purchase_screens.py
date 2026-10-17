@@ -23,7 +23,7 @@ from app.localization.texts import get_texts
 from app.middlewares.premium_theme import theme_markup
 from app.services.pricing_engine import PricingEngine
 from app.utils.message_patch import caption_exceeds_telegram_limit
-from tests.fixtures.fork_pattern import assert_screen_pattern
+from tests.fixtures.fork_pattern import TARIFF_LIST_ICONS, assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -285,14 +285,16 @@ async def confirm(env, language: str = 'ru', period: int = 30):
     return callback
 
 
-async def restore_cart(env, language: str = 'ru', balance: int = 100_000, discount_percent: int = 0):
+async def restore_cart(
+    env, language: str = 'ru', balance: int = 100_000, discount_percent: int = 0, device_limit: int = 4
+):
     callback = _callback('return_to_saved_cart')
     cart = {
         'cart_mode': 'tariff_purchase',
         'tariff_id': 1,
         'period_days': 30,
         'total_price': 19900,
-        'device_limit': 4,
+        'device_limit': device_limit,
         'discount_percent': discount_percent,
     }
     await tp.return_to_saved_tariff_cart(callback, _state(), _user(language, balance=balance), _db(), cart)
@@ -700,7 +702,8 @@ async def test_theme_on_periods_screen_with_traffic_setup_hint(theme_on, env):
     env['tariff'].can_purchase_custom_traffic = lambda: True
     callback = await select_tariff(env)
     text, markup = _sent(callback.message.edit_text)
-    assert text.endswith('Выберите срок подписки.\nТрафик настроите после выбора срока.')
+    assert text.endswith('Выберите срок подписки. Трафик настроите после выбора срока.')
+    assert_screen_pattern('periods-traffic-hint', text)
     assert _buttons(markup)[0].callback_data == 'tariff_period_traffic:1:30'
 
 
@@ -761,11 +764,33 @@ async def test_theme_on_confirm_shows_the_discount_line(theme_on, env):
 
 @pytest.mark.asyncio
 async def test_theme_on_confirm_does_not_repeat_what_is_the_same_for_everyone(theme_on, env):
-    # Название единственного тарифа, трафик и число устройств на подтверждении не повторяются.
+    # Название единственного тарифа, трафик и стандартное число устройств на подтверждении не повторяются.
     env['tariff'].name = 'Стандартный'
-    env['existing'] = _subscription(device_limit=5)
     text = _sent((await pick_period(env)).message.edit_text)[0]
-    assert 'Стандартный' not in text and 'Трафик' not in text and 'Устройств' not in text
+    assert 'Стандартный' not in text and 'Трафик' not in text and 'устройств' not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('language', 'limit', 'note'),
+    [
+        ('ru', 5, ' · 5 устройств'),
+        ('ru', 4, ' · 4 устройства'),
+        ('ru', 1, ' · 1 устройство'),
+        ('en', 5, ' · 5 devices'),
+        ('en', 1, ' · 1 device'),
+    ],
+)
+async def test_theme_on_confirm_shows_devices_only_when_they_differ_from_the_tariff(
+    theme_on, env, language, limit, note
+):
+    # Число устройств входит в цену, поэтому нестандартное видно на строке периода (эмодзи не прибавляется).
+    env['existing'] = _subscription(device_limit=limit)
+    text = _sent((await pick_period(env, language)).message.edit_text)[0]
+    period = 'Период: <b>30 дней</b>' if language == 'ru' else 'Period: <b>30 days</b>'
+    assert f'{period}{note}\n' in text
+    assert text.count('<tg-emoji') == 4
+    assert_screen_pattern('confirm-devices', text)
 
 
 # --- Под темой: недостаточно средств ------------------------------------------------------
@@ -931,13 +956,16 @@ async def test_theme_on_cart_restore_confirm_matches_the_period_confirm(theme_on
     assert text == (
         f'<b>{_tag("gem")} Оформить подписку?</b>\n'
         '\n'
-        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b> · 4 устройства\n'
         f'{_tag("gift")} Скидка: <b>10%</b> (−22.11 ₽)\n'
         f'{_tag("money_bag")} К оплате: <b>199 ₽</b>\n'
         f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>801 ₽</b>'
     )
     assert _alert(callback) == 'Корзина восстановлена'
     assert _greens(markup) == 1
+    # Лимит корзины равен тарифному — строка периода без устройств.
+    same = _sent((await restore_cart(env, device_limit=3)).message.edit_text)[0]
+    assert 'Период: <b>30 дней</b>\n' in same and 'устройств' not in same
 
 
 @pytest.mark.asyncio
@@ -1016,7 +1044,7 @@ async def _every_screen(env, language: str) -> list[tuple[str, str, object]]:
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, language):
     for name, text, markup in await _every_screen(env, language):
-        assert_screen_pattern(name, text, list_screen=name == 'list')
+        assert_screen_pattern(name, text, list_screen=name == 'list', list_icons=TARIFF_LIST_ICONS)
         for banned in ('🛒', '📦', '📅', '💳'):
             assert banned not in re.sub(r'<tg-emoji[^>]*>.*?</tg-emoji>', '', text), (name, banned)
         assert _greens(markup) <= 1, name
@@ -1042,6 +1070,7 @@ REAL_KWARGS = {
         'name': 'x',
         'traffic': '∞',
         'devices': 3,
+        'devices_note': ' · 5 devices',
         'period': '30 days',
         'discount': '',
         'total': '1 ₽',

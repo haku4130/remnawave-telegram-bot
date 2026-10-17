@@ -526,8 +526,18 @@ async def test_theme_on_topup_restriction(theme_on, language):
 @pytest.mark.asyncio
 async def test_theme_on_rollypay_restriction_uses_the_same_text(theme_on):
     text, markup = _sent((await ask_amount(restriction_topup=True, restriction_reason='Спам')).message.edit_text)
-    assert text.startswith(f'<b>{_tag("no_entry")} Пополнение недоступно</b>\n\n{_tag("info")} Причина: Спам\n\n')
+    assert text.startswith(
+        f'<b>{_tag("no_entry")} Пополнение недоступно</b>\n\n{_tag("info")} Причина: <b>Спам</b>\n\n'
+    )
     assert _greens(markup) == 0
+
+
+@pytest.mark.asyncio
+async def test_theme_on_restriction_reason_stays_one_bold_line(theme_on):
+    reason = 'Спам\n\nповторные жалобы <b>'
+    text, _ = _sent((await show_methods(restriction_topup=True, restriction_reason=reason)).message.edit_text)
+    assert f'{_tag("info")} Причина: <b>Спам повторные жалобы &lt;b&gt;</b>\n\n' in text
+    assert_screen_pattern('restricted-multiline', text)
 
 
 @pytest.mark.asyncio
@@ -638,7 +648,7 @@ async def test_theme_on_support_topup_ru(theme_on):
     assert text == (
         f'<b>{_tag("coin")} Пополнение через поддержку</b>\n'
         '\n'
-        f'{_tag("speech")} Напишите: @zanity_support\n'
+        f'{_tag("speech")} Напишите: <b>@zanity_support</b>\n'
         f'{_tag("user")} Ваш ID: <code>a&lt;b&gt;@x.ru</code>\n'
         f'{_tag("hourglass")} Обработаем за 1–24 часа\n'
         '\n'
