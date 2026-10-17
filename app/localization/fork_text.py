@@ -42,12 +42,12 @@ def fork_traffic(texts, gb: float | None) -> str:
     return _gb(texts, value) if value > 0 else _INFINITY
 
 
-def fork_traffic_usage(texts, used_gb: float | None, limit_gb: float | None) -> str:
-    """«1.2 ГБ из 50 ГБ» / «1.2 GB of 50 GB»; лимит 0/None — «∞»."""
-    used = round(float(used_gb or 0), 1)
-    return texts.FORK_SUB_TRAFFIC_VALUE.replace('{used}', _gb(texts, used)).replace(
-        '{limit}', fork_traffic(texts, limit_gb)
-    )
+def fork_traffic_usage(texts, used_gb: float | None, limit_gb: float | None, *, bold_used: bool = False) -> str:
+    """«1.2 ГБ из 50 ГБ» / «1.2 GB of 50 GB»; лимит 0/None — «∞». bold_used — «<b>1.2 ГБ</b> из 50 ГБ»."""
+    used = _gb(texts, round(float(used_gb or 0), 1))
+    if bold_used:
+        used = f'<b>{used}</b>'
+    return texts.FORK_SUB_TRAFFIC_VALUE.replace('{used}', used).replace('{limit}', fork_traffic(texts, limit_gb))
 
 
 def fork_period(texts, days: int) -> str:

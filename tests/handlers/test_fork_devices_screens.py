@@ -806,6 +806,63 @@ async def test_theme_on_devices_list_keyboard_colours(theme_on, env):
     assert all(button.style != 'success' for button in themed)
 
 
+async def _open_devices(env, language: str = 'ru', data: str = 'subscription_manage_devices'):
+    callback = _callback(data)
+    handler = devices.handle_devices_page if data.startswith('devices_page_') else devices.handle_device_management
+    await handler(callback, _user(env['subscription'], language), _db())
+    return _sent(callback.message.edit_text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('data', ['subscription_manage_devices', 'devices_page_1'])
+async def test_theme_on_devices_list_offers_add_device(theme_on, env, data):
+    _, markup = await _open_devices(env, data=data)
+    texts = get_texts('ru')
+    rows = [[(button.text, button.callback_data) for button in row] for row in markup.inline_keyboard]
+    # «Добавить устройство» — синяя, прямо над «Назад».
+    assert rows[-2:] == [
+        [(texts.FORK_BUTTON_ADD_DEVICE, 'subscription_change_devices')],
+        [(texts.BACK, 'subscription_settings')],
+    ]
+    themed = {button.callback_data: button for button in _buttons(theme_markup(markup))}
+    assert themed['subscription_change_devices'].style == 'primary'
+    assert themed['subscription_change_devices'].icon_custom_emoji_id
+    assert all(button.style != 'success' for button in themed.values())
+    _, markup = await _open_devices(env, 'en')
+    assert not CYRILLIC_RE.search(_buttons(theme_markup(markup))[-2].text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('tariff', 'subscription'),
+    [
+        ({'device_price_kopeks': 0}, {}),
+        ({'device_price_kopeks': None}, {}),
+        ({}, {'status': 'expired', 'actual_status': 'expired'}),
+    ],
+)
+async def test_theme_on_devices_list_without_add_device(theme_on, env, tariff, subscription):
+    env['tariff'] = _tariff(**tariff)
+    env['subscription'] = _subscription(**subscription)
+    _, markup = await _open_devices(env)
+    assert 'subscription_change_devices' not in [button.callback_data for button in _buttons(markup)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('selection', 'shown'), [(True, True), (False, False)])
+async def test_theme_on_devices_list_add_device_without_tariff(theme_on, env, monkeypatch, selection, shown):
+    monkeypatch.setattr(settings, 'DEVICES_SELECTION_ENABLED', selection)
+    env['subscription'] = _subscription(tariff_id=None)
+    _, markup = await _open_devices(env)
+    assert ('subscription_change_devices' in [button.callback_data for button in _buttons(markup)]) is shown
+
+
+@pytest.mark.asyncio
+async def test_theme_off_devices_list_has_no_add_device(theme_off, env):
+    _, markup = await _open_devices(env)
+    assert 'subscription_change_devices' not in [button.callback_data for button in _buttons(markup)]
+
+
 @pytest.mark.asyncio
 async def test_theme_on_no_devices_screen(theme_on, env):
     env['panel_devices'] = []

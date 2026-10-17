@@ -7,7 +7,10 @@
 
     docker compose run --rm --no-deps \
       -v /root/preview-premium/app:/app/app:ro -v /root/preview-premium/scripts:/app/scripts:ro \
-      bot python -m scripts.preview_screens --to <telegram_id> --lang ru
+      bot python -m scripts.preview_screens --to <telegram_id> --lang ru --only "Подписка —,Устройства — список"
+
+--only — подстроки названий экранов через запятую (без учёта регистра): уходят только совпавшие.
+Без него уходит всё (около сотни сообщений).
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from app.keyboards.inline import (
     get_language_selection_keyboard,
     get_payment_methods_keyboard,
     get_subscription_keyboard,
+    get_subscription_more_keyboard,
     get_updated_subscription_settings_keyboard,
 )
 from app.localization.emoji_catalog import CATALOG, tag
@@ -85,7 +89,7 @@ class PreviewScreen(NamedTuple):
     # rich=True — text это rich-HTML главного меню, уходит через sendRichMessage, как на проде.
     rich: bool = False
     # Клавиатура, на которую сразу после отправки меняют кнопки этого сообщения (editMessageReplyMarkup),
-    # как делает обработчик «Ещё». Только для rich-экранов; ошибка Telegram роняет предпросмотр.
+    # как делают обработчики «Ещё» (меню и подписки). Ошибка Telegram роняет предпросмотр.
     then_markup: InlineKeyboardMarkup | None = None
     # notify=True — уведомление: уходит тем же try_send_rich_notification, что у мониторинга и
     # вебхуков (rich с логотипом), а если rich не принят — классикой, как у бота.
@@ -264,39 +268,64 @@ async def _stage_two_screens(language: str) -> list[PreviewScreen]:
 
 
 def _subscription_screens(language: str) -> list[PreviewScreen]:
-    """Экран «Подписка» (кнопка меню): активна, скоро истекает, подписки нет — тем же сборщиком, что у бота."""
+    """Экран «Подписка» (кнопка меню) в разных состояниях и его подменю «Ещё» — тем же сборщиком, что у бота."""
     texts = get_texts(language)
-    # Как прод-тариф: не суточный, 3 устройства, докупка устройства 55 ₽ — кнопка «Добавить устройство» видна.
+    # Как прод-тариф: не суточный, 3 устройства, докупка устройства 55 ₽; тариф один — «Тарифа» в «Ещё» нет.
     tariff = SimpleNamespace(
         name='Стандартный', is_daily=False, is_free=False, device_price_kopeks=5500, can_topup_traffic=lambda: False
     )
-    devices = [{'platform': 'macOS', 'deviceModel': 'MacBook Air'}, {'platform': 'iOS', 'deviceModel': 'iPhone 15'}]
-    screens = []
-    for title, days_left in (('Подписка — активна', 30), ('Подписка — скоро истекает', 2)):
-        subscription = _fake_subscription(days_left)
-        subscription.tariff = tariff
-        link = None if settings.should_hide_subscription_link() else subscription.subscription_url
+    devices_used = 2
+
+    def subscription_screen(title: str, subscription: SimpleNamespace, *, link_shown: bool = True) -> PreviewScreen:
+        hidden = settings.should_hide_subscription_link() or not link_shown
         text = purchase._build_fork_subscription_text(
             texts,
             subscription,
-            tariff=tariff,
+            tariff=subscription.tariff,
             show_devices=settings.is_devices_selection_enabled(),
-            devices_used=len(devices),
-            devices=devices,
-            subscription_link=link,
+            devices_used=devices_used,
+            subscription_link=None if hidden else subscription.subscription_url,
         )
         markup = get_subscription_keyboard(
-            language, has_subscription=True, subscription=subscription, gift_enabled=True
+            language,
+            has_subscription=True,
+            is_trial=subscription.is_trial,
+            subscription=subscription,
+            gift_enabled=True,
         )
-        screens.append(PreviewScreen(title, text, markup))
-    screens.append(
+        return PreviewScreen(title, text, markup)
+
+    active = _fake_subscription(30)
+    active.tariff = tariff
+    expiring = _fake_subscription(2)
+    expiring.tariff = tariff
+    expired = _fake_subscription(0)
+    expired.tariff = tariff
+    expired.actual_status = 'expired'
+    expired.end_date = datetime.now(UTC) - timedelta(days=5)
+    # Пробная — как на проде: TRIAL_DURATION_DAYS дней без тарифа.
+    trial = _fake_subscription(settings.TRIAL_DURATION_DAYS)
+    trial.is_trial = True
+    trial.tariff = None
+
+    active_screen = subscription_screen('Подписка — активна', active)
+    return [
+        active_screen,
+        subscription_screen('Подписка — скоро истекает', expiring),
+        subscription_screen('Подписка — истекла', expired, link_shown=False),
+        subscription_screen('Подписка — пробная', trial),
+        # Подменю «Ещё»: тот же экран «активна», а сразу после отправки кнопки меняются на подменю,
+        # как у обработчика sub_more (editMessageReplyMarkup).
+        active_screen._replace(
+            title='Подписка — Ещё',
+            then_markup=get_subscription_more_keyboard(language, active, is_trial=False, gift_enabled=True),
+        ),
         PreviewScreen(
             'Подписка — нет подписки',
             texts.FORK_SUB_NONE_SCREEN,
             get_subscription_keyboard(language, has_subscription=False, gift_enabled=True),
-        )
-    )
-    return screens
+        ),
+    ]
 
 
 def _device_screens(language: str) -> list[PreviewScreen]:
@@ -370,7 +399,7 @@ def _device_screens(language: str) -> list[PreviewScreen]:
         PreviewScreen(
             'Устройства — список',
             devices._build_fork_devices_text(texts, len(panel_devices), pagination.page, pagination.total_pages),
-            get_devices_management_keyboard(pagination.items, pagination, language),
+            get_devices_management_keyboard(pagination.items, pagination, language, add_device=True),
         ),
         PreviewScreen(
             'Перевыпуск — вопрос',
@@ -1228,7 +1257,20 @@ def _without_server_locales() -> Iterator[None]:
             clear_locale_cache()
 
 
-async def send_screens(chat_id: int, language: str) -> int:
+def parse_only(value: str | None) -> list[str]:
+    """«Подписка —, Устройства — список» → подстроки без пробелов по краям и в нижнем регистре."""
+    return [part.strip().lower() for part in (value or '').split(',') if part.strip()]
+
+
+def select_screens(screens: list[PreviewScreen], only: list[str] | None) -> list[PreviewScreen]:
+    """Экраны, в названии которых есть хотя бы одна из подстрок `only` (без учёта регистра); без `only` — все."""
+    if not only:
+        return screens
+    needles = [needle.lower() for needle in only]
+    return [screen for screen in screens if any(needle in screen.title.lower() for needle in needles)]
+
+
+async def send_screens(chat_id: int, language: str, only: list[str] | None = None) -> int:
     # Тексты форка читаются при включённой теме и кэшируются — сбрасываем кэш после включения.
     settings.PREMIUM_THEME_ENABLED = True
     # Эффект сообщения в предпросмотре не нужен — каждое меню взрывалось бы конфетти.
@@ -1238,7 +1280,7 @@ async def send_screens(chat_id: int, language: str) -> int:
     sent = 0
     try:
         with _without_server_locales():
-            for screen in await build_screens(language):
+            for screen in select_screens(await build_screens(language), only):
                 await bot.send_message(chat_id, f'<i>{screen.title}</i>', link_preview_options=_NO_LINK_PREVIEW)
                 if screen.rich:
                     # Тот же путь, что у бота: перенос кнопок в полотно, повтор без tg-time.
@@ -1252,9 +1294,13 @@ async def send_screens(chat_id: int, language: str) -> int:
                         bot, chat_id, screen.text, keyboard=screen.markup, with_logo=settings.ENABLE_LOGO_MODE
                     )
                     if not sent_rich:
-                        await bot.send_message(
+                        sent_message = await bot.send_message(
                             chat_id, screen.text, reply_markup=screen.markup, link_preview_options=_NO_LINK_PREVIEW
                         )
+                        if screen.then_markup is not None:
+                            await bot.edit_message_reply_markup(
+                                chat_id=chat_id, message_id=sent_message.message_id, reply_markup=screen.then_markup
+                            )
                 sent += 1
     finally:
         await bot.session.close()
@@ -1265,8 +1311,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Предпросмотр экранов бота одному адресату')
     parser.add_argument('--to', type=int, required=True, help='telegram_id получателя (владелец)')
     parser.add_argument('--lang', default='ru', choices=('ru', 'en'))
+    parser.add_argument(
+        '--only',
+        default=None,
+        help='только экраны, в названии которых есть одна из подстрок (через запятую, без учёта регистра)',
+    )
     args = parser.parse_args()
-    count = asyncio.run(send_screens(args.to, args.lang))
+    count = asyncio.run(send_screens(args.to, args.lang, parse_only(args.only)))
     print(f'Отправлено экранов: {count}')
 
 

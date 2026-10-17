@@ -171,6 +171,7 @@ from .happ import (
     handle_happ_download_request,
 )
 from .links import handle_connect_subscription, handle_open_subscription_link
+from .more import fork_has_tariff_choice, show_subscription_more
 from .pricing import _build_subscription_period_prompt, _prepare_subscription_summary
 from .promo import (
     _build_promo_group_discount_text,
@@ -190,37 +191,26 @@ from .traffic import (
 )
 
 
-_FORK_DEVICES_SHOWN = 5
-_FORK_DEVICE_LABEL_MAX = 35
-
-
-def _fork_device_label(device: dict[str, Any]) -> str:
-    """«macOS — Mac»: платформа и модель из панели, длинное обрезано, всё экранировано."""
-    parts = [str(device.get(key) or '').strip() for key in ('platform', 'deviceModel')]
-    label = ' — '.join(part for part in parts if part)
-    if len(label) > _FORK_DEVICE_LABEL_MAX:
-        label = label[: _FORK_DEVICE_LABEL_MAX - 1].rstrip() + '…'
-    return html.escape(label)
-
-
 def _fork_period_line(texts, subscription, tariff) -> str | None:
-    """«Стандартный · до 25.10.2026, осталось 8 дней»; без тарифа — только срок, с большой буквы."""
+    """«⏳ До <b>25.10.2026</b> · осталось 8 дней» или «⏳ Закончилась <b>09.10.2026</b>»; без срока — None."""
     end_date = getattr(subscription, 'end_date', None)
-    period = None
     # У суточного тарифа срока нет (апстрим тоже не показывает «Действует до»).
-    if end_date and not (tariff and getattr(tariff, 'is_daily', False)):
-        date = format_local_datetime(end_date, '%d.%m.%Y')
-        ended = getattr(subscription, 'actual_status', None) == 'expired' or end_date <= datetime.now(UTC)
-        days_left = _fork_days_left(subscription)
-        if ended:
-            period = texts.FORK_SUB_INFO_ENDED.format(date=date)
-        elif days_left >= 1:
-            period = texts.FORK_SUB_INFO_UNTIL.format(date=date, days=fork_period(texts, days_left))
-        else:
-            period = texts.FORK_SUB_INFO_LAST_DAY.format(date=date)
-    if tariff is not None:
-        return ' · '.join(part for part in (html.escape(tariff.name or ''), period) if part) or None
-    return period[:1].upper() + period[1:] if period else None
+    if not end_date or (tariff and getattr(tariff, 'is_daily', False)):
+        return None
+    date = format_local_datetime(end_date, '%d.%m.%Y')
+    if getattr(subscription, 'actual_status', None) == 'expired' or end_date <= datetime.now(UTC):
+        return texts.FORK_SUB_INFO_ENDED.format(date=date)
+    days_left = _fork_days_left(subscription)
+    if days_left >= 1:
+        return texts.FORK_SUB_INFO_UNTIL.format(date=date, days=fork_period(texts, days_left))
+    return texts.FORK_SUB_INFO_LAST_DAY.format(date=date)
+
+
+def _fork_devices_value(texts, subscription, devices_used: str | int | None) -> str:
+    """«2 из 3»; панель не ответила — только лимит, как rich-меню."""
+    if devices_used in (None, '', '—'):
+        return Texts.format_device_limit(subscription.device_limit)
+    return fork_devices(texts, devices_used, subscription.device_limit)
 
 
 def _fork_usage_line(texts, subscription, *, show_devices: bool, devices_used: str | int | None) -> str:
@@ -231,12 +221,7 @@ def _fork_usage_line(texts, subscription, *, show_devices: bool, devices_used: s
         )
     ]
     if show_devices:
-        if devices_used in (None, '', '—'):
-            # Панель не ответила — показываем только лимит, как rich-меню.
-            devices_value = Texts.format_device_limit(subscription.device_limit)
-        else:
-            devices_value = fork_devices(texts, devices_used, subscription.device_limit)
-        usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=devices_value))
+        usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=_fork_devices_value(texts, subscription, devices_used)))
     return ' · '.join(usage)
 
 
@@ -257,45 +242,46 @@ def _build_fork_subscription_text(
     tariff=None,
     show_devices: bool,
     devices_used: str | int | None,
-    devices: list[dict[str, Any]],
     traffic_purchases=(),
     subscription_link: str | None = None,
 ) -> str:
-    """Экран «Подписка» под темой форка: статус, срок, трафик и устройства, ссылка для приложения.
+    """Экран «Подписка» под темой форка: блоки через пустую строку — статус, данные, ссылка.
 
-    Только при включённой теме (ключи FORK_*). Строки без эмодзи-маркеров, без цитат; одна
-    анимированная иконка — в статусе. Устройства не показываются вовсе, если выбор устройств
-    выключен (апстрим в этом случае вырезает строку из шаблона). Ссылку передаёт вызывающий,
-    только когда её сейчас можно показывать.
+    Только при включённой теме (ключи FORK_*). У каждой строки данных своя иконка (решение
+    владельца для этого экрана: до 5 анимированных эмодзи), без цитат и сплошного текста.
+    Устройства не показываются вовсе, если выбор устройств выключен (апстрим в этом случае
+    вырезает строку из шаблона). Ссылку передаёт вызывающий, только когда её можно показывать.
     """
-    lines = [f'<b>{_fork_status_label(subscription, texts)}</b>']
+    blocks = [f'<b>{_fork_status_label(subscription, texts)}</b>']
 
+    data_lines = []
     period_line = _fork_period_line(texts, subscription, tariff)
     if period_line:
-        lines.append(period_line)
+        data_lines.append(period_line)
 
     in_use = (getattr(subscription, 'actual_status', None) or '') in ('active', 'trial', 'limited')
     if in_use:
-        lines.append(_fork_usage_line(texts, subscription, show_devices=show_devices, devices_used=devices_used))
-
+        traffic = fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb, bold_used=True)
+        data_lines.append(texts.FORK_SUB_INFO_TRAFFIC.format(traffic=traffic))
         if traffic_purchases:
             total_gb = sum(purchase.traffic_gb for purchase in traffic_purchases)
             nearest = min(purchase.expires_at for purchase in traffic_purchases)
-            lines.append(
+            data_lines.append(
                 texts.FORK_SUB_PURCHASED_TRAFFIC.format(
                     traffic=fork_traffic(texts, total_gb), date=format_local_datetime(nearest, '%d.%m.%Y')
                 )
             )
-
-        if show_devices and devices:
-            labels = [label for label in map(_fork_device_label, devices[:_FORK_DEVICES_SHOWN]) if label]
-            if labels:
-                lines.append(texts.FORK_SUB_CONNECTED.format(devices=', '.join(labels)))
+        if show_devices:
+            data_lines.append(
+                texts.FORK_SUB_INFO_DEVICES.format(devices=_fork_devices_value(texts, subscription, devices_used))
+            )
+    if data_lines:
+        blocks.append('\n'.join(data_lines))
 
     if subscription_link:
-        lines.append(texts.FORK_SUB_LINK.format(link=f'<code>{html.escape(subscription_link)}</code>'))
+        blocks.append(texts.FORK_SUB_LINK.format(link=f'<code>{html.escape(subscription_link)}</code>'))
 
-    return '\n'.join(lines)
+    return '\n\n'.join(blocks)
 
 
 async def _active_traffic_purchases(db: AsyncSession, subscription) -> list:
@@ -581,7 +567,6 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
             tariff=tariff,
             show_devices=show_devices,
             devices_used=devices_used_str,
-            devices=devices_list,
             traffic_purchases=await _active_traffic_purchases(db, subscription),
             subscription_link=subscription_link if show_link else None,
         )
@@ -593,6 +578,7 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
                 is_trial=subscription.is_trial,
                 subscription=subscription,
                 gift_enabled=gift_enabled,
+                multiple_tariffs=await fork_has_tariff_choice(db),
             ),
             parse_mode='HTML',
         )
@@ -4355,6 +4341,8 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_subscription_info, F.data == 'menu_subscription')
     # «Назад» без цвета: menu_subscription таблица темы красит в синий, back_* — нет.
     dp.callback_query.register(show_subscription_info, F.data == 'back_to_subscription')
+    # Тема форка: подменю «Ещё» экрана подписки (меняет только кнопки).
+    dp.callback_query.register(show_subscription_more, F.data == 'sub_more')
 
     # Multi-tariff: "My subscriptions" list and detail views
     from app.handlers.subscription.my_subscriptions import show_my_subscriptions, show_subscription_detail

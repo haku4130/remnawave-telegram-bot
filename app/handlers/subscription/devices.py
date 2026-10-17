@@ -21,6 +21,7 @@ from app.database.crud.user_device_alias import (
 )
 from app.database.models import Subscription, TransactionType, User
 from app.keyboards.inline import (
+    fork_device_purchase_available,
     get_app_selection_keyboard,
     get_back_keyboard,
     get_change_devices_keyboard,
@@ -66,6 +67,23 @@ def _build_fork_devices_text(texts, total: int, page: int, pages: int) -> str:
     if pages > 1:
         count += texts.FORK_DEVICES_LIST_PAGE.format(page=page, pages=pages)
     return f'{texts.FORK_DEVICES_LIST_TITLE}\n{count}\n{texts.FORK_DEVICES_LIST_HINT}'
+
+
+async def _fork_add_device_available(db: AsyncSession, subscription) -> bool:
+    """«Добавить устройство» на списке устройств (тема форка) — те же условия, что было на экране подписки.
+
+    Цена устройства у тарифа (или выбор устройств без тарифа); не для пробной и не для закончившейся подписки.
+    """
+    if not settings.PREMIUM_THEME_ENABLED or subscription is None or getattr(subscription, 'is_trial', False):
+        return False
+    if (getattr(subscription, 'actual_status', None) or '') in ('expired', 'disabled'):
+        return False
+    tariff = None
+    if getattr(subscription, 'tariff_id', None):
+        from app.database.crud.tariff import get_tariff_by_id
+
+        tariff = await get_tariff_by_id(db, subscription.tariff_id)
+    return fork_device_purchase_available(tariff)
 
 
 def _build_fork_devices_confirm_text(texts, current: int, new: int, cost: str) -> str:
@@ -888,7 +906,14 @@ async def handle_device_management(
                     await callback.answer()
                     return
 
-                await show_devices_page(callback, db_user, devices_list, page=1, sub_id=sub_id)
+                await show_devices_page(
+                    callback,
+                    db_user,
+                    devices_list,
+                    page=1,
+                    sub_id=sub_id,
+                    add_device=await _fork_add_device_available(db, subscription),
+                )
             else:
                 await callback.answer(
                     texts.t(
@@ -930,8 +955,14 @@ async def _enrich_devices_with_aliases(devices_list: list[dict], user_id: int) -
 
 
 async def show_devices_page(
-    callback: types.CallbackQuery, db_user: User, devices_list: list[dict], page: int = 1, sub_id: int | None = None
+    callback: types.CallbackQuery,
+    db_user: User,
+    devices_list: list[dict],
+    page: int = 1,
+    sub_id: int | None = None,
+    add_device: bool = False,
 ):
+    """add_device — кнопка «Добавить устройство» (только тема форка, см. _fork_add_device_available)."""
     texts = get_texts(db_user.language)
     devices_per_page = 5
 
@@ -953,6 +984,7 @@ async def show_devices_page(
                 back_callback=f'sm:{sub_id}'
                 if settings.is_multi_tariff_enabled() and sub_id
                 else 'subscription_settings',
+                add_device=add_device,
             ),
         )
         return
@@ -1025,7 +1057,14 @@ async def handle_devices_page(callback: types.CallbackQuery, db_user: User, db: 
 
             if isinstance(devices_info, dict):
                 devices_list = devices_info.get('devices', [])
-                await show_devices_page(callback, db_user, devices_list, page=page, sub_id=sub_id)
+                await show_devices_page(
+                    callback,
+                    db_user,
+                    devices_list,
+                    page=page,
+                    sub_id=sub_id,
+                    add_device=await _fork_add_device_available(db, subscription),
+                )
             else:
                 await callback.answer(
                     texts.t('DEVICE_FETCH_ERROR', '❌ Ошибка получения устройств'),
@@ -1217,7 +1256,11 @@ async def process_device_rename(message: types.Message, db_user: User, db: Async
         await message.answer(
             texts.t('DEVICE_RENAME_OPEN_LIST', '📱 Откройте список устройств, чтобы продолжить'),
             reply_markup=get_devices_management_keyboard(
-                pagination.items, pagination, db_user.language, back_callback=back_cb
+                pagination.items,
+                pagination,
+                db_user.language,
+                back_callback=back_cb,
+                add_device=await _fork_add_device_available(db, subscription),
             ),
         )
     except Exception as exc:
@@ -1251,7 +1294,14 @@ async def cancel_device_rename(
             async with service.get_api_client() as api:
                 devices_info = await api.get_user_devices(panel_user_id)
             devices_list = (devices_info or {}).get('devices', []) or []
-            await show_devices_page(callback, db_user, devices_list, page=page, sub_id=sub_id)
+            await show_devices_page(
+                callback,
+                db_user,
+                devices_list,
+                page=page,
+                sub_id=sub_id,
+                add_device=await _fork_add_device_available(db, subscription),
+            )
             await callback.answer(texts.t('DEVICE_RENAME_CANCELLED', '✖️ Переименование отменено'))
             return
         except Exception as exc:
@@ -1344,7 +1394,14 @@ async def handle_single_device_reset(
                                 if not updated_pagination.items and page > 1:
                                     page = page - 1
 
-                                await show_devices_page(callback, db_user, updated_devices, page=page, sub_id=sub_id)
+                                await show_devices_page(
+                                    callback,
+                                    db_user,
+                                    updated_devices,
+                                    page=page,
+                                    sub_id=sub_id,
+                                    add_device=await _fork_add_device_available(db, subscription),
+                                )
                             else:
                                 await callback.message.edit_text(
                                     texts.t(

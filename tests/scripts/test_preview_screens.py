@@ -211,7 +211,8 @@ async def test_more_submenu_screen(theme_on):
     assert not any(button.style == 'success' for button in buttons)
     assert buttons[-1].callback_data == 'back_to_menu'
     assert {'menu_promocode', 'menu_info'} <= {button.callback_data for button in buttons}
-    assert all(screen.then_markup is None for title, screen in screens.items() if title != 'Меню — Ещё')
+    with_swap = {title for title, screen in screens.items() if screen.then_markup is not None}
+    assert with_swap == {'Меню — Ещё', 'Подписка — Ещё'}
 
 
 @pytest.mark.asyncio
@@ -220,8 +221,9 @@ async def test_send_screens_swaps_buttons_of_more_menu_after_sending(monkeypatch
     monkeypatch.setattr(settings, 'MAIN_MENU_RICH_INLINE_BUTTONS', False, raising=False)
     loader.clear_locale_cache()
     sent_ids = iter(range(100, 200))
+    plain_ids = iter(range(1000, 2000))
     bot = MagicMock()
-    bot.send_message = AsyncMock()
+    bot.send_message = AsyncMock(side_effect=lambda *args, **kwargs: MagicMock(message_id=next(plain_ids)))
     bot.send_rich_message = AsyncMock(side_effect=lambda **kwargs: MagicMock(message_id=next(sent_ids)))
     bot.edit_message_reply_markup = AsyncMock()
     bot.session.close = AsyncMock()
@@ -234,14 +236,28 @@ async def test_send_screens_swaps_buttons_of_more_menu_after_sending(monkeypatch
 
     rich = [screen for screen in screens if screen.rich]
     more_index = next(index for index, screen in enumerate(rich) if screen.title == 'Меню — Ещё')
-    bot.edit_message_reply_markup.assert_awaited_once()
-    kwargs = bot.edit_message_reply_markup.await_args.kwargs
-    assert kwargs['chat_id'] == 42
+    assert bot.edit_message_reply_markup.await_count == 2
+    swaps = {call.kwargs['message_id']: call.kwargs for call in bot.edit_message_reply_markup.await_args_list}
     # id — именно того сообщения, которое было отправлено как «Меню — Ещё».
-    assert kwargs['message_id'] == 100 + more_index
+    kwargs = swaps[100 + more_index]
+    assert kwargs['chat_id'] == 42
     assert bot.send_rich_message.await_args_list[more_index].kwargs['chat_id'] == 42
     assert kwargs['reply_markup'].inline_keyboard[-1][0].callback_data == 'back_to_menu'
     assert kwargs['reply_markup'] == rich[more_index].then_markup
+
+    # «Подписка — Ещё» — обычное сообщение: кнопки меняются у тела экрана (не у подписи-названия).
+    bodies = [
+        call
+        for call in bot.send_message.await_args_list
+        if not (len(call.args) > 1 and str(call.args[1]).startswith('<i>'))
+    ]
+    plain = [screen for screen in screens if not screen.rich and not screen.notify]
+    sub_index = next(index for index, screen in enumerate(plain) if screen.title == 'Подписка — Ещё')
+    message_ids = [1000 + index for index, call in enumerate(bot.send_message.await_args_list) if call in bodies]
+    kwargs = swaps[message_ids[sub_index]]
+    assert kwargs['chat_id'] == 42
+    assert kwargs['reply_markup'] == plain[sub_index].then_markup
+    assert kwargs['reply_markup'].inline_keyboard[-1][0].callback_data == 'menu_subscription'
 
 
 @pytest.mark.asyncio
@@ -293,30 +309,60 @@ async def test_send_screens_ignores_stale_server_locales(monkeypatch, tmp_path, 
         assert f'<footer>{expected}</footer>' in call.kwargs['rich_message'].html
 
 
-SUBSCRIPTION_TITLES = ('Подписка — активна', 'Подписка — скоро истекает', 'Подписка — нет подписки')
+SUBSCRIPTION_TITLES = (
+    'Подписка — активна',
+    'Подписка — скоро истекает',
+    'Подписка — истекла',
+    'Подписка — пробная',
+    'Подписка — Ещё',
+    'Подписка — нет подписки',
+)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_subscription_screens_present(theme_on, monkeypatch, language):
+    import re
+
     from app.middlewares.premium_theme import theme_markup
     from app.utils.message_patch import caption_exceeds_telegram_limit
 
     monkeypatch.setattr(settings, 'SALES_MODE', 'tariffs')
     monkeypatch.setattr(settings, 'CONNECT_BUTTON_MODE', 'miniapp_subscription')
+    monkeypatch.setattr(settings, 'HIDE_SUBSCRIPTION_LINK', False)
     screens = {screen.title: screen for screen in await preview_screens.build_screens(language)}
     for title in SUBSCRIPTION_TITLES:
         screen = screens[title]
         assert not screen.rich, title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
+        assert screen.text.count('<tg-emoji') <= 5, title
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') == 1, title
+        if title != 'Подписка — нет подписки':
+            assert len(screen.markup.inline_keyboard) == 4, title
+        if language == 'en':
+            assert not re.search('[а-яА-ЯёЁ]', screen.text), title
+            assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
     expiring = 'скоро истекает' if language == 'ru' else 'expires soon'
     assert expiring in screens['Подписка — скоро истекает'].text
+    assert '<code>' not in screens['Подписка — истекла'].text
+    assert '<code>' in screens['Подписка — пробная'].text
     callbacks = [b.callback_data for row in screens['Подписка — активна'].markup.inline_keyboard for b in row]
-    assert 'subscription_change_devices' in callbacks
+    # Первая — «Подключиться» (web_app, без callback_data).
+    assert callbacks == [None, 'subscription_extend', 'subscription_manage_devices', 'sub_more', 'back_to_menu']
     assert screens['Подписка — нет подписки'].markup.inline_keyboard[0][0].callback_data == 'menu_buy'
+
+    more = screens['Подписка — Ещё']
+    assert (more.text, more.markup) == (screens['Подписка — активна'].text, screens['Подписка — активна'].markup)
+    more_buttons = [button for row in theme_markup(more.then_markup).inline_keyboard for button in row]
+    assert more_buttons[0].copy_text is not None and more_buttons[0].copy_text.text.startswith('https://')
+    assert [b.callback_data for b in more_buttons[1:]] == [
+        'subscription_settings',
+        'subscription_gift',
+        'menu_subscription',
+    ]
+    assert all(button.style is None for button in more_buttons)
 
 
 @pytest.mark.asyncio
@@ -369,6 +415,9 @@ async def test_device_screens_present(theme_on, monkeypatch, language):
         assert sum(1 for button in buttons if button.style == 'success') == 1, title
     list_buttons = [b for row in theme_markup(screens['Устройства — список'].markup).inline_keyboard for b in row]
     assert [b.style for b in list_buttons if b.callback_data == 'reset_all_devices'] == ['danger']
+    # «Добавить устройство» переехала с экрана подписки на список устройств — синяя, над «Назад».
+    assert list_buttons[-2].callback_data == 'subscription_change_devices'
+    assert list_buttons[-2].style == 'primary'
 
 
 @pytest.mark.asyncio
@@ -833,3 +882,72 @@ async def test_misc_screens_absent_without_theme(monkeypatch):
     finally:
         loader.clear_locale_cache()
     assert not any(title in titles for title in MISC_TITLES)
+
+
+# --- Фильтр --only ------------------------------------------------------------------------
+
+
+def test_parse_only_splits_and_normalizes():
+    assert preview_screens.parse_only(None) == []
+    assert preview_screens.parse_only('') == []
+    assert preview_screens.parse_only(' Подписка —, ,Устройства — СПИСОК ') == ['подписка —', 'устройства — список']
+
+
+def test_select_screens_matches_substrings_case_insensitively():
+    screens = [
+        preview_screens.PreviewScreen(title, 'text', None)
+        for title in ('Подписка — активна', 'Подписка — Ещё', 'Устройства — список', 'Меню — Ещё')
+    ]
+    assert preview_screens.select_screens(screens, None) == screens
+    assert preview_screens.select_screens(screens, []) == screens
+    picked = preview_screens.select_screens(screens, ['ПОДПИСКА', 'устройства — список'])
+    assert [screen.title for screen in picked] == ['Подписка — активна', 'Подписка — Ещё', 'Устройства — список']
+    assert [screen.title for screen in preview_screens.select_screens(screens, ['ещё'])] == [
+        'Подписка — Ещё',
+        'Меню — Ещё',
+    ]
+    assert preview_screens.select_screens(screens, ['нет такого']) == []
+
+
+@pytest.mark.asyncio
+async def test_send_screens_only_sends_matching_screens(monkeypatch):
+    monkeypatch.setattr(settings, 'PREMIUM_THEME_ENABLED', False)
+    loader.clear_locale_cache()
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=MagicMock(message_id=1))
+    bot.send_rich_message = AsyncMock(return_value=MagicMock(message_id=2))
+    bot.edit_message_reply_markup = AsyncMock()
+    bot.session.close = AsyncMock()
+    monkeypatch.setattr(preview_screens, 'create_bot', lambda *args, **kwargs: bot)
+    try:
+        sent = await preview_screens.send_screens(42, 'ru', ['подписка —', 'Устройства — список'])
+    finally:
+        loader.clear_locale_cache()
+
+    expected = [*SUBSCRIPTION_TITLES, 'Устройства — список']
+    assert sent == len(expected)
+    captions = [call.args[1] for call in bot.send_message.await_args_list if str(call.args[1]).startswith('<i>')]
+    assert captions == [f'<i>{title}</i>' for title in expected]
+    # Все выбранные экраны — обычные сообщения: подпись + тело; rich-меню не ушло.
+    assert bot.send_message.await_count == 2 * len(expected)
+    bot.send_rich_message.assert_not_awaited()
+    # Подменю «Ещё» подписки показано заменой кнопок.
+    bot.edit_message_reply_markup.assert_awaited_once()
+
+
+def test_main_passes_only_filter(monkeypatch):
+    seen = {}
+
+    async def fake_send(chat_id, language, only=None):
+        seen.update(chat_id=chat_id, language=language, only=only)
+        return 0
+
+    monkeypatch.setattr(preview_screens, 'send_screens', fake_send)
+    monkeypatch.setattr(
+        'sys.argv', ['preview_screens', '--to', '42', '--lang', 'en', '--only', 'Подписка —,Устройства — список']
+    )
+    preview_screens.main()
+    assert seen == {'chat_id': 42, 'language': 'en', 'only': ['подписка —', 'устройства — список']}
+    monkeypatch.setattr('sys.argv', ['preview_screens', '--to', '42'])
+    preview_screens.main()
+    assert seen['only'] == []

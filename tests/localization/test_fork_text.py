@@ -87,6 +87,8 @@ def test_fork_traffic_usage(theme_on):
     assert fork_traffic_usage(get_texts('en'), 0, 50) == '0 GB of 50 GB'
     assert fork_traffic_usage(get_texts('ru'), 3, 0) == '3 ГБ из ∞'
     assert fork_traffic_usage(get_texts('en'), None, None) == '0 GB of ∞'
+    assert fork_traffic_usage(get_texts('ru'), 12.5, 0, bold_used=True) == '<b>12.5 ГБ</b> из ∞'
+    assert fork_traffic_usage(get_texts('en'), 1.234, 50, bold_used=True) == '<b>1.2 GB</b> of 50 GB'
 
 
 def test_fork_period(theme_on):
