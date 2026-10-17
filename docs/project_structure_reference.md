@@ -3876,6 +3876,9 @@
 - `tests/handlers/test_ticket_view_opens_last_page.py` — Python-модуль
   Классы: нет
   Функции: `test_opens_on_the_last_page_when_no_page_requested`, `test_explicit_page_from_pagination_button_wins`
+- `tests/handlers/test_topup_amount_limits.py` — Python-модуль
+  Классы: нет
+  Функции: `routed`, `test_rollypay_accepts_amounts_within_provider_limits`, `test_rollypay_rejects_amounts_outside_provider_limits`, `test_other_methods_keep_general_limits_inside`, `test_other_methods_keep_general_limits_outside`
 - `tests/handlers/test_user_messages_list_refresh.py` — Python-модуль
   Классы: нет
   Функции: `test_render_list_edits_message_and_never_answers`, `test_delete_confirm_renders_via_helper_and_answers_once`
@@ -4400,6 +4403,9 @@
 - `tests/services/test_reset_subscription.py` — Python-модуль
   Классы: нет
   Функции: `test_reset_subscription_zeroes_fields`, `test_reset_with_panel_disables_subscription_panel_id`, `test_reset_with_panel_multitariff_no_sub_panel_id_skips_panel` — Multi-tariff + no per-sub panel id → must NOT fall back to user.remnawave_id, `test_reset_with_panel_singletariff_falls_back_to_user_panel_id`, `test_reset_with_panel_no_panel_id_skips_panel`, `test_reset_with_panel_survives_panel_error` — A panel disable failure must not block the bot-side reset (best effort)., `test_user_modified_does_not_resurrect_disabled_end_date` — A user.modified webhook carrying a stale FUTURE expireAt must NOT restore the, `test_user_modified_still_syncs_end_date_for_active` — Regression guard: ACTIVE subs still get end_date synced from the panel., `test_user_level_reset_deletes_all_three_current_subscriptions` — The user reset remains one user-scoped operation, not a selected-sub reset., `test_user_level_reset_panel_failure_preserves_all_subscription_retry_identities`
+- `tests/services/test_rollypay_finalize_rollback.py` — Python-модуль
+  Классы: нет
+  Функции: `test_balance_credited_survives_rollback_in_auto_purchase`, `test_repeated_webhook_after_rollback_does_not_credit_twice`, `test_balance_credited_is_committed_before_side_effects` — Отметка уже в БД, когда стартуют уведомления и автопокупка.
 - `tests/services/test_settings_categories.py` — Python-модуль
   Классы: нет
   Функции: `test_setting_lands_in_expected_category`, `test_no_setting_falls_into_a_single_verb_category` — Категория из одного глагола — признак забытой привязки в CATEGORY_KEY_OVERRIDES., `test_every_setting_is_exposed_unless_explicitly_excluded` — Ни одна настройка не должна пропасть из админки молча.

@@ -410,9 +410,22 @@ class RollyPayPaymentMixin:
 
         old_balance = user.balance_kopeks
         was_first_topup = not user.has_made_first_topup
+        order_id = payment.order_id
+        user_id = payment.user_id
+        amount_kopeks = payment.amount_kopeks
 
-        user.balance_kopeks += payment.amount_kopeks
+        user.balance_kopeks += amount_kopeks
         user.updated_at = datetime.now(UTC)
+        # Отметка о зачислении уходит тем же коммитом, что и баланс: автопокупка ниже
+        # работает на этой сессии и в ветках ошибок делает rollback, после которого
+        # payment/user истекают и запись «после всего» падала (MissingGreenlet).
+        metadata['balance_change'] = {
+            'old_balance': old_balance,
+            'new_balance': old_balance + amount_kopeks,
+            'credited_at': datetime.now(UTC).isoformat(),
+        }
+        metadata['balance_credited'] = True
+        payment.metadata_json = metadata
         await db.commit()
         await db.refresh(user)
 
@@ -487,28 +500,19 @@ class RollyPayPaymentMixin:
         try:
             from app.services.payment.common import send_cart_notification_after_topup
 
-            await send_cart_notification_after_topup(user, payment.amount_kopeks, db, getattr(self, 'bot', None))
+            await send_cart_notification_after_topup(user, amount_kopeks, db, getattr(self, 'bot', None))
         except Exception as error:
             logger.error(
                 'Ошибка при работе с сохраненной корзиной для пользователя',
-                user_id=payment.user_id,
+                user_id=user_id,
                 error=error,
                 exc_info=True,
             )
 
-        metadata['balance_change'] = {
-            'old_balance': old_balance,
-            'new_balance': user.balance_kopeks,
-            'credited_at': datetime.now(UTC).isoformat(),
-        }
-        metadata['balance_credited'] = True
-        payment.metadata_json = metadata
-        await db.commit()
-
         logger.info(
             'Обработан RollyPay платеж',
-            order_id=payment.order_id,
-            user_id=payment.user_id,
+            order_id=order_id,
+            user_id=user_id,
             trigger=trigger,
         )
 
