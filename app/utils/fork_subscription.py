@@ -10,6 +10,10 @@ from datetime import UTC, datetime
 from app.services.menu_layout.fork_layout import EXPIRING_DAYS, _is_daily_tariff
 
 
+# Пробная — «скоро истекает», когда осталось меньше суток (целых дней 0); платная — за EXPIRING_DAYS дней.
+_TRIAL_EXPIRING_BELOW_DAYS = 1
+
+
 def _fork_status_label(subscription, texts) -> str:
     actual_status = (getattr(subscription, 'actual_status', None) or '').lower()
     if actual_status == 'limited':
@@ -20,8 +24,10 @@ def _fork_status_label(subscription, texts) -> str:
         return texts.FORK_SUB_STATUS_DISABLED
     is_trial = bool(getattr(subscription, 'is_trial', False)) or actual_status == 'trial'
     if actual_status in {'active', 'trial'}:
+        # Пробный короткий (на проде 3 дня): «скоро истекает» — только в последние сутки, а не с первой минуты.
+        threshold = _TRIAL_EXPIRING_BELOW_DAYS if is_trial else EXPIRING_DAYS + 1
         # У суточного тарифа дней всегда ≤ 1 — «скоро истекает» он каждый день, это шум.
-        if _fork_days_left(subscription) <= EXPIRING_DAYS and not _is_daily_tariff(subscription):
+        if _fork_days_left(subscription) < threshold and not _is_daily_tariff(subscription):
             return texts.FORK_SUB_STATUS_EXPIRING
         return texts.FORK_SUB_STATUS_TRIAL if is_trial else texts.FORK_SUB_STATUS_ACTIVE
     return texts.FORK_SUB_STATUS_PENDING

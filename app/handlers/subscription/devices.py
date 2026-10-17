@@ -898,7 +898,8 @@ async def handle_device_management(
                 if total_devices == 0:
                     if settings.PREMIUM_THEME_ENABLED:
                         none_text = texts.FORK_DEVICES_NONE
-                        none_keyboard = get_back_keyboard(db_user.language, 'subscription_settings')
+                        # Список открывают с экрана подписки («📱 Устройства») — туда и «Назад».
+                        none_keyboard = get_back_keyboard(db_user.language, 'menu_subscription')
                     else:
                         none_text = texts.t('DEVICE_NONE_CONNECTED', 'ℹ️ У вас нет подключенных устройств')
                         none_keyboard = get_back_keyboard(db_user.language)
@@ -981,9 +982,8 @@ async def show_devices_page(
                 pagination.items,
                 pagination,
                 db_user.language,
-                back_callback=f'sm:{sub_id}'
-                if settings.is_multi_tariff_enabled() and sub_id
-                else 'subscription_settings',
+                # Список открывают с экрана подписки («📱 Устройства») — туда и «Назад»; мультитариф — как был.
+                back_callback=f'sm:{sub_id}' if settings.is_multi_tariff_enabled() and sub_id else 'menu_subscription',
                 add_device=add_device,
             ),
         )
@@ -1251,7 +1251,10 @@ async def process_device_rename(message: types.Message, db_user: User, db: Async
         # Сообщения от FSM-handler'а — не callback, поэтому отдельный пост.
         devices_list = await _enrich_devices_with_aliases(devices_list, db_user.id)
         pagination = paginate_list(devices_list, page=page, per_page=5)
-        back_cb = f'sm:{sub_id}' if settings.is_multi_tariff_enabled() and sub_id else 'subscription_settings'
+        if settings.is_multi_tariff_enabled() and sub_id:
+            back_cb = f'sm:{sub_id}'
+        else:
+            back_cb = 'menu_subscription' if settings.PREMIUM_THEME_ENABLED else 'subscription_settings'
 
         await message.answer(
             texts.t('DEVICE_RENAME_OPEN_LIST', '📱 Откройте список устройств, чтобы продолжить'),

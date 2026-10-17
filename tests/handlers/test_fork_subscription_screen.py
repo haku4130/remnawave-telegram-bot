@@ -310,7 +310,8 @@ async def test_theme_on_expiring_screen(theme_on, handler_env, language, status,
     text, _ = await _show(_subscription(days=2), language=language)
     blocks = _blocks(text)
     assert blocks[0] == [f'<b>{_tag("hourglass")} {status}</b>']
-    assert blocks[1][0] == f'{_tag("hourglass")} {period}'
+    # ⏳ уже в статусе — у срока будильник, чтобы на экране не было двух песочных часов.
+    assert blocks[1][0] == f'{_tag("alarm")} {period}'
     # Отдельных предупреждений апстрима («⚠️ истекает завтра!») больше нет — их заменил статус.
     assert '⚠️' not in text and '🔴' not in text
 
@@ -318,27 +319,40 @@ async def test_theme_on_expiring_screen(theme_on, handler_env, language, status,
 @pytest.mark.asyncio
 async def test_theme_on_last_day(theme_on, handler_env):
     text, _ = await _show(_subscription(days=0, end_date=NOW + timedelta(hours=5)))
-    assert _blocks(text)[1][0] == f'{_tag("hourglass")} До <b>17.10.2026</b> · осталось меньше суток'
+    assert _blocks(text)[1][0] == f'{_tag("alarm")} До <b>17.10.2026</b> · осталось меньше суток'
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ('language', 'status', 'period'),
+    ('language', 'days', 'status', 'period'),
     [
-        ('ru', 'Пробный доступ', 'До <b>06.11.2026</b> · осталось 20 дней'),
-        ('en', 'Free trial', 'Until <b>06.11.2026</b> · 20 days left'),
+        ('ru', 20, 'Пробный доступ', 'До <b>06.11.2026</b> · осталось 20 дней'),
+        ('en', 20, 'Free trial', 'Until <b>06.11.2026</b> · 20 days left'),
+        # Прод: пробный на 3 дня — не «скоро истекает» с первой минуты.
+        ('ru', 3, 'Пробный доступ', 'До <b>20.10.2026</b> · осталось 3 дня'),
+        ('ru', 1, 'Пробный доступ', 'До <b>18.10.2026</b> · осталось 1 день'),
     ],
 )
-async def test_theme_on_trial_screen(theme_on, handler_env, language, status, period):
+async def test_theme_on_trial_screen(theme_on, handler_env, language, days, status, period):
     handler_env['tariff'] = None
     # Пробная в БД — status='active' с is_trial (actual_status модели тоже 'active').
-    subscription = _subscription(days=20, is_trial=True, tariff_id=None)
+    subscription = _subscription(days=days, is_trial=True, tariff_id=None)
     text, markup = await _show(subscription, language=language)
     blocks = _blocks(text)
     assert blocks[0] == [f'<b>{_tag("gift")} {status}</b>']
     assert blocks[1][0] == f'{_tag("hourglass")} {period}'
     assert blocks[2][1] == '<code>https://sub.example/abc?x=1&amp;y=2</code>'
     assert 'subscription_change_devices' not in _callbacks(markup)
+
+
+@pytest.mark.asyncio
+async def test_theme_on_trial_last_day_is_expiring(theme_on, handler_env):
+    handler_env['tariff'] = None
+    subscription = _subscription(days=0, end_date=NOW + timedelta(hours=5), is_trial=True, tariff_id=None)
+    text, _ = await _show(subscription)
+    blocks = _blocks(text)
+    assert blocks[0] == [f'<b>{_tag("hourglass")} Подписка скоро истекает</b>']
+    assert blocks[1][0] == f'{_tag("alarm")} До <b>17.10.2026</b> · осталось меньше суток'
 
 
 @pytest.mark.asyncio
@@ -398,6 +412,8 @@ async def test_theme_on_screen_has_no_upstream_clutter(theme_on, handler_env, da
         assert clutter not in text, clutter
     # Иконка у статуса и у каждой строки данных и ссылки — не больше пяти анимированных эмодзи.
     assert text.count('<tg-emoji') == 5
+    # Двух песочных часов (статус «скоро истекает» и срок) на одном экране не бывает.
+    assert text.count(_tag('hourglass')) == 1
     assert text.startswith('<b><tg-emoji')
 
 

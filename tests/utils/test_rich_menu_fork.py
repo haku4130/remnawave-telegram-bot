@@ -118,7 +118,14 @@ async def test_subscription_block_is_three_short_lines(theme):
         ('active', False, 12, ('check', 'Подписка активна')),
         ('active', False, 2, ('hourglass', 'Подписка скоро истекает')),
         ('trial', True, 10, ('gift', 'Пробный доступ')),
-        ('trial', True, 2, ('hourglass', 'Подписка скоро истекает')),
+        # Пробный (на проде 3 дня) — «Пробный доступ» до последних суток, иначе «скоро истекает» с первой минуты.
+        ('trial', True, 3, ('gift', 'Пробный доступ')),
+        ('trial', True, 2, ('gift', 'Пробный доступ')),
+        # end_date = now + 1 день: к подсчёту остаётся чуть меньше суток — последние сутки, «скоро истекает».
+        ('trial', True, 1, ('hourglass', 'Подписка скоро истекает')),
+        ('trial', True, 0, ('hourglass', 'Подписка скоро истекает')),
+        ('active', True, 2, ('gift', 'Пробный доступ')),
+        ('active', False, 3, ('hourglass', 'Подписка скоро истекает')),
         ('expired', False, -3, ('cross', 'Подписка истекла')),
         ('limited', False, 12, ('warning', 'Закончился трафик')),
         ('disabled', False, 12, ('no_entry', 'Подписка отключена')),

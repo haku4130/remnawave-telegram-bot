@@ -191,19 +191,23 @@ from .traffic import (
 )
 
 
-def _fork_period_line(texts, subscription, tariff) -> str | None:
-    """«⏳ До <b>25.10.2026</b> · осталось 8 дней» или «⏳ Закончилась <b>09.10.2026</b>»; без срока — None."""
+def _fork_period_line(texts, subscription, tariff, *, expiring: bool = False) -> str | None:
+    """«⏳ До <b>25.10.2026</b> · осталось 8 дней» или «⏳ Закончилась <b>09.10.2026</b>»; без срока — None.
+
+    expiring — статус уже «⏳ скоро истекает»: у срока тогда будильник, чтобы не было двух песочных часов.
+    """
     end_date = getattr(subscription, 'end_date', None)
     # У суточного тарифа срока нет (апстрим тоже не показывает «Действует до»).
     if not end_date or (tariff and getattr(tariff, 'is_daily', False)):
         return None
+    icon = texts.FORK_SUB_PERIOD_ICON_SOON if expiring else texts.FORK_SUB_PERIOD_ICON
     date = format_local_datetime(end_date, '%d.%m.%Y')
     if getattr(subscription, 'actual_status', None) == 'expired' or end_date <= datetime.now(UTC):
-        return texts.FORK_SUB_INFO_ENDED.format(date=date)
+        return texts.FORK_SUB_INFO_ENDED.format(icon=icon, date=date)
     days_left = _fork_days_left(subscription)
     if days_left >= 1:
-        return texts.FORK_SUB_INFO_UNTIL.format(date=date, days=fork_period(texts, days_left))
-    return texts.FORK_SUB_INFO_LAST_DAY.format(date=date)
+        return texts.FORK_SUB_INFO_UNTIL.format(icon=icon, date=date, days=fork_period(texts, days_left))
+    return texts.FORK_SUB_INFO_LAST_DAY.format(icon=icon, date=date)
 
 
 def _fork_devices_value(texts, subscription, devices_used: str | int | None) -> str:
@@ -252,10 +256,11 @@ def _build_fork_subscription_text(
     Устройства не показываются вовсе, если выбор устройств выключен (апстрим в этом случае
     вырезает строку из шаблона). Ссылку передаёт вызывающий, только когда её можно показывать.
     """
-    blocks = [f'<b>{_fork_status_label(subscription, texts)}</b>']
+    status = _fork_status_label(subscription, texts)
+    blocks = [f'<b>{status}</b>']
 
     data_lines = []
-    period_line = _fork_period_line(texts, subscription, tariff)
+    period_line = _fork_period_line(texts, subscription, tariff, expiring=status == texts.FORK_SUB_STATUS_EXPIRING)
     if period_line:
         data_lines.append(period_line)
 
