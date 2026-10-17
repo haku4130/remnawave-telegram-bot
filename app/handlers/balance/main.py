@@ -531,6 +531,21 @@ async def request_support_topup(callback: types.CallbackQuery, db_user: User):
     await callback.answer()
 
 
+_MANUAL_TOPUP_MIN_KOPEKS = 100  # 1 ₽
+_MANUAL_TOPUP_MAX_KOPEKS = 5_000_000  # 50 000 ₽
+
+
+def _get_manual_topup_limits_kopeks(payment_method: str) -> tuple[int, int]:
+    """Границы суммы, набранной вручную, в копейках.
+
+    У RollyPay свои лимиты — те же, что в подсказке «Минимум/Максимум» при выборе способа;
+    общие 1 ₽…50 000 ₽ отклоняли допустимые для него суммы (например, 70 000 ₽).
+    """
+    if payment_method == 'rollypay':
+        return settings.ROLLYPAY_MIN_AMOUNT_KOPEKS, settings.ROLLYPAY_MAX_AMOUNT_KOPEKS
+    return _MANUAL_TOPUP_MIN_KOPEKS, _MANUAL_TOPUP_MAX_KOPEKS
+
+
 @error_handler
 async def process_topup_amount(message: types.Message, db_user: User, state: FSMContext):
     texts = get_texts(db_user.language)
@@ -554,23 +569,25 @@ async def process_topup_amount(message: types.Message, db_user: User, state: FSM
 
         amount_rubles = float(amount_text.replace(',', '.'))
 
-        if amount_rubles < 1:
+        data = await state.get_data()
+        payment_method = data.get('payment_method', 'stars')
+        min_kopeks, max_kopeks = _get_manual_topup_limits_kopeks(payment_method)
+
+        if amount_rubles * 100 < min_kopeks:
             await message.answer(
-                'Минимальная сумма пополнения: 1 ₽',
+                f'Минимальная сумма пополнения: {min_kopeks // 100:,} ₽',
                 reply_markup=get_back_keyboard(db_user.language, callback_data='balance_topup'),
             )
             return
 
-        if amount_rubles > 50000:
+        if amount_rubles * 100 > max_kopeks:
             await message.answer(
-                'Максимальная сумма пополнения: 50,000 ₽',
+                f'Максимальная сумма пополнения: {max_kopeks // 100:,} ₽',
                 reply_markup=get_back_keyboard(db_user.language, callback_data='balance_topup'),
             )
             return
 
         amount_kopeks = int(amount_rubles * 100)
-        data = await state.get_data()
-        payment_method = data.get('payment_method', 'stars')
 
         if payment_method in ['yookassa', 'yookassa_sbp']:
             if amount_kopeks < settings.YOOKASSA_MIN_AMOUNT_KOPEKS:
