@@ -59,7 +59,11 @@ from app.localization.emoji_catalog import CATALOG, tag
 from app.localization.fork_text import fork_period, fork_traffic
 from app.localization.loader import clear_locale_cache
 from app.localization.texts import get_texts
-from app.services import referral_service, subscription_auto_purchase_service as auto_purchase
+from app.services import (
+    grace_access_notifications,
+    referral_service,
+    subscription_auto_purchase_service as auto_purchase,
+)
 from app.services.guest_purchase_service import build_gift_received_message
 from app.services.menu_layout_service import MenuContext, MenuLayoutService
 from app.services.monitoring_service import MonitoringService
@@ -805,7 +809,7 @@ async def _monitoring_notification_screens(language: str) -> list[PreviewScreen]
     calls = [
         ('Уведомление — подписка закончилась', lambda: service._send_subscription_expired_notification(user, paid)),
         ('Уведомление — пробный закончился', lambda: service._send_subscription_expired_notification(user, trial)),
-        ('Уведомление — скоро закончится', lambda: service._send_subscription_expiring_notification(user, paid, 3)),
+        ('Уведомление — скоро истекает', lambda: service._send_subscription_expiring_notification(user, paid, 3)),
         ('Уведомление — пробный через 2 часа', lambda: service._send_trial_ending_notification(user, trial)),
         (
             'Уведомление — день после окончания',
@@ -855,7 +859,10 @@ async def _webhook_notification_screens(language: str) -> list[PreviewScreen]:
     subscription = _notification_subscription()
     device = {'hwidUserDevice': {'deviceModel': 'iPhone 15', 'platform': 'iOS'}}
     calls = [
-        ('Вебхук — ещё не подключились', lambda: service._handle_user_not_connected(None, user, subscription, {})),
+        (
+            'Уведомление — вы ещё не подключились',
+            lambda: service._handle_user_not_connected(None, user, subscription, {}),
+        ),
         ('Вебхук — первое подключение', lambda: service._handle_first_connected(None, user, subscription, {})),
         (
             'Вебхук — закончится через 3 дня',
@@ -900,6 +907,22 @@ async def _webhook_notification_screens(language: str) -> list[PreviewScreen]:
                 continue
             kwargs = send.await_args.kwargs
             screens.append(PreviewScreen(title, kwargs['telegram_message'], kwargs['telegram_markup'], notify=True))
+
+        # Временный доступ после окончания подписки: тем же отправителем, что у сервиса; подписка — несохранённая
+        # заготовка с пользователем (у модели связь user не присваивается произвольным объектом).
+        send.reset_mock()
+        grace_subscription = SimpleNamespace(id=subscription.id, tariff=None, user=user)
+        grace_until = datetime.now(UTC) + timedelta(hours=6)
+        details = grace_access_notifications._GraceDetails(
+            reason='expired', grace_until=grace_until, hours=6, quota_gb=1.5, completion_reason=None, last_error=None
+        )
+        await grace_access_notifications._notify_user(MagicMock(), 'granted', grace_subscription, details)
+        kwargs = send.await_args.kwargs
+        screens.append(
+            PreviewScreen(
+                'Уведомление — временный доступ', kwargs['telegram_message'], kwargs['telegram_markup'], notify=True
+            )
+        )
     return screens
 
 
@@ -1005,7 +1028,7 @@ async def _referral_screens(language: str) -> list[PreviewScreen]:
         patch.object(referral_handler, 'get_referral_analytics', AsyncMock(return_value=analytics)),
     ):
         await referral_handler.show_referral_info(callback(), user, MagicMock())
-        screens.append(PreviewScreen('Рефералы — главный экран', sent['text'], sent['markup']))
+        screens.append(PreviewScreen('Рефералы — главный', sent['text'], sent['markup']))
 
         for title, rows in (('Рефералы — список', referrals), ('Рефералы — пустой список', [])):
             with patch.object(referral_handler, 'get_detailed_referral_list', AsyncMock(return_value=page(rows))):
@@ -1137,7 +1160,7 @@ async def _support_screens(language: str) -> list[PreviewScreen]:
         patch.object(tickets_handler, 'edit_or_answer_photo', capture),
     ):
         await support_handler.show_support_info(callback('menu_support'), user)
-        screens.append(PreviewScreen('Поддержка — главный экран', sent['text'], sent['markup']))
+        screens.append(PreviewScreen('Поддержка — главный', sent['text'], sent['markup']))
 
         with (
             patch.object(tickets_handler.TicketCRUD, 'is_user_globally_blocked', AsyncMock(return_value=None)),
@@ -1269,7 +1292,7 @@ async def _misc_screens(language: str) -> list[PreviewScreen]:
     ]
     screens.append(
         PreviewScreen(
-            'Промокод — активирован',
+            'Промокод — успех',
             promocode_handler.build_promocode_success_text(texts, {'description': '', 'effects': effects}),
             back,
         )

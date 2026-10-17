@@ -36,6 +36,7 @@ from app.services.gift_claim_service import (
 from app.services.guest_purchase_service import GuestPurchaseError, build_gift_received_message
 from app.services.promocode_service import PromoCodeService
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -331,8 +332,8 @@ async def test_theme_off_promocode_prompt_matches_upstream(theme_off):
 @pytest.mark.parametrize(
     ('language', 'text'),
     [
-        ('ru', '<b>{e} Промокод</b>\nОтправьте код сообщением.'),
-        ('en', '<b>{e} Promo code</b>\nSend the code as a message.'),
+        ('ru', '<b>{e} Промокод</b>\n\nОтправьте код сообщением.'),
+        ('en', '<b>{e} Promo code</b>\n\nSend the code as a message.'),
     ],
 )
 async def test_promocode_prompt_under_theme(theme_on, language, text):
@@ -341,6 +342,7 @@ async def test_promocode_prompt_under_theme(theme_on, language, text):
     await promo_handler.show_promocode_menu(callback, _user(language), state)
     call = callback.message.edit_text.await_args
     assert call.args[0] == text.replace('{e}', _tag('ticket'))
+    assert_screen_pattern('promocode-prompt', call.args[0])
     assert [button.callback_data for button in _buttons(call.kwargs['reply_markup'])] == ['back_to_menu']
     assert _greens(call.kwargs['reply_markup']) == []
     state.set_state.assert_awaited_once()
@@ -361,8 +363,11 @@ def test_promocode_error_texts_follow_visual_language(theme_on, language, key):
     first = value.split('\n')[0]
     assert first.startswith('<b>') and first.endswith('</b>')
     assert value.count('<tg-emoji') == 1 and first.index('<tg-emoji') == len('<b>')
-    assert '<blockquote' not in value and '{' not in value
-    assert not caption_exceeds_telegram_limit(value)
+    if key == 'PROMOCODE_USED':
+        # Короткий статус без пояснения: один заголовок.
+        assert value == first
+    else:
+        assert_screen_pattern(key, value)
     if language == 'en':
         assert not CYRILLIC_RE.search(_plain(value))
 
@@ -436,18 +441,19 @@ def test_promocode_success_every_effect_ru(theme_on):
             {'kind': 'promo_group', 'name': 'VIP & <co>'},
         ),
     )
+    hourglass, gift = _tag('hourglass'), _tag('gift')
     assert text.split('\n') == [
         f'<b>{_tag("party")} Промокод активирован</b>',
-        'Подписка продлена на <b>30 дней</b>',
-        'Подписка «Про &lt;i&gt;» продлена на <b>2 дня</b>',
-        'Добавлено <b>10 ГБ</b> трафика',
-        'На баланс зачислено <b>150.50 ₽</b>',
-        'Включён пробный доступ на <b>3 дня</b>',
-        'Скидка <b>20%</b> — до первой покупки',
-        'Скидка <b>15%</b>, действует 48 ч',
-        'Вам назначена группа скидок «VIP &amp; &lt;co&gt;»',
+        '',
+        f'{hourglass} Подписка продлена на <b>30 дней</b>',
+        f'{hourglass} Подписка «Про &lt;i&gt;» продлена на <b>2 дня</b>',
+        f'{_tag("chart_up")} Добавлено трафика: <b>10 ГБ</b>',
+        f'{_tag("money_bag")} На баланс: <b>150.50 ₽</b>',
+        f'{_tag("rocket")} Пробный доступ: <b>3 дня</b>',
+        f'{gift} Скидка: <b>20%</b> до первой покупки',
+        f'{gift} Скидка: <b>15%</b> на 48 ч',
+        f'{_tag("crown")} Группа скидок: <b>VIP &amp; &lt;co&gt;</b>',
     ]
-    assert text.count('<tg-emoji') == 1
     assert not caption_exceeds_telegram_limit(text)
 
 
@@ -467,7 +473,20 @@ def test_promocode_success_en_has_no_russian(theme_on):
     )
     assert not CYRILLIC_RE.search(_plain(text).replace('₽', ''))
     assert 'Subscription extended by <b>1 day</b>' in text
-    assert '<b>5 GB</b> of traffic added' in text
+    assert 'Traffic added: <b>5 GB</b>' in text
+
+
+@pytest.mark.parametrize('language', ['ru', 'en'])
+def test_promocode_success_follows_the_pattern_with_a_realistic_set_of_effects(theme_on, language):
+    # Реальный промокод даёт один-два эффекта; на длинном перечне всех видов эмодзи больше пяти.
+    text = promo_handler.build_promocode_success_text(
+        get_texts(language),
+        _success({'kind': 'days', 'days': 30, 'tariff': ''}, {'kind': 'discount', 'percent': 10, 'hours': 24}),
+    )
+    assert_screen_pattern('promocode-success', text)
+    assert text.count('<tg-emoji') == 3
+    if language == 'en':
+        assert not CYRILLIC_RE.search(_plain(text))
 
 
 def test_promocode_success_without_effects_is_just_the_title(theme_on):
@@ -489,7 +508,8 @@ async def test_process_promocode_success_uses_effects(theme_on, monkeypatch):
     state.get_data = AsyncMock(return_value={'_prev_state': None, '_prev_data': {}})
     await promo_handler.process_promocode(message, _user(), state, MagicMock())
     text = message.answer.await_args.args[0]
-    assert text == f'<b>{_tag("party")} Промокод активирован</b>\nНа баланс зачислено <b>100 ₽</b>'
+    assert text == f'<b>{_tag("party")} Промокод активирован</b>\n\n{_tag("money_bag")} На баланс: <b>100 ₽</b>'
+    assert_screen_pattern('promocode-success', text)
     limiter.record_activation.assert_called_once_with(42)
 
 
@@ -630,7 +650,10 @@ async def test_gift_activation_success_under_theme(theme_on, monkeypatch):
     first, last = _edits(callback)[0], _edits(callback)[-1]
     assert first.args[0] == f'<b>{_tag("hourglass")} Активируем подарок</b>'
     assert first.kwargs['parse_mode'] == 'HTML'
-    assert last.args[0] == (f'<b>{_tag("gift")} Подарок активирован</b>\nПро &lt;b&gt; · 21 день\nПодписка обновлена.')
+    assert last.args[0] == (
+        f'<b>{_tag("gift")} Подарок активирован</b>\n\n{_tag("gem")} Про &lt;b&gt; · 21 день\n\nПодписка обновлена.'
+    )
+    assert_screen_pattern('gift-activated', last.args[0])
     assert not caption_exceeds_telegram_limit(last.args[0])
 
 
@@ -641,7 +664,10 @@ async def test_gift_activation_success_en_under_theme(theme_on, monkeypatch):
         monkeypatch, language='en', claim=AsyncMock(return_value=purchase), language_code='en'
     )
     last = _edits(callback)[-1]
-    assert last.args[0] == (f'<b>{_tag("gift")} Gift activated</b>\nStandard · 30 days\nYour subscription is updated.')
+    assert last.args[0] == (
+        f'<b>{_tag("gift")} Gift activated</b>\n\n{_tag("gem")} Standard · 30 days\n\nYour subscription is updated.'
+    )
+    assert_screen_pattern('gift-activated-en', last.args[0])
 
 
 @pytest.mark.asyncio
@@ -663,13 +689,31 @@ async def test_gift_activation_errors_under_theme(theme_on, monkeypatch, error, 
     assert last.kwargs['parse_mode'] == 'HTML'
 
 
+@pytest.mark.parametrize('language', ['ru', 'en'])
+@pytest.mark.parametrize(
+    'key',
+    [
+        'GIFT_ACTIVATION_NOT_FOUND',
+        'GIFT_ACTIVATION_SELF_CLAIM_ERROR',
+        'GIFT_ACTIVATION_NOT_ACTIVATABLE_ERROR',
+        'GIFT_ACTIVATION_GENERIC_ERROR',
+        'GIFT_ACTIVATION_FAILED_PREFIX',
+    ],
+)
+def test_gift_error_texts_follow_the_pattern(theme_on, language, key):
+    text = get_texts(language).t(key).format(error='reason')
+    assert_screen_pattern(key, text)
+    if language == 'en':
+        assert not CYRILLIC_RE.search(_plain(text))
+
+
 @pytest.mark.asyncio
 async def test_gift_activation_business_error_is_escaped_once(theme_on, monkeypatch):
     claim = AsyncMock(side_effect=GuestPurchaseError('Срок <истёк> & всё', 409))
     callback = await activate_gift(monkeypatch, claim=claim)
     last = _edits(callback)[-1]
     assert last.args[0] == (
-        f'<b>{_tag("cross")} Не получилось активировать подарок</b>\n' + html.escape('Срок <истёк> & всё')
+        f'<b>{_tag("cross")} Не получилось активировать подарок</b>\n\n' + html.escape('Срок <истёк> & всё')
     )
     assert last.kwargs['parse_mode'] == 'HTML'
 
@@ -697,10 +741,10 @@ async def test_gift_early_alerts_are_plain_and_localized_under_theme(theme_on):
 def test_gift_activated_text_other_flows_under_theme(theme_on):
     ru = get_texts('ru')
     assert gift_handler.gift_activated_text(ru, 'Про', 90, callback_variant=False) == (
-        f'<b>{_tag("gift")} Подарок активирован</b>\nПро · 90 дней\nПодписка обновлена.'
+        f'<b>{_tag("gift")} Подарок активирован</b>\n\n{_tag("gem")} Про · 90 дней\n\nПодписка обновлена.'
     )
-    assert gift_handler.gift_activated_text(ru, '', 5, callback_variant=False).split('\n')[1] == '5 дней'
-    assert gift_handler.gift_activated_text(ru, 'Про', 0, callback_variant=False).split('\n')[1] == 'Про'
+    assert gift_handler.gift_activated_text(ru, '', 5, callback_variant=False).split('\n')[2].endswith(' 5 дней')
+    assert gift_handler.gift_activated_text(ru, 'Про', 0, callback_variant=False).split('\n')[2].endswith(' Про')
 
 
 def test_theme_off_gift_activated_text_matches_upstream(theme_off):
@@ -762,11 +806,20 @@ def test_gift_notification_under_theme(theme_on, language):
     )
     lines = text.split('\n')
     assert lines[0].startswith(f'<b>{_tag("gift")} ') and lines[0].endswith('</b>')
-    assert lines[1] == ('Про &lt;b&gt; · 30 дней' if language == 'ru' else 'Про &lt;b&gt; · 30 days')
-    assert lines[2] == ('От: Аня &lt;x&gt;' if language == 'ru' else 'From: Аня &lt;x&gt;')
-    assert 'Тебе &lt;3' in text and '<3' not in text
-    assert text.count('<tg-emoji') == 1
-    assert not caption_exceeds_telegram_limit(text)
+    assert lines[2] == f'{_tag("gem")} ' + (
+        'Про &lt;b&gt; · 30 дней' if language == 'ru' else 'Про &lt;b&gt; · 30 days'
+    )
+    assert lines[3] == f'{_tag("user")} ' + (
+        'От: <b>Аня &lt;x&gt;</b>' if language == 'ru' else 'From: <b>Аня &lt;x&gt;</b>'
+    )
+    assert lines[4].startswith(_tag('speech')) and 'Тебе &lt;3' in lines[4] and '<3' not in text
+    assert lines[-1] == (
+        'У вас уже есть подписка — подарок заменит её.'
+        if language == 'ru'
+        else 'You already have a subscription — the gift will replace it.'
+    )
+    assert text.count('<tg-emoji') == 4
+    assert_screen_pattern('gift-received', text)
     button = markup.inline_keyboard[0][0]
     assert button.callback_data == 'gift_activate:9' and button.style == 'success'
     assert len(_buttons(markup)) == 1 and _greens(markup) == ['gift_activate:9']
@@ -787,7 +840,8 @@ def test_gift_notification_without_pending_has_no_button_under_theme(theme_on):
         is_pending_activation=False,
     )
     assert markup is None
-    assert text == f'<b>{_tag("gift")} You received a subscription as a gift</b>\nStd · 1 day'
+    assert text == f'<b>{_tag("gift")} You received a subscription as a gift</b>\n\n{_tag("gem")} Std · 1 day'
+    assert_screen_pattern('gift-received-plain', text)
 
 
 @pytest.mark.asyncio
@@ -818,7 +872,8 @@ async def test_notification_sender_uses_builder_and_recipient_language(theme_on,
     )
     assert sent['chat_id'] == 42
     assert sent['text'].startswith(
-        f'<b>{_tag("gift")} You received a subscription as a gift</b>\nStd · 30 days\nFrom: Anna'
+        f'<b>{_tag("gift")} You received a subscription as a gift</b>\n\n{_tag("gem")} Std · 30 days\n'
+        f'{_tag("user")} From: <b>Anna</b>'
     )
     assert sent['reply_markup'].inline_keyboard[0][0].callback_data == 'gift_activate:9'
 
@@ -856,7 +911,8 @@ async def test_unknown_command_answer_under_theme(theme_on):
     message.answer = AsyncMock()
     await common_handler.handle_unknown_message(message, _user('en'))
     call = message.answer.await_args
-    assert call.args[0] == f"<b>{_tag('question')} I don't get that command</b>\nUse the menu buttons."
+    assert call.args[0] == f"<b>{_tag('question')} I don't get that command</b>\n\nUse the menu buttons."
+    assert_screen_pattern('unknown-command', call.args[0])
     assert [button.callback_data for button in _buttons(call.kwargs['reply_markup'])] == ['back_to_menu']
 
 
@@ -957,8 +1013,8 @@ async def _promo_server_error(language: str) -> str:
 @pytest.mark.parametrize(
     ('language', 'expected'),
     [
-        ('ru', '<b>{cross} Не получилось применить промокод</b>\nПопробуйте ещё раз чуть позже.'),
-        ('en', "<b>{cross} Couldn't apply the promo code</b>\nPlease try again a bit later."),
+        ('ru', '<b>{cross} Не получилось применить промокод</b>\n\nПопробуйте ещё раз чуть позже.'),
+        ('en', "<b>{cross} Couldn't apply the promo code</b>\n\nPlease try again a bit later."),
     ],
 )
 async def test_promocode_server_error_under_theme(theme_on, monkeypatch, language, expected):

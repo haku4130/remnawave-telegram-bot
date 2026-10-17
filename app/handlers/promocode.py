@@ -60,11 +60,10 @@ def build_promocode_success_text(texts, result: dict) -> str:
     """
     if not has_fork_text(texts, 'FORK_PROMO_SUCCESS_TITLE'):
         return texts.PROMOCODE_SUCCESS.format(description=result['description'])
-    lines = [texts.FORK_PROMO_SUCCESS_TITLE]
-    lines.extend(
-        line for line in (_promocode_effect_line(texts, effect) for effect in result.get('effects') or []) if line
-    )
-    return '\n'.join(lines)
+    lines = [line for line in (_promocode_effect_line(texts, effect) for effect in result.get('effects') or []) if line]
+    # Заголовок, пустая строка и по строке на каждый эффект; без эффектов — один заголовок.
+    title = texts.FORK_PROMO_SUCCESS_TITLE
+    return f'{title}\n\n' + '\n'.join(lines) if lines else title
 
 
 @error_handler

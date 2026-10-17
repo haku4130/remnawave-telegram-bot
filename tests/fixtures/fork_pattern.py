@@ -17,13 +17,24 @@ TARIFF_LIST_ICONS = ('<tg-emoji', '<b>', '<i>')
 
 
 def assert_screen_pattern(
-    name: str, text: str, *, list_screen: bool = False, list_icons: tuple[str, ...] = ('💰', '💸')
+    name: str,
+    text: str,
+    *,
+    list_screen: bool = False,
+    list_icons: tuple[str, ...] = ('💰', '💸'),
+    list_blocks: tuple[str, ...] = (),
 ) -> None:
     """Проверяет текст экрана или уведомления по образцу.
 
     ``list_screen`` — экран-список (история операций): строки списка начинаются обычным эмодзи, а не анимированным
     (анимированных на сообщение не больше пяти, а строк десять): каждая строка списка обязана начинаться
     одним из ``list_icons``.
+
+    ``list_blocks`` — на обычном экране допустим ещё и блок-список (лучшие рефералы): все его строки начинаются
+    с одного из этих обычных эмодзи.
+
+    Блок «копируемое значение» — подпись и одна-две строки в ``<code>`` (ссылка, ключ): подпись может быть с
+    иконкой (как «Ссылка для приложения» на экране подписки) или без неё.
     """
     lines = text.splitlines()
     assert text.startswith('<b>') and lines[0].endswith('</b>'), name
@@ -44,6 +55,11 @@ def assert_screen_pattern(
     for block in blocks[1:]:
         block_lines = block.split('\n')
         if all(line.startswith('<tg-emoji') for line in block_lines):
+            continue
+        if list_blocks and all(line.startswith(list_blocks) for line in block_lines):
+            continue
+        if len(block_lines) > 1 and all(line.startswith('<code>') for line in block_lines[1:]):
+            assert '<code>' not in block_lines[0], (name, block)
             continue
         assert not any(line.startswith('<tg-emoji') for line in block_lines), (name, block)
         assert len(block_lines) == 1, (name, block)

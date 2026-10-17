@@ -565,7 +565,7 @@ async def show_my_tickets(callback: types.CallbackQuery, db_user: User, db: Asyn
         if has_fork_text(texts, 'FORK_TICKET_LIST_NO_OPEN'):
             # Заголовок списка без подсказки «выберите обращение» — выбирать нечего.
             title_line = caption.split('\n', 1)[0]
-            caption = f'{title_line}\n{texts.FORK_TICKET_LIST_NO_OPEN}'
+            caption = f'{title_line}\n\n{texts.FORK_TICKET_LIST_NO_OPEN}'
     # Всегда используем фото-рендер с логотипом (утилита сама сделает фоллбек при необходимости)
     await edit_or_answer_photo(
         callback=callback,

@@ -793,6 +793,18 @@ async def test_theme_on_confirm_shows_devices_only_when_they_differ_from_the_tar
     assert_screen_pattern('confirm-devices', text)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['ru', 'en'])
+async def test_theme_on_confirm_skips_the_devices_note_when_the_existing_subscription_has_no_limit(
+    theme_on, env, language
+):
+    # device_limit == 0 — лимита нет (HWID выключен): «· 0 устройств» пользователю ни к чему.
+    env['existing'] = _subscription(device_limit=0)
+    text = _sent((await pick_period(env, language)).message.edit_text)[0]
+    assert '0 устр' not in text and '0 dev' not in text and ' · ' not in text
+    assert_screen_pattern('confirm-no-devices-limit', text)
+
+
 # --- Под темой: недостаточно средств ------------------------------------------------------
 
 

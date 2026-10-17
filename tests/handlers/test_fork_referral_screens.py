@@ -21,6 +21,7 @@ from app.config import settings
 from app.localization import loader
 from app.middlewares.premium_theme import theme_markup
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -487,22 +488,17 @@ async def test_theme_off_notifications_match_upstream(theme_off, referral_world)
 async def test_theme_on_main_screen_ru(theme_on, monkeypatch):
     text, markup = await show_main(monkeypatch)
     assert text == (
-        f'<b>{_tag("people")} Приглашайте друзей — 25% с их оплат</b>\n'
-        'Другу — <b>100 ₽</b> на баланс при первом пополнении от <b>100 ₽</b>.\n'
-        'Вам — <b>100 ₽</b> за его первое пополнение.\n\n'
-        'Приглашено: <b>5</b>, пополнили баланс: <b>3</b>\n'
-        'Заработано: <b>1250 ₽</b>, за 30 дней: <b>450 ₽</b>\n\n'
-        'Ваша ссылка:\n<code>https://t.me/zanity_bot?start=refABC</code>\n'
-        'Ссылка на кабинет:\n<code>https://cab.example/?ref=ABC&amp;u=1</code>\n'
-        'Код: <code>ABC</code>\n\n'
-        'Последние начисления:\n'
-        'Комиссия с пополнения — <b>25 ₽</b>, Иван &lt;b&gt;\n'
-        'Первое пополнение — <b>200 ₽</b>, Мария'
+        f'<b>{_tag("people")} Приглашайте друзей — 25% с их оплат</b>\n\n'
+        f'{_tag("gift")} За первое пополнение от <b>100 ₽</b>: другу <b>100 ₽</b>, вам <b>100 ₽</b>\n\n'
+        f'{_tag("user")} Приглашено: <b>5</b> · пополнили: <b>3</b>\n'
+        f'{_tag("chart_up")} Заработано: <b>1250 ₽</b> · за 30 дней: <b>450 ₽</b>\n\n'
+        f'{_tag("link")} Ваша ссылка:\n<code>https://t.me/zanity_bot?start=refABC</code>\n\n'
+        'Ссылка на кабинет:\n<code>https://cab.example/?ref=ABC&amp;u=1</code>'
     )
-    assert text.count('<tg-emoji') == 1
-    for banned in ('<blockquote', '<h1', '•', '█', '📊', '🎁', '🤖'):
-        assert banned not in text
-    assert not caption_exceeds_telegram_limit(text)
+    assert_screen_pattern('main', text)
+    assert text.count('<tg-emoji') == 5
+    for banned in ('<blockquote', '<h1', '•', '█', '📊', '🎁', '🤖', 'Последние начисления', 'Код:'):
+        assert banned not in _without_emoji(text)
 
 
 @pytest.mark.asyncio
@@ -534,9 +530,11 @@ async def test_theme_on_main_screen_en(theme_on, monkeypatch):
         earning['referral_name'] = name
     text, markup = await show_main(monkeypatch, 'en', summary=latin)
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
-    assert text.startswith(f'<b>{_tag("people")} Invite friends — 25% of their payments</b>\n')
-    assert 'Invited: <b>5</b>, topped up: <b>3</b>' in text
-    assert 'Earned: <b>1250 ₽</b>, last 30 days: <b>450 ₽</b>' in text
+    assert text.startswith(f'<b>{_tag("people")} Invite friends — 25% of their payments</b>\n\n')
+    assert 'For a first top-up from <b>100 ₽</b>: your friend gets <b>100 ₽</b>, you get <b>100 ₽</b>' in text
+    assert 'Invited: <b>5</b> · topped up: <b>3</b>' in text
+    assert 'Earned: <b>1250 ₽</b> · last 30 days: <b>450 ₽</b>' in text
+    assert_screen_pattern('main-en', text)
     assert all(not CYRILLIC_RE.search(label.replace('₽', '')) for row in _labels(theme_markup(markup)) for label in row)
     assert _greens(markup) == 1
 
@@ -550,11 +548,11 @@ async def test_theme_on_main_screen_without_cabinet_bonuses_and_earnings(theme_o
     text, _ = await show_main(monkeypatch, summary=summary)
     assert text == (
         f'<b>{_tag("people")} Приглашайте друзей — 25% с их оплат</b>\n\n'
-        'Приглашено: <b>0</b>, пополнили баланс: <b>0</b>\n'
-        'Заработано: <b>1250 ₽</b>, за 30 дней: <b>450 ₽</b>\n\n'
-        'Ваша ссылка:\n<code>https://t.me/zanity_bot?start=refABC</code>\n'
-        'Код: <code>ABC</code>'
+        f'{_tag("user")} Приглашено: <b>0</b> · пополнили: <b>0</b>\n'
+        f'{_tag("chart_up")} Заработано: <b>1250 ₽</b> · за 30 дней: <b>450 ₽</b>\n\n'
+        f'{_tag("link")} Ваша ссылка:\n<code>https://t.me/zanity_bot?start=refABC</code>'
     )
+    assert_screen_pattern('main-minimal', text)
 
 
 @pytest.mark.asyncio
@@ -562,41 +560,53 @@ async def test_theme_on_main_screen_with_a_personal_percent_and_a_payment_limit(
     monkeypatch.setattr(settings, 'REFERRAL_MAX_COMMISSION_PAYMENTS', 3)
     text, _ = await show_main(monkeypatch, referral_commission_percent=40)
     assert text.startswith(
-        f'<b>{_tag("people")} Приглашайте друзей — 40% с их оплат</b>\nКомиссия — с первых 3 пополнений друга.\n'
+        f'<b>{_tag("people")} Приглашайте друзей — 40% с их оплат</b>\n\n'
+        f'{_tag("gift")} За первое пополнение от <b>100 ₽</b>: другу <b>100 ₽</b>, вам <b>100 ₽</b>\n\n'
+        'Комиссия — с первых 3 пополнений друга.\n\n'
     )
+    assert_screen_pattern('main-limit', text)
 
 
 @pytest.mark.asyncio
 async def test_theme_on_main_screen_without_commission_does_not_promise_zero_percent(theme_on, monkeypatch):
     text, _ = await show_main(monkeypatch, referral_commission_percent=0)
-    assert text.startswith(f'<b>{_tag("people")} Приглашайте друзей</b>\n')
+    assert text.startswith(f'<b>{_tag("people")} Приглашайте друзей</b>\n\n')
     assert '0%' not in text.splitlines()[0]
+    assert 'Комиссия' not in text
+    assert_screen_pattern('main-no-commission', text)
 
 
 @pytest.mark.asyncio
-async def test_theme_on_main_screen_shows_days_rewards_and_unknown_reasons(theme_on, monkeypatch):
-    summary = _summary(
-        recent_earnings=[
-            {'amount_kopeks': 0, 'reason': 'referral_days_reward', 'referral_name': 'Мария', 'days_granted': 7},
-            {'amount_kopeks': 500, 'reason': 'something_new', 'referral_name': 'Олег', 'days_granted': 0},
-            {'amount_kopeks': 0, 'reason': 'referral_registration_pending', 'referral_name': 'Нуль', 'days_granted': 0},
-        ]
-    )
+@pytest.mark.parametrize(
+    ('friend', 'inviter', 'line'),
+    [
+        (10000, 0, 'For a first top-up from <b>100 ₽</b>: your friend gets <b>100 ₽</b>'),
+        (0, 10000, 'For a first top-up from <b>100 ₽</b>: you get <b>100 ₽</b>'),
+    ],
+)
+async def test_theme_on_main_screen_names_only_the_bonuses_that_exist(theme_on, monkeypatch, friend, inviter, line):
+    monkeypatch.setattr(settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', friend)
+    monkeypatch.setattr(settings, 'REFERRAL_INVITER_BONUS_KOPEKS', inviter)
+    text, _ = await show_main(monkeypatch, 'en')
+    assert f'{_tag("gift")} {line}\n\n' in text
+    assert_screen_pattern('main-one-bonus', text)
+
+
+@pytest.mark.asyncio
+async def test_theme_on_main_screen_shows_days_rewards_in_the_earned_line(theme_on, monkeypatch):
+    summary = _summary(total_earned_kopeks=0, total_earned_days=7, month_earned_days=3, month_earned_kopeks=0)
     text, _ = await show_main(monkeypatch, summary=summary)
-    assert 'Дни подписки — <b>7 дн.</b>, Мария\nsomething_new — <b>5 ₽</b>, Олег' in text
-    assert 'Нуль' not in text
+    assert f'{_tag("chart_up")} Заработано: <b>7 дн.</b> · за 30 дней: <b>3 дн.</b>' in text
 
 
 @pytest.mark.asyncio
 async def test_theme_on_main_screen_fits_the_logo_caption_in_the_worst_case(theme_on, monkeypatch):
-    long_name = 'Очень-очень-длинное-имя-реферала-из-64-символов ' * 2
-    summary = _summary(
-        recent_earnings=[
-            {'amount_kopeks': 99999900, 'reason': 'referral_first_topup', 'referral_name': long_name, 'days_granted': 0}
-        ]
-        * 5,
-        total_earned_kopeks=999999900,
-        month_earned_kopeks=999999900,
+    summary = _summary(total_earned_kopeks=999999900, month_earned_kopeks=999999900)
+    monkeypatch.setattr(settings, 'REFERRAL_MAX_COMMISSION_PAYMENTS', 99)
+    monkeypatch.setattr(
+        type(settings),
+        'get_bot_referral_link',
+        lambda self, code, bot=None: 'https://t.me/zanity_vpn_bot?start=' + code,
     )
     monkeypatch.setattr(
         type(settings),
@@ -606,7 +616,7 @@ async def test_theme_on_main_screen_fits_the_logo_caption_in_the_worst_case(them
     for language in ('ru', 'en'):
         text, _ = await show_main(monkeypatch, language, summary=summary, referral_code='A' * 24)
         assert not caption_exceeds_telegram_limit(text), len(_plain(text))
-        assert text.count('<tg-emoji') == 1
+        assert text.count('<tg-emoji') == 5
 
 
 @pytest.mark.asyncio
@@ -638,12 +648,13 @@ async def test_theme_on_list_ru(theme_on, monkeypatch):
     ]
     text, markup = await show_list(monkeypatch, _referral_page(rows, page=2, total_pages=3), page=2)
     assert text == (
-        f'<b>{_tag("people")} Ваши рефералы</b>\n'
-        'Страница 2 из 3\n'
-        '11. <b>Друг 1</b> — <b>150 ₽</b>, пополнений: 2\n'
-        '12. <b>Друг 2</b> — пока не пополнял · давно не заходил\n'
-        '13. <b>Мария &lt;b&gt;</b> — <b>150 ₽</b>, пополнений: 2 · давно не заходил'
+        f'<b>{_tag("people")} Ваши рефералы</b>\n\n'
+        '👤 <b>Друг 1</b> — <b>150 ₽</b> · пополнений: 2\n'
+        '👤 <b>Друг 2</b> — пока не пополнял · давно не заходил\n'
+        '👤 <b>Мария &lt;b&gt;</b> — <b>150 ₽</b> · пополнений: 2 · давно не заходил\n\n'
+        '📄 Страница 2 из 3'
     )
+    assert_screen_pattern('list', text, list_screen=True, list_icons=('👤', '📄'))
     assert _labels(markup) == [['◀️ Предыдущие', 'Следующие ▶️'], ['⬅️ Назад']]
     assert [button.callback_data for button in _buttons(markup)] == [
         'referral_list_page_1',
@@ -657,7 +668,8 @@ async def test_theme_on_list_ru(theme_on, monkeypatch):
 @pytest.mark.asyncio
 async def test_theme_on_list_single_page_has_no_page_line(theme_on, monkeypatch):
     text, _ = await show_list(monkeypatch, _referral_page([_referral(1)]))
-    assert text == f'<b>{_tag("people")} Ваши рефералы</b>\n1. <b>Друг 1</b> — <b>150 ₽</b>, пополнений: 2'
+    assert text == f'<b>{_tag("people")} Ваши рефералы</b>\n\n👤 <b>Друг 1</b> — <b>150 ₽</b> · пополнений: 2'
+    assert_screen_pattern('list-single', text, list_screen=True, list_icons=('👤', '📄'))
 
 
 @pytest.mark.asyncio
@@ -669,7 +681,8 @@ async def test_theme_on_list_en(theme_on, monkeypatch):
     ]
     text, markup = await show_list(monkeypatch, _referral_page(rows, page=1, total_pages=2), 'en')
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
-    assert 'top-ups: 2' in text and 'no top-up yet' in text
+    assert 'top-ups: 2' in text and 'no top-up yet' in text and '📄 Page 1 of 2' in text
+    assert_screen_pattern('list-en', text, list_screen=True, list_icons=('👤', '📄'))
     assert [button.text for button in _buttons(theme_markup(markup))] == ['Next ▶️', '⬅️ Back']
 
 
@@ -694,9 +707,10 @@ async def test_theme_on_full_list_page_fits_the_logo_caption(theme_on, monkeypat
 async def test_theme_on_empty_list_offers_to_invite(theme_on, monkeypatch):
     text, markup = await show_list(monkeypatch, _referral_page([]))
     assert text == (
-        f'<b>{_tag("people")} Рефералов пока нет</b>\n'
+        f'<b>{_tag("people")} Рефералов пока нет</b>\n\n'
         'Отправьте другу ссылку — награда придёт, когда он пополнит баланс.'
     )
+    assert_screen_pattern('list-empty', text)
     styled = theme_markup(markup)
     assert [button.text for button in _buttons(styled)] == ['Пригласить друга', '⬅️ Назад']
     assert [button.callback_data for button in _buttons(styled)] == ['referral_create_invite', 'menu_referrals']
@@ -716,16 +730,19 @@ async def test_theme_on_empty_list_en(theme_on, monkeypatch):
 @pytest.mark.asyncio
 async def test_theme_on_analytics_ru(theme_on, monkeypatch):
     text, markup = await show_analytics(monkeypatch)
+    money = _tag('money_bag')
     assert text == (
-        f'<b>{_tag("chart_up")} Доходы с рефералов</b>\n'
-        'Сегодня: <b>25 ₽</b>\n'
-        'За неделю: <b>120 ₽</b>\n'
-        'За месяц: <b>450 ₽</b>\n'
-        'За квартал: <b>1250 ₽</b>\n\n'
-        'Лучшие рефералы:\n'
-        '1. Мария — <b>600 ₽</b>\n'
-        '2. Иван &lt;b&gt; — <b>250 ₽</b>'
+        f'<b>{_tag("chart_up")} Доходы с рефералов</b>\n\n'
+        f'{money} Сегодня: <b>25 ₽</b>\n'
+        f'{money} За неделю: <b>120 ₽</b>\n'
+        f'{money} За месяц: <b>450 ₽</b>\n'
+        f'{money} За квартал: <b>1250 ₽</b>\n\n'
+        '🏆 Лучшие рефералы:\n'
+        '👤 Мария — <b>600 ₽</b>\n'
+        '👤 Иван &lt;b&gt; — <b>250 ₽</b>'
     )
+    assert_screen_pattern('analytics', text, list_blocks=('🏆', '👤'))
+    assert text.count('<tg-emoji') == 5
     assert _labels(markup) == [['⬅️ Назад']]
     assert _greens(markup) == 0
     assert not caption_exceeds_telegram_limit(text)
@@ -735,13 +752,15 @@ async def test_theme_on_analytics_ru(theme_on, monkeypatch):
 async def test_theme_on_analytics_without_top_and_en(theme_on, monkeypatch):
     text, _ = await show_analytics(monkeypatch, _analytics(top_referrals=[]))
     assert 'Лучшие' not in text and text.endswith('За квартал: <b>1250 ₽</b>')
+    assert_screen_pattern('analytics-no-top', text)
 
     latin = _analytics()
     for top, name in zip(latin['top_referrals'], ('Maria', 'Ivan'), strict=True):
         top['referral_name'] = name
     text, _ = await show_analytics(monkeypatch, latin, language='en')
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
-    assert 'Top referrals:' in text
+    assert '🏆 Top referrals:' in text
+    assert_screen_pattern('analytics-en', text, list_blocks=('🏆', '👤'))
 
 
 @pytest.mark.asyncio
@@ -750,7 +769,7 @@ async def test_theme_on_analytics_days_rewards(theme_on, monkeypatch):
     data['earnings_by_period']['today'] = 0
     data['days_by_period']['today'] = 7
     text, _ = await show_analytics(monkeypatch, data)
-    assert 'Сегодня: <b>7 дн.</b>' in text
+    assert f'{_tag("money_bag")} Сегодня: <b>7 дн.</b>' in text
 
 
 # --- Приглашение и QR ---------------------------------------------------------------------
@@ -760,8 +779,8 @@ async def test_theme_on_analytics_days_rewards(theme_on, monkeypatch):
 async def test_theme_on_invite_ru(theme_on, monkeypatch):
     text, markup = await show_invite(monkeypatch)
     assert text == (
-        f'<b>{_tag("check")} Приглашение готово</b>\n'
-        'Нажмите на текст ниже, чтобы скопировать, и отправьте другу.\n'
+        f'<b>{_tag("check")} Приглашение готово</b>\n\n'
+        'Нажмите на текст ниже, чтобы скопировать, и отправьте другу.\n\n'
         '<blockquote>Присоединяйся к ZanityVPN — быстрому VPN для телефона, компьютера и ТВ.\n\n'
         'Бонус тебе: 100 ₽ на баланс при первом пополнении от 100 ₽.\n\n'
         'YouTube без рекламы, звонки в WhatsApp и Telegram, серверы в разных странах.\n\n'
@@ -814,11 +833,12 @@ async def test_theme_on_invite_en(theme_on, monkeypatch):
 async def test_theme_on_qr_caption_ru(theme_on, monkeypatch, tmp_path):
     caption, markup = await show_qr(monkeypatch, tmp_path)
     assert caption == (
-        f'<b>{_tag("link")} QR-код приглашения</b>\n'
+        f'<b>{_tag("link")} QR-код приглашения</b>\n\n'
         'Покажите его другу — откроется бот. Или отправьте ссылку:\n'
         '<code>https://t.me/zanity_bot?start=refABC</code>\n\n'
         'Ссылка на кабинет:\n<code>https://cab.example/?ref=ABC&amp;u=1</code>'
     )
+    assert_screen_pattern('qr', caption)
     assert not caption_exceeds_telegram_limit(caption)
     assert _labels(markup) == [['⬅️ Назад']]
 
@@ -838,19 +858,22 @@ async def test_theme_on_registration_notifications_ru(theme_on, referral_world):
     assert welcome == (
         200,
         (
-            f'<b>{_tag("wave")} Добро пожаловать!</b>\n'
-            'Вы пришли по приглашению: <b>Андрей</b>.\n'
-            'При первом пополнении от <b>100 ₽</b> вы получите бонус <b>100 ₽</b>.'
+            f'<b>{_tag("wave")} Добро пожаловать!</b>\n\n'
+            f'{_tag("user")} Вас пригласил: <b>Андрей</b>\n'
+            f'{_tag("gift")} Бонус <b>100 ₽</b> — при первом пополнении от <b>100 ₽</b>'
         ),
     )
     assert new_referral == (
         100,
         (
-            f'<b>{_tag("people")} Новый реферал</b>\n'
-            'Приглашённый: <b>Иван &lt;b&gt;</b>.\n'
-            'Когда друг пополнит баланс от <b>100 ₽</b>, вы получите <b>100 ₽</b> + <b>25%</b> от суммы пополнения.'
+            f'<b>{_tag("people")} Новый реферал</b>\n\n'
+            f'{_tag("user")} Приглашённый: <b>Иван &lt;b&gt;</b>\n'
+            f'{_tag("coin")} Вам: <b>100 ₽</b> + <b>25%</b> от суммы пополнения\n'
+            f'{_tag("hourglass")} Начислим, когда друг пополнит баланс от <b>100 ₽</b>'
         ),
     )
+    assert_screen_pattern('welcome', welcome[1])
+    assert_screen_pattern('new-referral', new_referral[1])
     assert referral_world.send.await_args_list[1].kwargs['notification_type'].value == 'referral_registered'
 
 
@@ -859,27 +882,32 @@ async def test_theme_on_first_topup_notifications_ru(theme_on, referral_world):
     bonus, reward = await first_topup(referral_world)
     assert bonus == (
         200,
-        f'<b>{_tag("gift")} Бонус получен</b>\nЗа первое пополнение мы добавили <b>100 ₽</b> на баланс.',
+        f'<b>{_tag("gift")} Бонус получен</b>\n\n{_tag("coin")} Зачислено за первое пополнение: <b>100 ₽</b>',
     )
     assert reward == (
         100,
         (
-            f'<b>{_tag("coin")} Реферальная награда</b>\n'
-            '<b>Иван &lt;b&gt;</b>: первое пополнение на 500 ₽.\n'
-            'Вам начислено <b>225 ₽</b> (бонус 100 ₽ + комиссия 25% — 125 ₽).\n'
-            'С каждого следующего пополнения друга вы будете получать <b>25%</b>.'
+            f'<b>{_tag("coin")} Реферальная награда</b>\n\n'
+            f'{_tag("user")} Друг: <b>Иван &lt;b&gt;</b>\n'
+            f'{_tag("money_bag")} Первое пополнение: <b>500 ₽</b>\n'
+            f'{_tag("gift")} Вам начислено: <b>225 ₽</b> (бонус 100 ₽ + комиссия 25% — 125 ₽)\n'
+            f'{_tag("chart_up")} С каждого следующего пополнения: <b>25%</b>'
         ),
     )
+    assert_screen_pattern('bonus', bonus[1])
+    assert_screen_pattern('reward', reward[1])
 
 
 @pytest.mark.asyncio
 async def test_theme_on_commission_notifications_ru(theme_on, referral_world):
     expected = (
-        f'<b>{_tag("coin")} Реферальная комиссия</b>\n'
-        '<b>Иван &lt;b&gt;</b>: пополнение на {amount}.\n'
-        'Вам на баланс — <b>{fee}</b> (25%).'
+        f'<b>{_tag("coin")} Реферальная комиссия</b>\n\n'
+        f'{_tag("user")} Друг: <b>Иван &lt;b&gt;</b>\n'
+        f'{_tag("money_bag")} Пополнил на: <b>{{amount}}</b>\n'
+        f'{_tag("gift")} Вам на баланс: <b>{{fee}}</b> (25%)'
     )
     assert await next_topup(referral_world) == [(100, expected.format(amount='300 ₽', fee='75 ₽'))]
+    assert_screen_pattern('commission', expected.format(amount='300 ₽', fee='75 ₽'))
     referral_world.send.reset_mock()
     # Пополнение меньше минимума для первого бонуса: комиссия приходит тем же текстом.
     assert await first_topup(referral_world, 5000) == [(100, expected.format(amount='50 ₽', fee='12.5 ₽'))]
@@ -889,8 +917,8 @@ async def test_theme_on_commission_notifications_ru(theme_on, referral_world):
 async def test_theme_on_reward_without_fixed_bonus_does_not_repeat_itself(theme_on, referral_world, monkeypatch):
     monkeypatch.setattr(settings, 'REFERRAL_INVITER_BONUS_KOPEKS', 0)
     _, reward = await first_topup(referral_world)
-    assert 'Вам начислено <b>125 ₽</b>.\n' in reward[1]
-    assert '(' not in _plain(reward[1].split('\n')[2])
+    assert f'{_tag("gift")} Вам начислено: <b>125 ₽</b>\n' in reward[1]
+    assert '(' not in _plain(reward[1].split('\n')[4])
 
 
 @pytest.mark.asyncio
@@ -898,8 +926,8 @@ async def test_theme_on_registration_without_bonuses(theme_on, referral_world, m
     monkeypatch.setattr(settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', 0)
     monkeypatch.setattr(settings, 'REFERRAL_INVITER_BONUS_KOPEKS', 0)
     welcome, new_referral = await register(referral_world)
-    assert welcome[1] == f'<b>{_tag("wave")} Добро пожаловать!</b>\nВы пришли по приглашению: <b>Андрей</b>.'
-    assert 'вы получите <b>25%</b> от суммы пополнения' in new_referral[1]
+    assert welcome[1] == f'<b>{_tag("wave")} Добро пожаловать!</b>\n\n{_tag("user")} Вас пригласил: <b>Андрей</b>'
+    assert f'{_tag("coin")} Вам: <b>25%</b> от суммы пополнения\n' in new_referral[1]
     assert '+' not in new_referral[1]
 
 
@@ -911,9 +939,7 @@ async def test_theme_on_notifications_en_have_no_cyrillic(theme_on, referral_wor
     assert messages
     for _, text in messages:
         assert not CYRILLIC_RE.search(text.replace('₽', '')), text
-        assert text.startswith('<b><tg-emoji')
-        assert text.count('<tg-emoji') == 1
-        assert not caption_exceeds_telegram_limit(text)
+        assert_screen_pattern('notification-en', text)
 
 
 @pytest.mark.asyncio

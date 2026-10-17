@@ -26,6 +26,7 @@ from app.middlewares.premium_theme import theme_markup
 from app.services.support_settings_service import SupportSettingsService
 from app.utils.message_patch import caption_exceeds_telegram_limit
 from app.utils.timezone import format_local_datetime
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -306,9 +307,8 @@ def test_theme_off_view_keyboard_and_notification_match_upstream(theme_off):
 @pytest.mark.asyncio
 async def test_support_screen_ru(theme_on, monkeypatch):
     text, markup = await show_support(monkeypatch)
-    assert text == (f'<b>{_tag("speech")} Поддержка</b>\nНапишите нам — ответим в течение пары часов.')
-    assert '{' not in text
-    assert text.count('<tg-emoji') == 1
+    assert text == (f'<b>{_tag("speech")} Поддержка</b>\n\nНапишите нам — ответим в течение пары часов.')
+    assert_screen_pattern('support', text)
     assert 'RemnaWave' not in text
     assert not caption_exceeds_telegram_limit(text)
 
@@ -316,7 +316,8 @@ async def test_support_screen_ru(theme_on, monkeypatch):
 @pytest.mark.asyncio
 async def test_support_screen_en(theme_on, monkeypatch):
     text, markup = await show_support(monkeypatch, 'en')
-    assert text.startswith(f'<b>{_tag("speech")} Support</b>\n')
+    assert text == f'<b>{_tag("speech")} Support</b>\n\nWrite to us — we usually reply within a couple of hours.'
+    assert_screen_pattern('support-en', text)
     assert not CYRILLIC_RE.search(_plain(text))
     assert 'RemnaWave' not in text
     assert not any(CYRILLIC_RE.search(button.text) for button in _themed(markup))
@@ -358,7 +359,10 @@ def test_support_keyboard_labels(theme_on):
 @pytest.mark.asyncio
 async def test_ticket_title_prompt(theme_on):
     text, markup = await start_ticket()
-    assert text.startswith(f'<b>{_tag("memo")} Новое обращение</b>\n')
+    assert text == (
+        f'<b>{_tag("memo")} Новое обращение</b>\n\nНапишите тему в паре слов, например: «Не подключается на iPhone».'
+    )
+    assert_screen_pattern('title-prompt', text)
     assert 'тикет' not in text.lower()
     assert _labels(markup) == [[f'{_tag("cross")} Отменить']]
     assert [button.style for button in _themed(markup)] == ['danger']
@@ -367,7 +371,8 @@ async def test_ticket_title_prompt(theme_on):
 @pytest.mark.asyncio
 async def test_ticket_title_prompt_en(theme_on):
     text, markup = await start_ticket('en')
-    assert text.startswith(f'<b>{_tag("memo")} New request</b>\n')
+    assert text.startswith(f'<b>{_tag("memo")} New request</b>\n\n')
+    assert_screen_pattern('title-prompt-en', text)
     assert not CYRILLIC_RE.search(_plain(text))
     assert not any(CYRILLIC_RE.search(button.text) for button in _buttons(markup))
 
@@ -379,13 +384,9 @@ def test_input_hints_format_with_real_kwargs(theme_on, language):
     for key in ('TICKET_MESSAGE_INPUT', 'TICKET_MESSAGE_TOO_LONG'):
         text = texts.t(key, '').format(limit=limit)
         assert str(limit) in text
-        assert text.startswith('<b>'), key
-        assert '{' not in text, key
-        assert not caption_exceeds_telegram_limit(text)
+        assert_screen_pattern(key, text)
     for key in ('TICKET_TITLE_TOO_SHORT', 'TICKET_TITLE_TOO_LONG', 'TICKET_MESSAGE_TOO_SHORT', 'TICKET_CREATE_ERROR'):
-        text = texts.t(key, '')
-        assert text.startswith('<b>'), key
-        assert '{' not in text, key
+        assert_screen_pattern(key, texts.t(key, ''))
     if language == 'en':
         for key in ('TICKET_MESSAGE_INPUT', 'TICKET_TITLE_TOO_SHORT', 'TICKET_CREATE_ERROR'):
             assert not CYRILLIC_RE.search(_plain(texts.t(key, ''))), key
@@ -397,12 +398,14 @@ def test_created_confirmation(theme_on, language):
     text, markup = handler._ticket_created_message(texts, _ticket(), 'Not <b>working</b>', 'photo')
     assert text.startswith(f'<b>{_tag("check")} ')
     assert '#17' in text
-    assert 'Not &lt;b&gt;working&lt;/b&gt;' in text
-    assert text.count('<tg-emoji') == 1
-    assert '{' not in text
-    assert not caption_exceeds_telegram_limit(text)
+    assert f'{_tag("memo")} ' in text and '<b>Not &lt;b&gt;working&lt;/b&gt;</b>' in text
+    assert f'\n{_tag("inbox")} ' in text
+    assert text.count('<tg-emoji') == 3
+    assert_screen_pattern('created', text)
     no_photo = handler._ticket_created_message(texts, _ticket(), 'Тема', None)[0]
     assert len(no_photo) < len(text)
+    assert no_photo.count('<tg-emoji') == 2
+    assert_screen_pattern('created-no-photo', no_photo)
     assert [button.callback_data for button in _buttons(markup)] == ['view_ticket_17', 'back_to_menu']
     assert _greens(markup) == ['view_ticket_17']
     if language == 'en':
@@ -421,7 +424,10 @@ def test_created_confirmation_long_title_stays_short(theme_on):
 @pytest.mark.asyncio
 async def test_empty_list_offers_only_creation(theme_on, monkeypatch):
     text, markup = await show_list(monkeypatch, [], 0)
-    assert text.startswith(f'<b>{_tag("inbox")} ')
+    assert text == (
+        f'<b>{_tag("inbox")} Обращений пока нет</b>\n\nЕсли что-то не работает — создайте первое, мы поможем.'
+    )
+    assert_screen_pattern('no-tickets', text)
     assert [button.callback_data for button in _buttons(markup)] == ['create_ticket', 'menu_support']
     assert _greens(markup) == ['create_ticket']
 
@@ -429,7 +435,7 @@ async def test_empty_list_offers_only_creation(theme_on, monkeypatch):
 @pytest.mark.asyncio
 async def test_open_list_moves_closed_button_down_and_hides_it_when_empty(theme_on, monkeypatch):
     text, markup = await show_list(monkeypatch, [_ticket()], 2)
-    assert text.startswith(f'<b>{_tag("inbox")} Ваши обращения</b>')
+    assert text == f'<b>{_tag("inbox")} Ваши обращения</b>'
     assert [button.callback_data for button in _buttons(markup)] == [
         'view_ticket_17',
         'my_tickets_closed',
@@ -445,13 +451,14 @@ async def test_open_list_moves_closed_button_down_and_hides_it_when_empty(theme_
 @pytest.mark.parametrize(
     ('language', 'caption'),
     [
-        ('ru', '<b>{inbox} Ваши обращения</b>\nОткрытых обращений нет.'),
-        ('en', '<b>{inbox} Your requests</b>\nNo open requests.'),
+        ('ru', '<b>{inbox} Ваши обращения</b>\n\nОткрытых обращений нет.'),
+        ('en', '<b>{inbox} Your requests</b>\n\nNo open requests.'),
     ],
 )
 async def test_only_closed_tickets_offer_creation_first(theme_on, monkeypatch, language, caption):
     text, markup = await show_list(monkeypatch, [], 2, language)
     assert text == caption.format(inbox=_tag('inbox'))
+    assert_screen_pattern('only-closed', text)
     assert [button.callback_data for button in _buttons(markup)] == [
         'create_ticket',
         'my_tickets_closed',
@@ -484,12 +491,12 @@ async def test_theme_off_only_closed_tickets_match_upstream(theme_off, monkeypat
 @pytest.mark.asyncio
 async def test_closed_list(theme_on, monkeypatch):
     text, markup = await show_closed(monkeypatch, [_ticket('closed')])
-    assert text.startswith(f'<b>{_tag("check")} Закрытые обращения</b>')
+    assert text == f'<b>{_tag("check")} Закрытые обращения</b>'
     assert [button.callback_data for button in _buttons(markup)] == ['view_ticket_17', 'my_tickets', 'menu_support']
 
     text, markup = await show_closed(monkeypatch, [])
-    assert text.startswith('<b>')
-    assert 'Закрытых' in text
+    assert text == (f'<b>{_tag("check")} Закрытых обращений пока нет</b>\n\nЗдесь появятся обращения после закрытия.')
+    assert_screen_pattern('no-closed', text)
 
 
 @pytest.mark.asyncio
@@ -512,16 +519,21 @@ async def test_view_ticket(theme_on):
     text, markup = await open_ticket(_ticket('answered'))
     when_user = format_local_datetime(CREATED, '%d.%m.%Y %H:%M')
     when_support = format_local_datetime(REPLIED, '%d.%m.%Y %H:%M')
+    header = (
+        f'<b>{_tag("ticket")} Обращение #17</b>\n\n'
+        f'{_tag("memo")} Тема: <b>Не подключается VPN</b>\n'
+        f'{_tag("info")} Статус: <b>Есть ответ</b>\n'
+        f'{_tag("hourglass")} Создано: <b>{format_local_datetime(CREATED, "%d.%m.%Y")}</b>'
+    )
     assert text == (
-        f'<b>{_tag("ticket")} Обращение #17</b>\n'
-        '<b>Не подключается VPN</b>\n'
-        f'Есть ответ · {format_local_datetime(CREATED, "%d.%m.%Y")}\n\n'
+        f'{header}\n\n'
         f'<b>Вы</b> · {when_user}\nНе открывается сайт\n\n'
         f'<b>Поддержка</b> · {when_support}\nПопробуйте &lt;config&gt; заново\n\n'
     )
+    assert_screen_pattern('card', header)
     assert [button.callback_data for button in _buttons(markup)] == ['reply_ticket_17', 'close_ticket_17', 'my_tickets']
     assert _greens(markup) == ['reply_ticket_17']
-    assert text.count('<tg-emoji') == 1
+    assert text.count('<tg-emoji') == 4
 
 
 @pytest.mark.asyncio
@@ -531,7 +543,7 @@ async def test_view_ticket_escapes_user_content_and_marks_photos(theme_on):
         messages=[_message('<script>', mine=True, photo=True)],
     )
     text, _ = await open_ticket(ticket)
-    assert '<b>&lt;i&gt;тема&lt;/i&gt;</b>' in text
+    assert f'{_tag("memo")} Тема: <b>&lt;i&gt;тема&lt;/i&gt;</b>' in text
     assert '&lt;script&gt;' in text and '<script>' not in text
     assert 'Приложено фото' in text
 
@@ -551,7 +563,7 @@ async def test_view_ticket_statuses_in_both_languages(theme_on):
         for status in ('open', 'answered', 'closed', 'pending'):
             messages = [_message('Site does not open', mine=True), _message('Try again', mine=False, created=REPLIED)]
             text, _ = await open_ticket(_ticket(status, messages=messages, title='VPN'), language)
-            statuses.add(text.split('\n')[2].split(' · ')[0])
+            statuses.add(re.search(r'Статус: <b>(.*?)</b>|Status: <b>(.*?)</b>', text).group(0))
             if language == 'en':
                 assert not CYRILLIC_RE.search(_plain(text))
         assert len(statuses) == 4
@@ -577,7 +589,8 @@ async def test_reply_prompt(theme_on):
     callback = _callback('reply_ticket_17')
     await handler.reply_to_ticket(callback, _state(), _user())
     call = callback.message.edit_text.await_args
-    assert call.args[0].startswith(f'<b>{_tag("speech")} Ваш ответ</b>')
+    assert call.args[0] == f'<b>{_tag("speech")} Ваш ответ</b>\n\nНапишите сообщение — можно приложить фото.'
+    assert_screen_pattern('reply-prompt', call.args[0])
     assert _labels(call.kwargs['reply_markup']) == [[f'{_tag("cross")} Отменить']]
     assert [button.style for button in _themed(call.kwargs['reply_markup'])] == ['danger']
 
@@ -611,7 +624,8 @@ async def send_reply(text: str, *, ticket=None, language: str = 'ru', state_data
 @pytest.mark.asyncio
 async def test_reply_sent(theme_on):
     text, markup = await send_reply('Спасибо, всё заработало')
-    assert text.startswith(f'<b>{_tag("check")} Ответ отправлен</b>')
+    assert text == f'<b>{_tag("check")} Ответ отправлен</b>\n\nПоддержка получила его и ответит здесь.'
+    assert_screen_pattern('reply-sent', text)
     assert [button.callback_data for button in _buttons(markup)] == ['view_ticket_17', 'back_to_menu']
     assert _greens(markup) == ['view_ticket_17']
 
@@ -630,6 +644,7 @@ async def test_reply_errors_are_themed_and_format(theme_on):
 async def test_reply_to_closed_ticket(theme_on):
     text, markup = await send_reply('Достаточно длинный ответ', ticket=_ticket('closed'))
     assert text.startswith(f'<b>{_tag("lock_key")} ')
+    assert_screen_pattern('reply-closed', text)
     assert [button.callback_data for button in _buttons(markup)] == ['close_ticket_notification_17']
     assert _greens(markup) == []
 
@@ -654,10 +669,14 @@ async def test_reply_texts_in_english(theme_on):
 async def test_cancels(theme_on):
     callback = _callback('cancel_ticket_reply')
     await handler.cancel_ticket_reply(callback, _state(), _user())
-    assert callback.message.edit_text.await_args.args[0].startswith('<b>')
+    reply_cancelled = callback.message.edit_text.await_args.args[0]
+    assert reply_cancelled == f'<b>{_tag("cross")} Ответ отменён</b>\n\nНичего не отправлено.'
+    assert_screen_pattern('reply-cancelled', reply_cancelled)
     callback = _callback('cancel_ticket_creation')
     await handler.cancel_ticket_creation(callback, _state(), _user())
-    assert callback.message.edit_text.await_args.args[0].startswith('<b>')
+    creation_cancelled = callback.message.edit_text.await_args.args[0]
+    assert creation_cancelled == f'<b>{_tag("cross")} Создание отменено</b>\n\nОбращение не создано.'
+    assert_screen_pattern('creation-cancelled', creation_cancelled)
 
 
 # --- Уведомление об ответе поддержки ------------------------------------------------------
@@ -671,8 +690,7 @@ def test_reply_notification(theme_on, language):
     assert text.startswith(f'<b>{_tag("speech")} ')
     assert '#17' in text
     assert '&lt;config&gt;' in text and '<config>' not in text
-    assert text.count('<tg-emoji') == 1
-    assert '{' not in text
+    assert_screen_pattern('reply-notification', text)
     assert [button.callback_data for button in _buttons(markup)] == ['view_ticket_17', 'close_ticket_notification_17']
     assert _greens(markup) == ['view_ticket_17']
     if language == 'en':
@@ -740,5 +758,6 @@ async def test_title_input_moves_on_to_the_description_prompt(theme_on):
     ):
         await handler.handle_ticket_title_input(message, state, _user(), MagicMock())
     text = message.bot.edit_message_text.await_args.kwargs['text']
-    assert text.startswith(f'<b>{_tag("memo")} Что случилось?</b>')
+    assert text.startswith(f'<b>{_tag("memo")} Что случилось?</b>\n\n')
+    assert_screen_pattern('description-prompt', text)
     assert str(handler.TICKET_MESSAGE_MAX_LENGTH) in text

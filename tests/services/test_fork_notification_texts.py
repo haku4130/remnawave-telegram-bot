@@ -31,6 +31,7 @@ from app.services.notification_delivery_service import notification_delivery_ser
 from app.services.remnawave_webhook_service import RemnaWaveWebhookService
 from app.utils.rich_notify import build_notification_rich_html
 from app.utils.timezone import format_local_datetime
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 LINK = 'https://sub.example.com/abc123'
@@ -67,14 +68,9 @@ def _date(value: datetime) -> str:
 
 
 def _assert_fork_notification(text: str, language: str) -> None:
-    """Общие правила форка: <b>-заголовок с одним эмодзи, уходит rich, без блочной разметки и хвостов {}."""
-    first, _, rest = text.partition('\n')
-    assert first.startswith('<b><tg-emoji ') and first.endswith('</b>'), first
-    assert text.count('<tg-emoji') == 1, text
-    assert rest.strip(), text
+    """Образец экрана подписки: заголовок, пустая строка, блоки данных; уходит rich, без блочной разметки."""
+    assert_screen_pattern('notification', text)
     assert not BLOCK_RE.search(text), text
-    assert '{' not in text and '}' not in text, text
-    assert len(_plain(text)) <= 1024
     rich = build_notification_rich_html(text)
     assert rich is not None, text
     # Заголовок жирный ровно один раз: rich видит <b> и второй раз не оборачивает.
@@ -283,7 +279,7 @@ async def test_autopay_theme_off_is_upstream(theme_off):
 async def test_expired_paid_theme(theme_on):
     text, markup = await _expired()
     assert text == (
-        f'<b>{tag("cross")} Подписка закончилась</b>\nVPN отключён. Продлите подписку — доступ вернётся сразу.'
+        f'<b>{tag("cross")} Подписка закончилась</b>\n\nVPN отключён. Продлите подписку — доступ вернётся сразу.'
     )
     _assert_fork_notification(text, 'ru')
     extend, topup = _buttons(markup)
@@ -296,7 +292,7 @@ async def test_expired_paid_theme(theme_on):
 async def test_expired_trial_theme_offers_tariff(theme_on):
     text, markup = await _expired(trial=True)
     assert (
-        text == f'<b>{tag("hourglass")} Пробный доступ закончился</b>\nЧтобы пользоваться VPN дальше, выберите тариф.'
+        text == f'<b>{tag("hourglass")} Пробный доступ закончился</b>\n\nЧтобы пользоваться VPN дальше, выберите тариф.'
     )
     _assert_fork_notification(text, 'ru')
     choose, help_button = _buttons(markup)
@@ -308,16 +304,29 @@ async def test_expired_trial_theme_offers_tariff(theme_on):
 @pytest.mark.parametrize(
     ('autopay', 'days', 'autopay_text'),
     [
-        (True, 3, 'Автоплатёж включён: продлим с баланса, если на нём хватит денег.\nНа балансе: <b>{balance}</b>'),
-        (False, 1, 'Автоплатёж выключен — продлите подписку вручную.'),
+        (
+            True,
+            3,
+            (
+                f'{tag("refresh")} Автоплатёж: <b>включён</b>\n'
+                f'{tag("coin")} На балансе: <b>{{balance}}</b>\n\n'
+                'Продлим подписку с баланса, если денег хватит.'
+            ),
+        ),
+        (
+            False,
+            1,
+            f'{tag("refresh")} Автоплатёж: <b>выключен</b>\n\nПродлите подписку вручную, чтобы VPN не отключился.',
+        ),
     ],
 )
 async def test_expiring_theme(theme_on, autopay, days, autopay_text):
     text, markup = await _expiring(days=days, autopay=autopay)
     days_text = '3 дня' if days == 3 else '1 день'
     assert text == (
-        f'<b>{tag("hourglass")} Подписка закончится через {days_text}</b>\n'
-        f'Действует до <b>{_date(END_DATE)}</b>\n' + autopay_text.format(balance=settings.format_price(5000))
+        f'<b>{tag("alarm")} Подписка закончится через {days_text}</b>\n\n'
+        f'{tag("hourglass")} Действует до <b>{_date(END_DATE)}</b>\n'
+        + autopay_text.format(balance=settings.format_price(5000))
     )
     _assert_fork_notification(text, 'ru')
     assert [button.callback_data for button in _buttons(markup)] == ['subscription_extend', 'balance_topup']
@@ -327,7 +336,7 @@ async def test_expiring_theme(theme_on, autopay, days, autopay_text):
 async def test_trial_ending_theme(theme_on):
     text, markup = await _trial_ending()
     assert text == (
-        f'<b>{tag("hourglass")} Пробный доступ закончится через 2 часа</b>\nЧтобы VPN не отключился, выберите тариф.'
+        f'<b>{tag("alarm")} Пробный доступ закончится через 2 часа</b>\n\nЧтобы VPN не отключился, выберите тариф.'
     )
     _assert_fork_notification(text, 'ru')
     assert [button.callback_data for button in _buttons(markup)] == ['menu_buy', 'menu_support']
@@ -337,9 +346,9 @@ async def test_trial_ending_theme(theme_on):
 async def test_day1_theme(theme_on, monkeypatch):
     text, markup = await _day1(monkeypatch)
     assert text == (
-        f'<b>{tag("cross")} Подписка закончилась</b>\n'
-        f'VPN отключён с {_date(END_DATE)}.\n'
-        f'Продление: <b>{settings.format_price(19900)}</b> за 30 дней'
+        f'<b>{tag("cross")} Подписка закончилась</b>\n\n'
+        f'{tag("no_entry")} VPN отключён с <b>{_date(END_DATE)}</b>\n'
+        f'{tag("money_bag")} Продление: <b>{settings.format_price(19900)}</b> за 30 дней'
     )
     _assert_fork_notification(text, 'ru')
     assert [button.callback_data for button in _buttons(markup)] == [
@@ -354,8 +363,10 @@ async def test_discount_waves_theme(theme_on):
     expires = format_local_datetime(EXPIRES_AT, '%d.%m.%Y %H:%M')
     text, markup = await _discount(wave='second')
     assert text == (
-        f'<b>{tag("fire")} Скидка 10% на продление</b>\n'
-        f'Активируйте до <b>{expires}</b> — она сложится с другими вашими скидками.'
+        f'<b>{tag("fire")} Скидка на продление</b>\n\n'
+        f'{tag("gift")} Скидка: <b>10%</b>\n'
+        f'{tag("hourglass")} Активируйте до <b>{expires}</b>\n\n'
+        'Она сложится с другими вашими скидками.'
     )
     _assert_fork_notification(text, 'ru')
     claim, extend, help_button = _buttons(markup)
@@ -366,8 +377,11 @@ async def test_discount_waves_theme(theme_on):
 
     text, _ = await _discount(wave='third')
     assert text == (
-        f'<b>{tag("gift")} Персональная скидка 20%</b>\n'
-        f'Вы без VPN уже 5 дней. Активируйте скидку до <b>{expires}</b> — она сложится с другими вашими скидками.'
+        f'<b>{tag("gift")} Персональная скидка</b>\n\n'
+        f'{tag("fire")} Скидка: <b>20%</b>\n'
+        f'{tag("hourglass")} Активируйте до <b>{expires}</b>\n'
+        f'{tag("cross")} Без VPN уже: <b>5 дней</b>\n\n'
+        'Она сложится с другими вашими скидками.'
     )
     _assert_fork_notification(text, 'ru')
 
@@ -375,9 +389,9 @@ async def test_discount_waves_theme(theme_on):
 async def test_autopay_success_theme(theme_on):
     text, markup = await _autopay_success()
     assert text == (
-        f'<b>{tag("check")} Подписка продлена на 30 дней</b>\n'
-        f'Автоплатёж: списано <b>{settings.format_price(19900)}</b> с баланса\n'
-        f'Действует до <b>{_date(END_DATE)}</b>'
+        f'<b>{tag("check")} Подписка продлена на 30 дней</b>\n\n'
+        f'{tag("coin")} Автоплатёж списал: <b>{settings.format_price(19900)}</b>\n'
+        f'{tag("hourglass")} Действует до <b>{_date(END_DATE)}</b>'
     )
     _assert_fork_notification(text, 'ru')
     assert markup is None
@@ -387,19 +401,20 @@ async def test_autopay_success_theme(theme_on):
 async def test_autopay_failed_theme(theme_on, is_final):
     text, markup = await _autopay_failed(is_final=is_final)
     head = (
-        f'<b>{tag("alarm")} Подписка скоро отключится</b>\nАвтоплатёж не прошёл — не хватает <b>{{missing}}</b>.'
+        f'<b>{tag("alarm")} Подписка скоро отключится</b>'
         if is_final
-        else f'<b>{tag("warning")} Автоплатёж не прошёл</b>\nНа продление не хватает <b>{{missing}}</b>.'
+        else f'<b>{tag("warning")} Автоплатёж не прошёл</b>'
     )
     tail = (
-        'Пополните баланс сейчас, чтобы не потерять доступ.'
+        'Автоплатёж не прошёл. Пополните баланс сейчас, чтобы не потерять доступ.'
         if is_final
         else 'Пополните баланс, чтобы подписка не отключилась.'
     )
     assert text == (
-        head.format(missing=settings.format_price(14900))
-        + f'\nНужно: {settings.format_price(19900)}, на балансе: {settings.format_price(5000)}.\n'
-        + tail
+        f'{head}\n\n'
+        f'{tag("cross")} Не хватает: <b>{settings.format_price(14900)}</b>\n'
+        f'{tag("money_bag")} Нужно: <b>{settings.format_price(19900)}</b>\n'
+        f'{tag("coin")} На балансе: <b>{settings.format_price(5000)}</b>\n\n' + tail
     )
     _assert_fork_notification(text, 'ru')
     topup, subscription = _buttons(markup)
@@ -412,7 +427,7 @@ async def test_autopay_charge_error_theme_offers_manual_renewal(theme_on):
     """Денег хватает, но списание сорвалось: «не хватает 0 ₽» было бы враньём."""
     text, markup = await _autopay_failed(balance=30000)
     assert text == (
-        f'<b>{tag("warning")} Автоплатёж не прошёл</b>\nНе удалось списать оплату за продление. '
+        f'<b>{tag("warning")} Автоплатёж не прошёл</b>\n\nНе удалось списать оплату за продление. '
         'Продлите подписку вручную.'
     )
     _assert_fork_notification(text, 'ru')
@@ -445,11 +460,11 @@ async def test_monitoring_english_theme(theme_on, monkeypatch):
 
 @pytest.mark.parametrize('language', ['ru', 'en'])
 def test_traffic_warning_template_with_real_kwargs(theme_on, language):
-    """Предупреждение о трафике уходит обычным HTML-сообщением: первая строка — <b>…</b>."""
+    """Предупреждение о трафике уходит обычным HTML-сообщением: заголовок и строка данных."""
     text = get_texts(language).get('TRAFFIC_WARNING_ALERT').format(used=45.3, limit=50, percent=90.4)
     _assert_fork_notification(text, language)
     unit = 'ГБ' if language == 'ru' else 'GB'
-    assert '45.3 ' in text and f'50 {unit} (90%)' in text
+    assert f'<b>45.3 {"из" if language == "ru" else "of"} 50 {unit}</b> (90%)' in text
 
 
 # --- вебхуки Remnawave ------------------------------------------------------------------------
@@ -552,17 +567,32 @@ async def test_webhook_texts_ru(theme_on, webhook):
     await service._handle_user_not_connected(None, _user(), _subscription(), {})
     text, _ = _webhook_sent(send)
     assert text == (
-        f'<b>{tag("rocket")} Вы ещё не подключились</b>\n'
-        'Подписка уже работает — осталось настроить приложение. Это займёт пару минут.\n'
-        'Не получается? Напишите нам — поможем.'
+        f'<b>{tag("rocket")} Вы ещё не подключились</b>\n\n'
+        'Подписка уже работает — осталось настроить приложение за пару минут.'
     )
     send.reset_mock()
     await service._handle_device_added(None, _user(), _subscription(), DEVICE)
     text, _ = _webhook_sent(send)
     assert text == (
-        f'<b>{tag("phone")} Новое устройство</b>\n'
-        'К подписке подключено: <code>iPhone 15 (iOS)</code>\n'
+        f'<b>{tag("phone")} Новое устройство</b>\n\n'
+        f'{tag("laptop")} Подключено: <code>iPhone 15 (iOS)</code>\n\n'
         'Если это не вы, сбросьте устройство в настройках подписки.'
+    )
+
+
+async def test_webhook_device_removed_and_traffic_threshold_ru(theme_on, webhook):
+    service, send = webhook
+    await service._handle_device_deleted(None, _user(), _subscription(), DEVICE)
+    text, _ = _webhook_sent(send)
+    assert text == (
+        f'<b>{tag("phone")} Устройство отключено</b>\n\n{tag("laptop")} Отключено: <code>iPhone 15 (iOS)</code>'
+    )
+    send.reset_mock()
+    await service._handle_bandwidth_threshold(None, _user(), _subscription(), {'lastTriggeredThreshold': 80})
+    text, _ = _webhook_sent(send)
+    assert text == (
+        f'<b>{tag("chart")} Израсходовано 80% трафика</b>\n\n'
+        'Если до конца периода не хватит, трафик по подписке можно докупить.'
     )
 
 
@@ -648,6 +678,24 @@ def _grace_details(reason='expired', completion_reason=None):
         quota_gb=1.5,
         completion_reason=completion_reason,
         last_error=None,
+    )
+
+
+async def test_grace_granted_text_ru(theme_on, monkeypatch):
+    send = AsyncMock()
+    monkeypatch.setattr(notification_delivery_service, 'send_notification', send)
+    subscription = _subscription()
+    subscription.user = _user()
+    details = _grace_details('expired')
+    await grace_access_notifications._notify_user(MagicMock(), 'granted', subscription, details)
+    text, _ = _webhook_sent(send)
+    allowed = grace_access_notifications.grace_allowed_services()
+    assert text == (
+        f'<b>{tag("hourglass")} Подписка закончилась, но связь осталась</b>\n\n'
+        f'{tag("alarm")} Ещё <b>6 ч.</b>\n'
+        f'{tag("globe")} Работает только: {allowed}\n'
+        f'{tag("chart")} Трафик на это время: <b>1.5 ГБ</b>\n\n'
+        f'Продлите подписку до {format_local_datetime(details.grace_until, "%d.%m.%Y %H:%M")}, чтобы вернуть всё.'
     )
 
 

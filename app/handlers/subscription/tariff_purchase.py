@@ -2779,8 +2779,9 @@ def _purchase_confirm_text(
         ),
     )
     # Число устройств влияет на цену, поэтому под темой оно видно, когда отличается от тарифного.
+    # Ноль (лимита нет, HWID выключен) — не число устройств: «· 0 устройств» не пишем.
     devices_note = ''
-    if settings.PREMIUM_THEME_ENABLED and devices != tariff.device_limit:
+    if settings.PREMIUM_THEME_ENABLED and devices and devices != tariff.device_limit:
         devices_note = f' · {fork_device_count(texts, int(devices))}'
     # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
     return template.format(

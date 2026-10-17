@@ -57,15 +57,6 @@ async def _reward_tariff_names(db) -> dict[int, str]:
 # Имена рефералов в списках делят подпись к логотипу (1024 знака) с остальным текстом.
 _FORK_NAME_LIMIT = 30
 _REFERRALS_PER_PAGE = 10
-_FORK_RECENT_EARNINGS = 3
-_FORK_EARNING_REASON_KEYS = {
-    'referral_first_topup': 'REFERRAL_EARNING_REASON_FIRST_TOPUP',
-    'referral_commission_topup': 'REFERRAL_EARNING_REASON_COMMISSION_TOPUP',
-    'referral_commission': 'REFERRAL_EARNING_REASON_COMMISSION_PURCHASE',
-    'referral_registration_reward': 'REFERRAL_EARNING_REASON_REGISTRATION',
-    'referral_days_reward': 'REFERRAL_EARNING_REASON_DAYS',
-    'referral_days_bonus': 'REFERRAL_EARNING_REASON_DAYS_BONUS',
-}
 
 
 def _fork_name(value) -> str:
@@ -73,90 +64,76 @@ def _fork_name(value) -> str:
     return html_escape(shorten_text(str(value or ''), _FORK_NAME_LIMIT))
 
 
-def _fork_recent_earning_lines(texts, summary: dict, language: str) -> list[str]:
-    # Награда днями имеет amount_kopeks == 0 by design, поэтому «только с деньгами» нельзя.
-    meaningful = [
-        earning
-        for earning in summary['recent_earnings'][:5]
-        if earning['amount_kopeks'] > 0 or earning.get('days_granted', 0) > 0
-    ][:_FORK_RECENT_EARNINGS]
-    if not meaningful:
-        return []
-
-    lines = ['', texts.FORK_REFERRAL_RECENT_HEADER]
-    for earning in meaningful:
-        reason_key = _FORK_EARNING_REASON_KEYS.get(earning['reason'])
-        reason = texts.t(reason_key, earning['reason']) if reason_key else earning['reason']
-        lines.append(
-            texts.FORK_REFERRAL_RECENT_ITEM.format(
-                reason=reason,
-                amount=format_reward_total(earning['amount_kopeks'], earning.get('days_granted', 0), language),
-                referral_name=_fork_name(earning['referral_name']),
-            )
-        )
-    return lines
-
-
-def _fork_referral_main_text(texts, db_user: User, summary: dict, bot_link: str, cabinet_link: str | None) -> str:
-    """Главный экран под темой: что получаете, сколько пригласили и заработали, ссылка.
-
-    Только для схемы «legacy» (прод): схема уровней рисуется кодом апстрима.
-    """
-    language = db_user.language
-    percent = get_effective_referral_commission_percent(db_user)
-    if percent > 0:
-        lines = [texts.FORK_REFERRAL_TITLE.format(percent=percent)]
-        if settings.REFERRAL_MAX_COMMISSION_PAYMENTS > 0:
-            lines.append(
-                texts.FORK_REFERRAL_COMMISSION_LIMIT.format(max_payments=settings.REFERRAL_MAX_COMMISSION_PAYMENTS)
-            )
-    else:
-        lines = [texts.FORK_REFERRAL_TITLE_PLAIN]
-
+def _fork_referral_bonus_line(texts) -> str:
+    """Строка о бонусах за первое пополнение друга: что получит он и что получите вы (пусто, если бонусов нет)."""
+    parts = []
     if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
-        lines.append(
-            texts.FORK_REFERRAL_FRIEND_BONUS.format(
-                bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS),
-                minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
+        parts.append(
+            texts.FORK_REFERRAL_BONUS_FRIEND.format(
+                bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS)
             )
         )
     if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
-        lines.append(
-            texts.FORK_REFERRAL_INVITER_BONUS.format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
+        parts.append(
+            texts.FORK_REFERRAL_BONUS_INVITER.format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
+        )
+    if not parts:
+        return ''
+    return texts.FORK_REFERRAL_BONUS.format(
+        minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS), parts=', '.join(parts)
+    )
+
+
+def _fork_referral_main_text(texts, db_user: User, summary: dict, bot_link: str, cabinet_link: str | None) -> str:
+    """Главный экран под темой: заголовок, бонусы, сколько пригласили и заработали, ссылки.
+
+    Блоки через пустую строку, на экране не больше пяти анимированных эмодзи (подпись к логотипу ≤ 1024 знаков):
+    ссылка на кабинет и лимит комиссии идут без иконки. Только для схемы «legacy» (прод): схема уровней
+    рисуется кодом апстрима.
+    """
+    language = db_user.language
+    percent = get_effective_referral_commission_percent(db_user)
+    blocks = [texts.FORK_REFERRAL_TITLE.format(percent=percent) if percent > 0 else texts.FORK_REFERRAL_TITLE_PLAIN]
+
+    bonus_line = _fork_referral_bonus_line(texts)
+    if bonus_line:
+        blocks.append(bonus_line)
+    if percent > 0 and settings.REFERRAL_MAX_COMMISSION_PAYMENTS > 0:
+        blocks.append(
+            texts.FORK_REFERRAL_COMMISSION_LIMIT.format(max_payments=settings.REFERRAL_MAX_COMMISSION_PAYMENTS)
         )
 
-    lines += [
-        '',
-        texts.FORK_REFERRAL_STATS.format(invited=summary['invited_count'], paid=summary['paid_referrals_count']),
-        texts.FORK_REFERRAL_EARNED.format(
-            total=format_reward_total(summary['total_earned_kopeks'], summary.get('total_earned_days', 0), language),
-            month=format_reward_total(summary['month_earned_kopeks'], summary.get('month_earned_days', 0), language),
-        ),
-        '',
-        texts.FORK_REFERRAL_LINK_BOT.format(link=html_escape(bot_link)),
-    ]
+    blocks.append(
+        '\n'.join(
+            [
+                texts.FORK_REFERRAL_STATS.format(
+                    invited=summary['invited_count'], paid=summary['paid_referrals_count']
+                ),
+                texts.FORK_REFERRAL_EARNED.format(
+                    total=format_reward_total(
+                        summary['total_earned_kopeks'], summary.get('total_earned_days', 0), language
+                    ),
+                    month=format_reward_total(
+                        summary['month_earned_kopeks'], summary.get('month_earned_days', 0), language
+                    ),
+                ),
+            ]
+        )
+    )
+    blocks.append(texts.FORK_REFERRAL_LINK_BOT.format(link=html_escape(bot_link)))
     if cabinet_link:
-        lines.append(texts.FORK_REFERRAL_LINK_CABINET.format(link=html_escape(cabinet_link)))
-    lines.append(texts.FORK_REFERRAL_CODE.format(code=html_escape(str(db_user.referral_code or ''))))
-    lines += _fork_recent_earning_lines(texts, summary, language)
-    return '\n'.join(lines)
+        blocks.append(texts.FORK_REFERRAL_LINK_CABINET.format(link=html_escape(cabinet_link)))
+    return '\n\n'.join(blocks)
 
 
 def _fork_referral_list_text(texts, db_user: User, referrals_data: dict, page: int) -> str:
-    """Страница списка рефералов под темой: по строке на человека."""
-    lines = [texts.FORK_REFERRAL_LIST_TITLE]
-    if referrals_data['total_pages'] > 1:
-        lines.append(
-            texts.FORK_REFERRAL_LIST_PAGE.format(
-                current=referrals_data['current_page'], total=referrals_data['total_pages']
-            )
-        )
-    for index, referral in enumerate(referrals_data['referrals'], (page - 1) * _REFERRALS_PER_PAGE + 1):
+    """Страница списка рефералов под темой: по строке на человека, номер страницы — внизу."""
+    items = []
+    for referral in referrals_data['referrals']:
         note = texts.FORK_REFERRAL_LIST_INACTIVE if referral['status'] != 'active' else ''
         if referral['topups_count'] > 0 or referral['total_earned_kopeks'] > 0 or referral.get('days_earned', 0) > 0:
-            lines.append(
+            items.append(
                 texts.FORK_REFERRAL_LIST_ITEM.format(
-                    index=index,
                     name=_fork_name(referral['full_name']),
                     earned=format_reward_total(
                         referral['total_earned_kopeks'], referral.get('days_earned', 0), db_user.language
@@ -166,39 +143,44 @@ def _fork_referral_list_text(texts, db_user: User, referrals_data: dict, page: i
                 )
             )
         else:
-            lines.append(
-                texts.FORK_REFERRAL_LIST_ITEM_NEW.format(index=index, name=_fork_name(referral['full_name']), note=note)
+            items.append(texts.FORK_REFERRAL_LIST_ITEM_NEW.format(name=_fork_name(referral['full_name']), note=note))
+    blocks = [texts.FORK_REFERRAL_LIST_TITLE, '\n'.join(items)]
+    if referrals_data['total_pages'] > 1:
+        blocks.append(
+            texts.FORK_REFERRAL_LIST_PAGE.format(
+                current=referrals_data['current_page'], total=referrals_data['total_pages']
             )
-    return '\n'.join(lines)
+        )
+    return '\n\n'.join(blocks)
 
 
 def _fork_referral_analytics_text(texts, db_user: User, analytics: dict) -> str:
     """Аналитика под темой: доходы по периодам и лучшие рефералы."""
     earnings = analytics['earnings_by_period']
     days = analytics.get('days_by_period') or {}
-    lines = [texts.FORK_REFERRAL_AN_TITLE]
-    for period, template in (
-        ('today', texts.FORK_REFERRAL_AN_TODAY),
-        ('week', texts.FORK_REFERRAL_AN_WEEK),
-        ('month', texts.FORK_REFERRAL_AN_MONTH),
-        ('quarter', texts.FORK_REFERRAL_AN_QUARTER),
-    ):
-        lines.append(
-            template.format(amount=format_reward_total(earnings[period], days.get(period, 0), db_user.language))
+    periods = [
+        template.format(amount=format_reward_total(earnings[period], days.get(period, 0), db_user.language))
+        for period, template in (
+            ('today', texts.FORK_REFERRAL_AN_TODAY),
+            ('week', texts.FORK_REFERRAL_AN_WEEK),
+            ('month', texts.FORK_REFERRAL_AN_MONTH),
+            ('quarter', texts.FORK_REFERRAL_AN_QUARTER),
         )
+    ]
+    blocks = [texts.FORK_REFERRAL_AN_TITLE, '\n'.join(periods)]
     if analytics['top_referrals']:
-        lines += ['', texts.FORK_REFERRAL_AN_TOP]
-        for index, top in enumerate(analytics['top_referrals'], 1):
-            lines.append(
+        top = [texts.FORK_REFERRAL_AN_TOP]
+        for entry in analytics['top_referrals']:
+            top.append(
                 texts.FORK_REFERRAL_AN_TOP_ITEM.format(
-                    index=index,
-                    name=_fork_name(top['referral_name']),
+                    name=_fork_name(entry['referral_name']),
                     amount=format_reward_total(
-                        top['total_earned_kopeks'], top.get('total_earned_days', 0), db_user.language
+                        entry['total_earned_kopeks'], entry.get('total_earned_days', 0), db_user.language
                     ),
                 )
             )
-    return '\n'.join(lines)
+        blocks.append('\n'.join(top))
+    return '\n\n'.join(blocks)
 
 
 async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
@@ -895,18 +877,16 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User, db
         ]
     )
 
-    # Под темой заголовок, подсказка и цитата идут подряд, без пустых строк между ними.
-    separator = '\n' if settings.PREMIUM_THEME_ENABLED else '\n\n'
     await edit_or_answer_photo(
         callback,
         (
             texts.t('REFERRAL_INVITE_CREATED_TITLE', '📝 <b>Приглашение создано!</b>')
-            + separator
+            + '\n\n'
             + texts.t(
                 'REFERRAL_INVITE_CREATED_INSTRUCTION',
                 'Нажмите на текст ниже, чтобы скопировать:',
             )
-            + separator
+            + '\n\n'
             + f'<blockquote>{invite_html}</blockquote>'
         ),
         keyboard,

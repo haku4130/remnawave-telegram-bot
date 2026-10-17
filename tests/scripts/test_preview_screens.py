@@ -687,7 +687,7 @@ async def test_topup_notification_screens_absent_without_theme(monkeypatch):
 MONITORING_NOTIFICATION_TITLES = (
     'Уведомление — подписка закончилась',
     'Уведомление — пробный закончился',
-    'Уведомление — скоро закончится',
+    'Уведомление — скоро истекает',
     'Уведомление — пробный через 2 часа',
     'Уведомление — день после окончания',
     'Уведомление — скидка, 2-я волна',
@@ -696,7 +696,7 @@ MONITORING_NOTIFICATION_TITLES = (
     'Уведомление — автоплатёж не прошёл',
 )
 WEBHOOK_NOTIFICATION_TITLES = (
-    'Вебхук — ещё не подключились',
+    'Уведомление — вы ещё не подключились',
     'Вебхук — первое подключение',
     'Вебхук — закончится через 3 дня',
     'Вебхук — закончится завтра',
@@ -704,6 +704,7 @@ WEBHOOK_NOTIFICATION_TITLES = (
     'Вебхук — новое устройство',
     'Вебхук — израсходовано 80% трафика',
     'Вебхук — ссылка обновлена',
+    'Уведомление — временный доступ',
 )
 
 
@@ -719,8 +720,7 @@ async def test_notification_screens_present_and_go_rich(theme_on, language):
     for title in (*MONITORING_NOTIFICATION_TITLES, *WEBHOOK_NOTIFICATION_TITLES):
         screen = screens[title]
         assert screen.notify and not screen.rich, title
-        assert screen.text.startswith('<b><tg-emoji '), title
-        assert screen.text.count('<tg-emoji') == 1, title
+        assert_screen_pattern(title, screen.text)
         # Тот же сборщик rich-HTML, что у бота: None означало бы отправку классикой.
         assert build_notification_rich_html(screen.text) is not None, title
         if screen.markup is not None:
@@ -731,7 +731,8 @@ async def test_notification_screens_present_and_go_rich(theme_on, language):
         if language == 'en':
             assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
     traffic = screens['Уведомление — трафик почти закончился']
-    assert not traffic.notify and traffic.text.startswith('<b><tg-emoji ')
+    assert not traffic.notify
+    assert_screen_pattern(traffic.title, traffic.text)
 
 
 @pytest.mark.asyncio
@@ -747,8 +748,9 @@ async def test_notification_screens_absent_without_theme(monkeypatch):
     assert not any(screen.notify for screen in screens)
 
 
+# Экраны, которые проверяются образцом целиком: приглашение (цитата для пересылки) и список со своими иконками — отдельно.
 REFERRAL_TITLES = (
-    'Рефералы — главный экран',
+    'Рефералы — главный',
     'Рефералы — список',
     'Рефералы — пустой список',
     'Рефералы — аналитика',
@@ -775,8 +777,18 @@ async def test_referral_screens_present(theme_on, language):
         screen = screens[title]
         assert not screen.rich, title
         assert screen.text.startswith('<b>'), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
         assert not caption_exceeds_telegram_limit(screen.text), title
+        if title == 'Рефералы — приглашение':
+            # Приглашение уходит другим людям и лежит в цитате: заголовок, подсказка и цитата — блоками.
+            head, hint, quote = screen.text.split('\n\n', 2)
+            assert head.startswith('<b>') and quote.startswith('<blockquote>'), title
+        elif title == 'Рефералы — список':
+            assert_screen_pattern(title, screen.text, list_screen=True, list_icons=('👤', '📄'))
+        elif title == 'Рефералы — аналитика':
+            assert_screen_pattern(title, screen.text, list_blocks=('🏆', '👤'))
+        else:
+            assert_screen_pattern(title, screen.text)
         buttons = (
             [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
         )
@@ -786,9 +798,10 @@ async def test_referral_screens_present(theme_on, language):
             assert not re.search('[а-яА-ЯёЁ]', plain), title
             assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
 
-    main = [b for row in screens['Рефералы — главный экран'].markup.inline_keyboard for b in row]
+    assert screens['Рефералы — главный'].text.count('<tg-emoji') == 5
+    main = [b for row in screens['Рефералы — главный'].markup.inline_keyboard for b in row]
     assert main[0].callback_data == 'referral_create_invite' and main[0].style == 'success'
-    assert 'ZNT7K2' in screens['Рефералы — главный экран'].text
+    assert 'ZNT7K2' in screens['Рефералы — главный'].text
     assert 'tg-emoji' not in screens['Рефералы — приглашение'].text.split('<blockquote>')[1]
 
 
@@ -803,8 +816,10 @@ async def test_referral_screens_absent_without_theme(monkeypatch):
     assert not any(title in titles for title in REFERRAL_TITLES)
 
 
+# Списки обращений: заголовок и кнопки-обращения, без строк данных.
+SUPPORT_TITLE_ONLY = ('Обращения — список', 'Обращения — закрытые')
 SUPPORT_TITLES = (
-    'Поддержка — главный экран',
+    'Поддержка — главный',
     'Обращение — тема',
     'Обращение — описание',
     'Обращение — создано',
@@ -832,9 +847,13 @@ async def test_support_screens_present(theme_on, language):
         screen = screens[title]
         assert not screen.rich, title
         assert screen.text.startswith('<b>'), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
         assert not caption_exceeds_telegram_limit(screen.text), title
         assert '{' not in screen.text, title
+        if title in SUPPORT_TITLE_ONLY:
+            continue
+        # Карточка обращения: шапка по образцу, дальше переписка (текст пользователя и поддержки).
+        assert_screen_pattern(title, screen.text.split('\n\n<b>')[0] if 'карточка' in title else screen.text)
         buttons = (
             [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
         )
@@ -843,7 +862,7 @@ async def test_support_screens_present(theme_on, language):
             assert not re.search('[а-яА-ЯёЁ]', re.sub('<[^>]+>', '', screen.text)), title
             assert not any(re.search('[а-яА-ЯёЁ]', button.text) for button in buttons), title
 
-    support = [b for row in screens['Поддержка — главный экран'].markup.inline_keyboard for b in row]
+    support = [b for row in screens['Поддержка — главный'].markup.inline_keyboard for b in row]
     assert support[0].callback_data == 'create_ticket' and support[0].style == 'success'
     card = [b for row in screens['Обращение — карточка'].markup.inline_keyboard for b in row]
     assert card[0].callback_data == 'reply_ticket_17' and card[0].style == 'success'
@@ -869,13 +888,21 @@ MISC_TITLES = (
     'Язык — при регистрации',
     'Язык — выбран',
     'Промокод — ввод',
-    'Промокод — активирован',
+    'Промокод — успех',
     'Промокод — не найден',
     'Промокод — слишком много попыток',
     'Подарок — получен',
     'Подарок — активирован',
     'Подарок — свой собственный',
     'Ошибка — не понял команду',
+    'Ошибка — что-то пошло не так',
+)
+# Меню и выбор языка — заголовок и кнопки; «Язык — выбран» и «Ошибка — что-то пошло не так» — одна строка тоста.
+MISC_NO_PATTERN = (
+    'Инфо — меню',
+    'Язык — выбор',
+    'Язык — при регистрации',
+    'Язык — выбран',
     'Ошибка — что-то пошло не так',
 )
 # Подпись выбора языка при регистрации двуязычная, а кнопки выбора языка подписаны родными названиями («Русский»).
@@ -895,9 +922,11 @@ async def test_misc_screens_present(theme_on, language):
     for title in MISC_TITLES:
         screen = screens[title]
         assert not screen.rich, title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
         assert not caption_exceeds_telegram_limit(screen.text), title
         assert '{' not in screen.text, title
+        if title not in MISC_NO_PATTERN:
+            assert_screen_pattern(title, screen.text)
         buttons = (
             [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
         )
@@ -909,7 +938,7 @@ async def test_misc_screens_present(theme_on, language):
 
     gift = [b for row in screens['Подарок — получен'].markup.inline_keyboard for b in row]
     assert [b.callback_data for b in gift] == ['gift_activate:9'] and gift[0].style == 'success'
-    assert '150 ₽' in screens['Промокод — активирован'].text
+    assert '150 ₽' in screens['Промокод — успех'].text
 
 
 @pytest.mark.asyncio
