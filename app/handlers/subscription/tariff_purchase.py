@@ -194,10 +194,9 @@ def _fork_tariffs_list_text(
 ) -> str:
     """Список тарифов под темой форка: заголовок, при скидках по срокам — подсказка, по строке на тариф."""
     purchased_tariff_ids = purchased_tariff_ids or set()
-    lines = [texts.TARIFF_PURCHASE_LIST_TITLE]
+    lines = [texts.TARIFF_PURCHASE_LIST_TITLE, '']
     if has_period_discounts:
-        lines.append(texts.TARIFF_PURCHASE_PERIOD_DISCOUNTS_HINT)
-    lines.append('')
+        lines.extend([texts.TARIFF_PURCHASE_PERIOD_DISCOUNTS_HINT, ''])
 
     for tariff in tariffs:
         price_text = ''
@@ -622,16 +621,21 @@ def format_tariff_info_for_user(
         '📦 <b>{name}</b>\n\n<b>Параметры:</b>\n• Трафик: {traffic}\n• Устройств: {devices}\n',
     ).format(name=html.escape(tariff.name), traffic=traffic, devices=tariff.device_limit)
 
-    if tariff.description:
-        if settings.PREMIUM_THEME_ENABLED:
-            text += f'\n<i>{html.escape(_shorten(tariff.description, _INFO_DESCRIPTION_LIMIT))}</i>'
-        else:
-            text += f'\n📝 {html.escape(tariff.description)}\n'
-
+    discount_text = ''
     if discount_percent > 0:
-        text += texts.t('TARIFF_PURCHASE_YOUR_DISCOUNT', '\n🎁 <b>Ваша скидка: {percent}%</b>\n').format(
+        discount_text = texts.t('TARIFF_PURCHASE_YOUR_DISCOUNT', '\n🎁 <b>Ваша скидка: {percent}%</b>\n').format(
             percent=discount_percent
         )
+
+    if settings.PREMIUM_THEME_ENABLED:
+        # Скидка — строка данных, поэтому идёт до описания: блок данных, затем описание отдельным блоком.
+        text += discount_text
+        if tariff.description:
+            text += f'\n\n<i>{html.escape(_shorten(tariff.description, _INFO_DESCRIPTION_LIMIT))}</i>'
+    else:
+        if tariff.description:
+            text += f'\n📝 {html.escape(tariff.description)}\n'
+        text += discount_text
 
     # Для суточных тарифов не показываем выбор периода
     is_daily = getattr(tariff, 'is_daily', False)
@@ -2758,18 +2762,24 @@ def _purchase_confirm_text(
         discount_text = texts.t('TARIFF_PURCHASE_DISCOUNT_SHORT_LINE', '\n🎁 Скидка: {percent}% (-{amount})').format(
             percent=discount_percent, amount=format_price_kopeks(discount_kopeks)
         )
-    return texts.t(
-        'TARIFF_PURCHASE_CONFIRM',
-        '✅ <b>Подтверждение покупки</b>\n\n'
-        '📦 Тариф: <b>{name}</b>\n'
-        '📊 Трафик: {traffic}\n'
-        '📱 Устройств: {devices}\n'
-        '📅 Период: {period}\n'
-        '{discount}\n'
-        '💰 <b>Итого: {total}</b>\n\n'
-        '💳 Ваш баланс: {balance}\n'
-        'После оплаты: {after}',
-    ).format(
+    template = fork_text(
+        texts,
+        'FORK_PURCHASE_CONFIRM',
+        texts.t(
+            'TARIFF_PURCHASE_CONFIRM',
+            '✅ <b>Подтверждение покупки</b>\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📊 Трафик: {traffic}\n'
+            '📱 Устройств: {devices}\n'
+            '📅 Период: {period}\n'
+            '{discount}\n'
+            '💰 <b>Итого: {total}</b>\n\n'
+            '💳 Ваш баланс: {balance}\n'
+            'После оплаты: {after}',
+        ),
+    )
+    # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
+    return template.format(
         name=html.escape(tariff.name),
         traffic=_traffic_label(texts, tariff.traffic_limit_gb),
         devices=devices,

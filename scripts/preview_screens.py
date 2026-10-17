@@ -542,6 +542,9 @@ def _purchase_screens(language: str) -> list[PreviewScreen]:
     price = 19900
     balance = 5000
     end_date = datetime.now(UTC) + timedelta(days=period)
+    back_to_menu = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')]]
+    )
 
     return [
         PreviewScreen(
@@ -568,10 +571,21 @@ def _purchase_screens(language: str) -> list[PreviewScreen]:
             ),
         ),
         PreviewScreen(
+            'Покупка — ещё не хватает',
+            tariff_purchase._tariff_insufficient_text(texts, standard, period, price, balance, still=True),
+            tariff_purchase.get_tariff_insufficient_balance_keyboard(
+                standard.id, period, language, missing_kopeks=price - balance
+            ),
+        ),
+        PreviewScreen(
             'Покупка — готово',
             tariff_purchase._purchase_success_text(texts, standard, period, price, end_date),
             tariff_purchase._purchase_success_keyboard(texts, subscription),
         ),
+        PreviewScreen('Покупка — ошибка списания', texts.TARIFF_PURCHASE_CHARGE_ERROR, None),
+        PreviewScreen('Покупка — ошибка оформления', texts.TARIFF_PURCHASE_ERROR, None),
+        PreviewScreen('Покупка — тариф уже подключён', texts.TARIFF_PURCHASE_ALREADY_ACTIVE_SUB, None),
+        PreviewScreen('Покупка — тарифов нет', texts.TARIFF_PURCHASE_NO_TARIFFS, back_to_menu),
     ]
 
 
@@ -645,6 +659,13 @@ async def _balance_screens(language: str) -> list[PreviewScreen]:
             SimpleNamespace(id=0, language=language, subscriptions=[])
         )
 
+    after_topup = SimpleNamespace(language=language, balance_kopeks=_SUBSCRIBER_BALANCE_KOPEKS + 50000)
+    restricted = SimpleNamespace(restriction_reason='Спам' if ru else 'Spam')
+    restriction_template = '🚫 <b>Пополнение ограничено</b>\n\n{reason}'
+    back = get_back_keyboard(language)
+    limit_min = rollypay_handler._limit_rubles(settings.ROLLYPAY_MIN_AMOUNT_KOPEKS)
+    limit_max = rollypay_handler._limit_rubles(settings.ROLLYPAY_MAX_AMOUNT_KOPEKS)
+
     return [
         PreviewScreen(
             'Баланс',
@@ -658,23 +679,35 @@ async def _balance_screens(language: str) -> list[PreviewScreen]:
                 inline_keyboard=[[InlineKeyboardButton(text=texts.BACK, callback_data='menu_balance')]]
             ),
         ),
+        PreviewScreen('Баланс — история пуста', texts.FORK_HISTORY_EMPTY, back),
         PreviewScreen('Баланс — способы пополнения', payment_utils.fork_payment_methods_text(texts), methods_markup),
         PreviewScreen(
-            'Пополнение — ввод суммы',
+            'Баланс — пополнение недоступно',
+            payment_utils.topup_restriction_text(texts, restricted, restriction_template),
+            payment_utils.topup_restriction_keyboard(texts),
+        ),
+        PreviewScreen('Баланс — через поддержку', support_call.args[0], support_call.kwargs['reply_markup']),
+        PreviewScreen(
+            'Оплата — ввод суммы',
             texts.ROLLYPAY_ENTER_AMOUNT.format(
                 name=settings.get_rollypay_display_name_html(),
-                min_amount=settings.ROLLYPAY_MIN_AMOUNT_KOPEKS // 100,
-                max_amount=f'{settings.ROLLYPAY_MAX_AMOUNT_KOPEKS // 100:,}'.replace(',', ' '),
+                min_amount=limit_min,
+                max_amount=limit_max,
             ),
             amount_markup,
         ),
-        PreviewScreen('Пополнение — ссылка на оплату', link_call.args[0], link_call.kwargs['reply_markup']),
+        PreviewScreen('Оплата — ссылка на оплату', link_call.args[0], link_call.kwargs['reply_markup']),
         PreviewScreen(
-            'Пополнение — оплата прошла',
-            rollypay_service._topup_success_text(user, 50000, settings.get_rollypay_display_name(), 1),
+            'Оплата — готово',
+            rollypay_service._topup_success_text(after_topup, 50000, settings.get_rollypay_display_name(), 1),
             success_markup,
         ),
-        PreviewScreen('Пополнение — через поддержку', support_call.args[0], support_call.kwargs['reply_markup']),
+        PreviewScreen('Оплата — сумма слишком мала', texts.PAYMENT_AMOUNT_TOO_LOW.format(min_amount=limit_min), back),
+        PreviewScreen(
+            'Оплата — сумма слишком велика', texts.PAYMENT_AMOUNT_TOO_HIGH.format(max_amount=limit_max), back
+        ),
+        PreviewScreen('Оплата — неверная сумма', texts.INVALID_AMOUNT, back),
+        PreviewScreen('Оплата — не удалось создать платёж', texts.PAYMENT_CREATE_ERROR, back),
     ]
 
 
@@ -688,26 +721,38 @@ def _topup_notification_screens(language: str) -> list[PreviewScreen]:
     price = texts.format_price(19900)
     return [
         PreviewScreen(
-            'После пополнения — подписка оформлена',
+            'Автопокупка — подписка оформлена',
             auto_purchase._fork_subscription_notification_text(
-                texts, 'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS', '', 30, subscription.end_date
+                texts,
+                'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS',
+                '',
+                30,
+                subscription.end_date,
+                price_kopeks=19900,
+                note_key='FORK_AUTO_PURCHASE_NOTE',
             ),
             keyboard,
         ),
         PreviewScreen(
-            'После пополнения — подписка продлена',
+            'Автопокупка — подписка продлена',
             auto_purchase._fork_subscription_notification_text(
-                texts, 'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED', '', 30, subscription.end_date
+                texts,
+                'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+                '',
+                30,
+                subscription.end_date,
+                price_kopeks=19900,
+                note_key='FORK_AUTO_EXTEND_NOTE',
             ),
             keyboard,
         ),
         PreviewScreen(
-            'После пополнения — устройства добавлены',
+            'Автопокупка — устройства добавлены',
             texts.AUTO_PURCHASE_DEVICES_SUCCESS.format(devices_to_add=2, new_limit=5, price=texts.format_price(11000)),
             keyboard,
         ),
         PreviewScreen(
-            'После пополнения — трафик добавлен',
+            'Автопокупка — трафик добавлен',
             texts.AUTO_PURCHASE_TRAFFIC_SUCCESS.format(
                 traffic_gb=fork_traffic(texts, 100),
                 new_limit=fork_traffic(texts, 200),

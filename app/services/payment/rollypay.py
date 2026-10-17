@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import uuid
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
@@ -30,11 +29,11 @@ ROLLYPAY_STATUS_MAP: dict[str, tuple[str, bool]] = {
 
 
 def _topup_success_text(user: Any, amount_kopeks: int, display_name: str, transaction_id: int) -> str:
-    """Сообщение «Пополнение успешно». Под темой форка — короткое, без номера транзакции, на языке пользователя."""
+    """Сообщение «Пополнение успешно». Под темой форка — сумма и баланс, без способа и номера транзакции, на языке пользователя."""
     if settings.PREMIUM_THEME_ENABLED:
         texts = get_texts(getattr(user, 'language', None) or 'ru')
         return texts.FORK_TOPUP_SUCCESS.replace('{amount}', settings.format_price(amount_kopeks)).replace(
-            '{method}', html.escape(display_name)
+            '{balance}', settings.format_price(getattr(user, 'balance_kopeks', 0) or 0)
         )
     return (
         '\u2705 <b>Пополнение успешно!</b>\n\n'

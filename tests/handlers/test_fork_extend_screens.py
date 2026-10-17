@@ -23,6 +23,7 @@ from app.localization.texts import get_texts
 from app.middlewares.premium_theme import theme_markup
 from app.services.pricing_engine import PricingEngine
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -930,22 +931,7 @@ async def _every_screen(env, monkeypatch, language: str) -> list[tuple[str, str,
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, monkeypatch, language):
     for name, text, markup in await _every_screen(env, monkeypatch, language):
-        assert text.startswith('<b>'), name
-        assert text.splitlines()[0].count('<tg-emoji') == 1, name
-        assert text.count('<tg-emoji') <= 5, name
-        assert not caption_exceeds_telegram_limit(text), name
-        assert '\n\n\n' not in text and not text.endswith('\n'), name
-        blocks = text.split('\n\n')
-        assert len(blocks) >= 2, name
-        for block in blocks[1:]:
-            lines = block.split('\n')
-            if all(line.startswith('<tg-emoji') for line in lines):
-                continue
-            # Блок без иконок — одна короткая строка-пояснение; смешанных блоков быть не должно.
-            assert not any(line.startswith('<tg-emoji') for line in lines), (name, block)
-            assert len(lines) == 1, (name, block)
-        for banned in ('<blockquote', '<h1', '▰', '▓', '━'):
-            assert banned not in text, (name, banned)
+        assert_screen_pattern(name, text)
         assert _greens(markup) <= 1, name
         if language == 'en':
             assert not CYRILLIC_RE.search(text.replace('₽', '')), (name, text)

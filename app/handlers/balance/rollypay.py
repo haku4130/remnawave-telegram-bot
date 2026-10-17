@@ -230,7 +230,6 @@ async def start_rollypay_topup(
     await state.set_state(BalanceStates.waiting_for_amount)
     await state.update_data(payment_method='rollypay')
 
-    min_amount = settings.ROLLYPAY_MIN_AMOUNT_KOPEKS // 100
     max_amount = settings.ROLLYPAY_MAX_AMOUNT_KOPEKS // 100
     display_name = (
         settings.get_rollypay_display_name_html()
@@ -249,7 +248,7 @@ async def start_rollypay_topup(
             'Максимум: {max_amount}\u20bd',
         ).format(
             name=display_name,
-            min_amount=min_amount,
+            min_amount=_limit_rubles(settings.ROLLYPAY_MIN_AMOUNT_KOPEKS),
             max_amount=f'{max_amount:,}'.replace(',', ' '),
         ),
         parse_mode='HTML',

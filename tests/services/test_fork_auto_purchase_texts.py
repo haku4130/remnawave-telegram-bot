@@ -25,6 +25,7 @@ from app.middlewares.premium_theme import theme_markup
 from app.services import subscription_auto_purchase_service as auto_service
 from app.services.user_cart_service import UserCartService
 from app.utils.timezone import format_local_datetime
+from tests.fixtures.fork_pattern import assert_screen_pattern
 from tests.fixtures.sqlite_memory import memory_session
 
 
@@ -443,15 +444,7 @@ async def test_theme_off_traffic_matches_upstream(theme_off, monkeypatch, cart_s
 
 
 def _assert_fork_style(text: str, *, language: str) -> None:
-    assert text.startswith('<b>'), 'заголовок-строка первой'
-    first_line = text.split('\n', 1)[0]
-    assert first_line.endswith('</b>'), 'первая строка целиком жирная'
-    assert first_line.startswith('<b><tg-emoji') and first_line.count('<tg-emoji') == 1
-    assert text.count('<tg-emoji') <= 2
-    for forbidden in ('<blockquote', '<h1', '<h2', '<h3', '█', '░', '▓'):
-        assert forbidden not in text
-    assert len(_plain(text)) <= 1024
-    assert '{' not in text and '}' not in text, 'неподставленный плейсхолдер'
+    assert_screen_pattern('notification', text)
     if language == 'en':
         assert not CYRILLIC_RE.search(_plain(text)), _plain(text)
 
@@ -461,9 +454,13 @@ async def test_theme_on_new_purchase_ru(theme_on, externals):
     bot = await run_new_purchase(externals)
     text, _ = _sent(bot)
     assert text == (
-        f'<b>{tag("party")} Подписка оформлена на 30 дней</b>\n'
-        'Оформили автоматически после пополнения.\n'
-        'Действует до <b>15.11.2026</b>'
+        f'<b>{tag("party")} Подписка оформлена</b>\n'
+        '\n'
+        f'{tag("hourglass")} Действует до <b>15.11.2026</b>\n'
+        f'{tag("refresh")} Период: <b>30 дней</b>\n'
+        f'{tag("money_bag")} Списано: <b>199 ₽</b>\n'
+        '\n'
+        'Оформили автоматически после пополнения.'
     )
     _assert_fork_style(text, language='ru')
 
@@ -474,9 +471,13 @@ async def test_theme_on_extend_ru(theme_on, externals, runner):
     bot = await runner(externals)
     text, _ = _sent(bot)
     assert text == (
-        f'<b>{tag("refresh")} Подписка продлена на 30 дней</b>\n'
-        'Продлили автоматически после пополнения.\n'
-        'Действует до <b>15.11.2026</b>'
+        f'<b>{tag("party")} Подписка продлена</b>\n'
+        '\n'
+        f'{tag("hourglass")} Действует до <b>15.11.2026</b>\n'
+        f'{tag("refresh")} Добавлено: <b>30 дней</b>\n'
+        f'{tag("money_bag")} Списано: <b>199 ₽</b>\n'
+        '\n'
+        'Продлили автоматически после пополнения.'
     )
     _assert_fork_style(text, language='ru')
 
@@ -486,8 +487,8 @@ async def test_theme_on_extend_ru(theme_on, externals, runner):
 async def test_theme_on_subscription_texts_english(theme_on, externals, runner):
     bot = await runner(externals, 'en')
     text, _ = _sent(bot)
-    assert '30 days' in text and '<b>15.11.2026</b>' in text
-    assert 'top-up' in text
+    assert '<b>30 days</b>' in text and '<b>15.11.2026</b>' in text and '<b>199 ₽</b>' in text
+    assert text.endswith('automatically after your top-up.')
     _assert_fork_style(text, language='en')
 
 
@@ -499,9 +500,10 @@ def test_theme_on_period_is_declined_by_fork_formatter(theme_on):
     en = auto_service._fork_subscription_notification_text(
         get_texts('en'), 'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED', '', 1, None
     )
-    assert 'на 1 день</b>' in ru
-    assert 'by 1 day</b>' in en
-    assert '\n' in ru and 'Действует до' not in ru, 'без даты строка «Действует до» не выводится'
+    assert 'Добавлено: <b>1 день</b>' in ru
+    assert 'Added: <b>1 day</b>' in en
+    assert 'Действует до' not in ru and 'Valid until' not in en, 'без даты строка «Действует до» не выводится'
+    assert 'Списано' not in ru, 'без суммы строка «Списано» не выводится'
 
 
 @pytest.mark.asyncio
@@ -509,10 +511,12 @@ async def test_theme_on_devices_ru(theme_on, monkeypatch, cart_service):
     bot = await run_addon(monkeypatch, cart_service, 'add_devices')
     text, _ = _sent(bot)
     assert text == (
-        f'<b>{tag("phone")} Устройства добавлены</b>\n'
-        'Докупили автоматически после пополнения.\n'
-        'Лимит устройств: <b>3</b> (+2)\n'
-        'Списано <b>10 ₽</b>'
+        f'<b>{tag("check")} Устройства добавлены</b>\n'
+        '\n'
+        f'{tag("phone")} Лимит устройств: <b>3</b> (+2)\n'
+        f'{tag("money_bag")} Списано: <b>10 ₽</b>\n'
+        '\n'
+        'Докупили автоматически после пополнения.'
     )
     _assert_fork_style(text, language='ru')
 
@@ -521,16 +525,23 @@ async def test_theme_on_devices_ru(theme_on, monkeypatch, cart_service):
 async def test_theme_on_manual_devices_ru(theme_on, monkeypatch, cart_service):
     bot = await run_addon(monkeypatch, cart_service, 'add_devices', manual=True)
     text, _ = _sent(bot)
-    assert text == (f'<b>{tag("phone")} Устройства добавлены</b>\nЛимит устройств: <b>3</b> (+2)\nСписано <b>10 ₽</b>')
+    assert text == (
+        f'<b>{tag("check")} Устройства добавлены</b>\n'
+        '\n'
+        f'{tag("phone")} Лимит устройств: <b>3</b> (+2)\n'
+        f'{tag("money_bag")} Списано: <b>10 ₽</b>'
+    )
     assert 'автоматически' not in text
+    _assert_fork_style(text, language='ru')
 
 
 @pytest.mark.asyncio
 async def test_theme_on_devices_english(theme_on, monkeypatch, cart_service):
     bot = await run_addon(monkeypatch, cart_service, 'add_devices', language='en')
     text, _ = _sent(bot)
-    assert text.startswith(f'<b>{tag("phone")} Devices added</b>\n')
+    assert text.startswith(f'<b>{tag("check")} Devices added</b>\n\n')
     assert 'Device limit: <b>3</b> (+2)' in text
+    assert text.endswith('Added automatically after your top-up.')
     _assert_fork_style(text, language='en')
 
 
@@ -538,9 +549,10 @@ async def test_theme_on_devices_english(theme_on, monkeypatch, cart_service):
 async def test_theme_on_traffic_ru(theme_on, monkeypatch, cart_service):
     bot = await run_addon(monkeypatch, cart_service, 'add_traffic')
     text, _ = _sent(bot)
-    assert text.startswith(f'<b>{tag("chart_up")} Трафик добавлен</b>\nДокупили автоматически после пополнения.\n')
-    assert 'Лимит трафика: <b>200 ГБ</b> (+100 ГБ)' in text
-    assert re.search(r'Списано <b>[\d.,]+ ₽</b>$', text)
+    assert text.startswith(
+        f'<b>{tag("check")} Трафик добавлен</b>\n\n{tag("chart_up")} Лимит трафика: <b>200 ГБ</b> (+100 ГБ)\n'
+    )
+    assert re.search(r'Списано: <b>[\d.,]+ ₽</b>\n\nДокупили автоматически после пополнения\.$', text)
     _assert_fork_style(text, language='ru')
 
 
@@ -557,8 +569,12 @@ async def test_theme_on_traffic_english_has_no_russian_units(theme_on, monkeypat
 async def test_theme_on_manual_traffic_ru(theme_on, monkeypatch, cart_service):
     bot = await run_addon(monkeypatch, cart_service, 'add_traffic', manual=True)
     text, _ = _sent(bot)
-    assert text.startswith(f'<b>{tag("chart_up")} Трафик добавлен</b>\nЛимит трафика: <b>200 ГБ</b> (+100 ГБ)\n')
+    assert text.startswith(
+        f'<b>{tag("check")} Трафик добавлен</b>\n\n{tag("chart_up")} Лимит трафика: <b>200 ГБ</b> (+100 ГБ)\n'
+    )
+    assert re.search(r'Списано: <b>[\d.,]+ ₽</b>$', text)
     assert 'автоматически' not in text
+    _assert_fork_style(text, language='ru')
 
 
 # --- под темой: кнопки -----------------------------------------------------------------------
@@ -636,3 +652,25 @@ def test_fork_templates_accept_real_call_kwargs(theme_on, language):
         assert texts.t(key, '').format(devices_to_add=2, new_limit=3, price='20 ₽')
     for key in ('AUTO_PURCHASE_TRAFFIC_SUCCESS', 'ADDON_PURCHASE_TRAFFIC_SUCCESS'):
         assert texts.t(key, '').format(traffic_gb='100 ГБ', new_limit='200 ГБ', price='50 ₽')
+    assert texts.get('FORK_AUTO_PURCHASE_CHARGED').format(price='199 ₽')
+    for key in ('FORK_AUTO_PURCHASE_NOTE', 'FORK_AUTO_EXTEND_NOTE'):
+        assert '{' not in texts.get(key)
+
+
+@pytest.mark.parametrize('language', ['ru', 'en'])
+@pytest.mark.parametrize(
+    'key',
+    [
+        'AUTO_PURCHASE_SUBSCRIPTION_SUCCESS',
+        'AUTO_PURCHASE_SUBSCRIPTION_EXTENDED',
+        'AUTO_PURCHASE_DEVICES_SUCCESS',
+        'ADDON_PURCHASE_DEVICES_SUCCESS',
+        'AUTO_PURCHASE_TRAFFIC_SUCCESS',
+        'ADDON_PURCHASE_TRAFFIC_SUCCESS',
+    ],
+)
+def test_fork_templates_are_a_title_then_a_block_of_icon_lines(theme_on, key, language):
+    value = get_texts(language).get(key)
+    assert value.startswith('<b>') and '</b>\n\n' in value, key
+    assert value.count('<tg-emoji') <= 5 and '\n\n\n' not in value, key
+    assert value.split('\n\n')[1].startswith('<tg-emoji'), key

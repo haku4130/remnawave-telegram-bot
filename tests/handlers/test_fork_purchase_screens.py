@@ -23,6 +23,7 @@ from app.localization.texts import get_texts
 from app.middlewares.premium_theme import theme_markup
 from app.services.pricing_engine import PricingEngine
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -130,6 +131,8 @@ def _no_styles(markup) -> bool:
 
 
 def _greens(markup) -> int:
+    if markup is None:
+        return 0
     return sum(1 for button in _buttons(theme_markup(markup)) if button.style == 'success')
 
 
@@ -519,7 +522,8 @@ async def test_theme_on_tariffs_list_ru(theme_on, env):
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("gem")} Выберите тариф</b>\n'
-        'Скидка зависит от срока.\n'
+        '\n'
+        f'{_tag("gift")} Скидка зависит от срока\n'
         '\n'
         '<b>Стандартный</b> — ∞ · 3 устр. · от 179.10 ₽\n'
         '<i>Для дома &amp; семьи</i>\n'
@@ -599,7 +603,7 @@ async def test_theme_on_no_tariffs(theme_on, env):
     env['tariffs'] = []
     callback = await show_list(env)
     text, markup = _sent(callback.message.edit_text)
-    assert text == f'<b>{_tag("hourglass")} Тарифов пока нет</b>\nСейчас нечего купить — загляните позже.'
+    assert text == f'<b>{_tag("hourglass")} Тарифов пока нет</b>\n\nСейчас нечего купить — загляните позже.'
     assert _greens(markup) == 0
 
 
@@ -610,7 +614,14 @@ async def test_theme_on_no_tariffs(theme_on, env):
 async def test_theme_on_periods_screen_ru(theme_on, env):
     callback = await show_periods(env)
     text, markup = _sent(callback.message.edit_text)
-    assert text == (f'<b>{_tag("gem")} Стандартный</b>\nТрафик: ∞ · Устройств: 3\n\nВыберите срок подписки.')
+    assert text == (
+        f'<b>{_tag("gem")} Стандартный</b>\n'
+        '\n'
+        f'{_tag("chart")} Трафик: <b>∞</b>\n'
+        f'{_tag("phone")} Устройства: <b>3</b>\n'
+        '\n'
+        'Выберите срок подписки.'
+    )
     assert _labels(markup) == [['30 дней — 199 ₽'], ['90 дней — 499 ₽'], ['180 дней — 899 ₽'], ['⬅️ Назад']]
     assert _greens(markup) == 0
     back = _buttons(theme_markup(markup))[-1]
@@ -623,7 +634,14 @@ async def test_theme_on_periods_screen_en(theme_on, env):
     env['tariff'].traffic_limit_gb = 50
     callback = await show_periods(env, 'en')
     text, markup = _sent(callback.message.edit_text)
-    assert text == (f'<b>{_tag("gem")} Standard</b>\nTraffic: 50 GB · Devices: 3\n\nChoose a subscription period.')
+    assert text == (
+        f'<b>{_tag("gem")} Standard</b>\n'
+        '\n'
+        f'{_tag("chart")} Traffic: <b>50 GB</b>\n'
+        f'{_tag("phone")} Devices: <b>3</b>\n'
+        '\n'
+        'Choose a subscription period.'
+    )
     assert _labels(markup)[0] == ['30 days — 199 ₽']
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
     assert not CYRILLIC_RE.search(''.join(label for row in _labels(markup) for label in row).replace('₽', ''))
@@ -636,11 +654,24 @@ async def test_theme_on_periods_screen_description_is_italic_and_escaped(theme_o
     text, _ = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("gem")} Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 3\n'
+        '\n'
+        f'{_tag("chart")} Трафик: <b>∞</b>\n'
+        f'{_tag("phone")} Устройства: <b>3</b>\n'
+        '\n'
         '<i>Для дома &amp; &lt;семьи&gt;</i>\n'
         '\n'
         'Выберите срок подписки.'
     )
+
+
+@pytest.mark.parametrize('language', ['ru', 'en'])
+def test_theme_on_info_puts_the_discount_into_the_data_block(theme_on, language):
+    tariff = _tariff(description='Для дома & <семьи>')
+    text = tp.format_tariff_info_for_user(tariff, language, discount_percent=10)
+    discount = 'Ваша скидка' if language == 'ru' else 'Your discount'
+    assert f'\n{_tag("gift")} {discount}: <b>10%</b>\n\n<i>Для дома &amp; &lt;семьи&gt;</i>\n\n' in text
+    assert_screen_pattern('info-discount', text)
+    assert_screen_pattern('info-plain', tp.format_tariff_info_for_user(_tariff(), language))
 
 
 @pytest.mark.asyncio
@@ -682,11 +713,10 @@ async def test_theme_on_confirm_ru(theme_on, env):
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("gem")} Оформить подписку?</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 3\n'
-        'Срок: 30 дней\n'
-        'К оплате: <b>199 ₽</b>\n'
-        'Баланс: 1000 ₽ → останется 801 ₽'
+        '\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("money_bag")} К оплате: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>801 ₽</b>'
     )
     assert not caption_exceeds_telegram_limit(text)
     assert _labels(markup) == [[f'{_tag("check")} Подтвердить'], ['⬅️ Назад']]
@@ -704,31 +734,38 @@ async def test_theme_on_confirm_en(theme_on, env):
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("gem")} Buy the subscription?</b>\n'
-        'Plan: <b>Standard</b>\n'
-        'Traffic: 50 GB · Devices: 3\n'
-        'Period: 30 days\n'
-        'To pay: <b>199 ₽</b>\n'
-        'Balance: 1000 ₽ → 801 ₽ left'
+        '\n'
+        f'{_tag("hourglass")} Period: <b>30 days</b>\n'
+        f'{_tag("money_bag")} To pay: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Balance: <b>1000 ₽</b> → after payment <b>801 ₽</b>'
     )
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
     assert _labels(markup)[0] == [f'{_tag("check")} Confirm']
 
 
 @pytest.mark.asyncio
-async def test_theme_on_confirm_shows_the_discount_line_and_escapes_the_name(theme_on, env):
+async def test_theme_on_confirm_shows_the_discount_line(theme_on, env):
     _discounted_price(env)
-    env['tariff'].name = 'A & B'
     callback = await pick_period(env)
     text, _ = _sent(callback.message.edit_text)
-    assert 'Тариф: <b>A &amp; B</b>' in text
-    assert f'Срок: 30 дней\n{_tag("gift")} Скидка: <b>10%</b> (−19.90 ₽)\nК оплате: <b>179.10 ₽</b>' in text
+    assert text == (
+        f'<b>{_tag("gem")} Оформить подписку?</b>\n'
+        '\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("gift")} Скидка: <b>10%</b> (−19.90 ₽)\n'
+        f'{_tag("money_bag")} К оплате: <b>179.10 ₽</b>\n'
+        f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>820.90 ₽</b>'
+    )
+    assert text.count('<tg-emoji') == 5
 
 
 @pytest.mark.asyncio
-async def test_theme_on_confirm_counts_the_existing_subscription_devices(theme_on, env):
+async def test_theme_on_confirm_does_not_repeat_what_is_the_same_for_everyone(theme_on, env):
+    # Название единственного тарифа, трафик и число устройств на подтверждении не повторяются.
+    env['tariff'].name = 'Стандартный'
     env['existing'] = _subscription(device_limit=5)
-    callback = await pick_period(env)
-    assert 'Устройств: 5' in _sent(callback.message.edit_text)[0]
+    text = _sent((await pick_period(env)).message.edit_text)[0]
+    assert 'Стандартный' not in text and 'Трафик' not in text and 'Устройств' not in text
 
 
 # --- Под темой: недостаточно средств ------------------------------------------------------
@@ -811,10 +848,11 @@ async def test_theme_on_success_ru_en_with_end_date_and_green_connect(theme_on, 
     callback = await confirm(env)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("party")} Подписка оформлена до 25.11.2026</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 3\n'
-        'Списано <b>199 ₽</b> за 30 дней'
+        f'<b>{_tag("party")} Подписка оформлена</b>\n'
+        '\n'
+        f'{_tag("hourglass")} Действует до <b>25.11.2026</b>\n'
+        f'{_tag("refresh")} Период: <b>30 дней</b>\n'
+        f'{_tag("money_bag")} Списано: <b>199 ₽</b>'
     )
     assert not caption_exceeds_telegram_limit(text)
     connect, back = _buttons(markup)
@@ -829,10 +867,11 @@ async def test_theme_on_success_ru_en_with_end_date_and_green_connect(theme_on, 
     callback = await confirm(env, 'en')
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("party")} Subscription active until 25.11.2026</b>\n'
-        'Plan: <b>Standard</b>\n'
-        'Traffic: ∞ · Devices: 3\n'
-        'Charged <b>199 ₽</b> for 30 days'
+        f'<b>{_tag("party")} Subscription started</b>\n'
+        '\n'
+        f'{_tag("hourglass")} Valid until <b>25.11.2026</b>\n'
+        f'{_tag("refresh")} Period: <b>30 days</b>\n'
+        f'{_tag("money_bag")} Charged: <b>199 ₽</b>'
     )
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
     assert _buttons(markup)[0].text == f'{_tag("rocket")} Connect'
@@ -859,13 +898,6 @@ async def test_theme_on_success_connect_follows_the_connect_mode(theme_on, env, 
 
 
 @pytest.mark.asyncio
-async def test_theme_on_success_escapes_the_tariff_name(theme_on, env):
-    env['tariff'].name = 'A & <B>'
-    callback = await confirm(env)
-    assert 'Тариф: <b>A &amp; &lt;B&gt;</b>' in _sent(callback.message.edit_text)[0]
-
-
-@pytest.mark.asyncio
 async def test_theme_on_charge_and_purchase_errors(theme_on, env):
     env['charge_ok'] = False
     callback = await confirm(env)
@@ -877,12 +909,14 @@ async def test_theme_on_charge_and_purchase_errors(theme_on, env):
     callback = await confirm(env)
     assert _sent(callback.message.edit_text)[0] == (
         f'<b>{_tag("cross")} Не удалось оформить подписку</b>\n'
+        '\n'
         'Если деньги списались, а подписки нет — напишите в поддержку.'
     )
     callback = await confirm(env, 'en')
     text = _sent(callback.message.edit_text)[0]
     assert text == (
         f'<b>{_tag("cross")} Could not set up the subscription</b>\n'
+        '\n'
         'If you were charged but have no subscription, contact support.'
     )
 
@@ -891,17 +925,16 @@ async def test_theme_on_charge_and_purchase_errors(theme_on, env):
 
 
 @pytest.mark.asyncio
-async def test_theme_on_cart_restore_confirm_uses_the_cart_device_limit(theme_on, env):
+async def test_theme_on_cart_restore_confirm_matches_the_period_confirm(theme_on, env):
     callback = await restore_cart(env, discount_percent=10)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("gem")} Оформить подписку?</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 4\n'
-        'Срок: 30 дней\n'
+        '\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
         f'{_tag("gift")} Скидка: <b>10%</b> (−22.11 ₽)\n'
-        'К оплате: <b>199 ₽</b>\n'
-        'Баланс: 1000 ₽ → останется 801 ₽'
+        f'{_tag("money_bag")} К оплате: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>801 ₽</b>'
     )
     assert _alert(callback) == 'Корзина восстановлена'
     assert _greens(markup) == 1
@@ -967,6 +1000,13 @@ async def _every_screen(env, language: str) -> list[tuple[str, str, object]]:
     take('restore', await restore_cart(env, language))
     take('restore-short', await restore_cart(env, language, balance=5000))
     take('switch-insufficient', await switch_period(env, language))
+    _discounted_price(env)
+    take('confirm-discount', await pick_period(env, language))
+    env['charge_ok'] = False
+    take('charge-error', await confirm(env, language))
+    env['charge_ok'] = True
+    env['create_raises'] = True
+    take('purchase-error', await confirm(env, language))
     env['tariffs'] = []
     take('no-tariffs', await show_list(env, language))
     return screens
@@ -976,16 +1016,13 @@ async def _every_screen(env, language: str) -> list[tuple[str, str, object]]:
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, language):
     for name, text, markup in await _every_screen(env, language):
-        assert text.startswith('<b>'), name
-        assert text.splitlines()[0].count('<tg-emoji') == 1, name
-        assert text.count('<tg-emoji') <= 5, name
-        assert not caption_exceeds_telegram_limit(text), name
-        for banned in ('<blockquote', '<h1', '▰', '▓', '━', '🛒', '📦', '📊', '📱', '📅', '💰', '💳'):
-            assert banned not in text, (name, banned)
+        assert_screen_pattern(name, text, list_screen=name == 'list')
+        for banned in ('🛒', '📦', '📅', '💳'):
+            assert banned not in re.sub(r'<tg-emoji[^>]*>.*?</tg-emoji>', '', text), (name, banned)
         assert _greens(markup) <= 1, name
         if language == 'en':
             assert not CYRILLIC_RE.search(text.replace('₽', '')), (name, text)
-            for button in _buttons(theme_markup(markup)):
+            for button in _buttons(theme_markup(markup)) if markup is not None else []:
                 assert not CYRILLIC_RE.search(button.text.replace('₽', '')), (name, button.text)
 
 
@@ -993,7 +1030,7 @@ async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, 
 async def test_theme_on_decision_screens_have_one_green_each(theme_on, env):
     greens = {name: _greens(markup) for name, _, markup in await _every_screen(env, 'ru')}
     assert greens['confirm'] == greens['insufficient'] == greens['success'] == 1
-    assert greens['restore'] == greens['restore-short'] == 1
+    assert greens['restore'] == greens['restore-short'] == greens['confirm-discount'] == 1
 
 
 # --- Шаблоны форка форматируются настоящими kwargs вызова --------------------------------
@@ -1001,7 +1038,7 @@ async def test_theme_on_decision_screens_have_one_green_each(theme_on, env):
 REAL_KWARGS = {
     'TARIFF_PURCHASE_INFO': {'name': 'x', 'traffic': '∞', 'devices': 3},
     'TARIFF_PURCHASE_YOUR_DISCOUNT': {'percent': 10},
-    'TARIFF_PURCHASE_CONFIRM': {
+    'FORK_PURCHASE_CONFIRM': {
         'name': 'x',
         'traffic': '∞',
         'devices': 3,
@@ -1077,4 +1114,4 @@ def test_success_template_keeps_a_single_date_placeholder(theme_on, language):
 def test_already_active_text_does_not_promise_a_finished_refund(theme_on, language, money_line):
     # Возврат может не пройти и уйти в очередь — текст не утверждает, что деньги уже вернулись.
     value = get_texts(language).get('TARIFF_PURCHASE_ALREADY_ACTIVE_SUB')
-    assert value.split('\n')[1:] == [money_line]
+    assert value.split('\n')[1:] == ['', money_line]

@@ -566,7 +566,7 @@ def topup_restriction_keyboard(texts) -> InlineKeyboardMarkup:
 
 def fork_payment_methods_text(texts) -> str:
     """Экран способов оплаты под темой: заголовок и одна подсказка — способы и так видны на кнопках."""
-    return f'{texts.PAYMENT_METHODS_TITLE}\n{texts.PAYMENT_METHODS_PROMPT}'
+    return f'{texts.PAYMENT_METHODS_TITLE}\n\n{texts.PAYMENT_METHODS_PROMPT}'
 
 
 def get_payment_methods_text(language: str) -> str:

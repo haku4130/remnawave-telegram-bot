@@ -9,6 +9,7 @@ from app.localization import loader
 from app.localization.emoji_catalog import CATALOG
 from app.utils import fork_onboarding, rich_menu
 from scripts import preview_screens
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 MENU_TITLES = ('Меню — пробный', 'Меню — подключиться', 'Меню — продлить', 'Меню — тариф')
@@ -408,7 +409,7 @@ async def test_device_screens_present(theme_on, monkeypatch, language):
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
         assert screen.text.count('<tg-emoji') <= 5, title
-        _assert_approved_pattern(title, screen.text)
+        assert_screen_pattern(title, screen.text)
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
@@ -454,22 +455,6 @@ EXTEND_TITLES = (
 )
 
 
-def _assert_approved_pattern(title: str, text: str) -> None:
-    """Образец экрана подписки: заголовок, пустая строка, блоки через пустую строку, у строк данных иконка."""
-    assert text.startswith('<b>') and text.splitlines()[0].endswith('</b>'), title
-    assert text.splitlines()[0].count('<tg-emoji') == 1, title
-    assert text.count('<tg-emoji') <= 5, title
-    assert '\n\n\n' not in text and not text.endswith('\n'), title
-    blocks = text.split('\n\n')
-    assert len(blocks) >= 2, title
-    for block in blocks[1:]:
-        lines = block.split('\n')
-        if all(line.startswith('<tg-emoji') for line in lines):
-            continue
-        assert not any(line.startswith('<tg-emoji') for line in lines), (title, block)
-        assert len(lines) == 1, (title, block)
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_extend_screens_present(theme_on, monkeypatch, language):
@@ -487,7 +472,7 @@ async def test_extend_screens_present(theme_on, monkeypatch, language):
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
         assert screen.text.count('<tg-emoji') <= 5, title
-        _assert_approved_pattern(title, screen.text)
+        assert_screen_pattern(title, screen.text)
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
@@ -518,6 +503,17 @@ PURCHASE_TITLES = (
     'Покупка — выбор срока',
     'Покупка — подтверждение',
     'Покупка — не хватает средств',
+    'Покупка — ещё не хватает',
+    'Покупка — готово',
+    'Покупка — ошибка списания',
+    'Покупка — ошибка оформления',
+    'Покупка — тариф уже подключён',
+    'Покупка — тарифов нет',
+)
+PURCHASE_DECISION_TITLES = (
+    'Покупка — подтверждение',
+    'Покупка — не хватает средств',
+    'Покупка — ещё не хватает',
     'Покупка — готово',
 )
 
@@ -539,13 +535,15 @@ async def test_purchase_screens_present(theme_on, monkeypatch, language):
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert screen.text.count('<tg-emoji') <= 5, title
-        buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
+        assert_screen_pattern(title, screen.text, list_screen=title == 'Покупка — список тарифов')
+        buttons = (
+            [button for row in theme_markup(screen.markup).inline_keyboard for button in row] if screen.markup else []
+        )
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
             assert not re.search('[а-яА-ЯёЁ]', screen.text.replace('₽', '')), title
             assert not any(re.search('[а-яА-ЯёЁ]', button.text.replace('₽', '')) for button in buttons), title
-    for title in PURCHASE_TITLES[2:]:
+    for title in PURCHASE_DECISION_TITLES:
         buttons = [b for row in theme_markup(screens[title].markup).inline_keyboard for b in row]
         assert sum(1 for button in buttons if button.style == 'success') == 1, title
     assert 'tariff_period:1:30' in [
@@ -570,11 +568,17 @@ async def test_purchase_screens_absent_without_theme(monkeypatch):
 BALANCE_TITLES = (
     'Баланс',
     'Баланс — история',
+    'Баланс — история пуста',
     'Баланс — способы пополнения',
-    'Пополнение — ввод суммы',
-    'Пополнение — ссылка на оплату',
-    'Пополнение — оплата прошла',
-    'Пополнение — через поддержку',
+    'Баланс — пополнение недоступно',
+    'Баланс — через поддержку',
+    'Оплата — ввод суммы',
+    'Оплата — ссылка на оплату',
+    'Оплата — готово',
+    'Оплата — сумма слишком мала',
+    'Оплата — сумма слишком велика',
+    'Оплата — неверная сумма',
+    'Оплата — не удалось создать платёж',
 )
 
 
@@ -594,7 +598,8 @@ async def test_balance_screens_present(theme_on, monkeypatch, language):
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        # История — список: строки начинаются обычным значком 💰/💸, а не анимированным.
+        assert_screen_pattern(title, screen.text, list_screen=title == 'Баланс — история')
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
@@ -606,21 +611,21 @@ async def test_balance_screens_present(theme_on, monkeypatch, language):
 
     assert 'balance_topup' in callbacks('Баланс')
     assert callbacks('Баланс — способы пополнения')[:2] == ['topup_rollypay', 'topup_support']
-    assert 'topup_amount|rollypay|50000' in callbacks('Пополнение — ввод суммы')
-    pay = screens['Пополнение — ссылка на оплату'].markup.inline_keyboard[0][0]
+    assert 'topup_amount|rollypay|50000' in callbacks('Оплата — ввод суммы')
+    pay = screens['Оплата — ссылка на оплату'].markup.inline_keyboard[0][0]
     assert pay.url and pay.style == 'success'
-    assert 'К оплате 500 ₽' in screens['Пополнение — ссылка на оплату'].text or 'To pay: 500 ₽' in (
-        screens['Пополнение — ссылка на оплату'].text
+    assert 'Сумма: <b>500 ₽</b>' in screens['Оплата — ссылка на оплату'].text or 'Amount: <b>500 ₽</b>' in (
+        screens['Оплата — ссылка на оплату'].text
     )
     for title in (
         'Баланс',
         'Баланс — способы пополнения',
-        'Пополнение — ссылка на оплату',
-        'Пополнение — оплата прошла',
+        'Оплата — ссылка на оплату',
+        'Оплата — готово',
     ):
         buttons = [b for row in theme_markup(screens[title].markup).inline_keyboard for b in row]
         assert sum(1 for button in buttons if button.style == 'success') == 1, title
-    assert 'Транзакц' not in screens['Пополнение — оплата прошла'].text
+    assert 'Транзакц' not in screens['Оплата — готово'].text
 
 
 @pytest.mark.asyncio
@@ -635,10 +640,10 @@ async def test_balance_screens_absent_without_theme(monkeypatch):
 
 
 TOPUP_NOTIFICATION_TITLES = (
-    'После пополнения — подписка оформлена',
-    'После пополнения — подписка продлена',
-    'После пополнения — устройства добавлены',
-    'После пополнения — трафик добавлен',
+    'Автопокупка — подписка оформлена',
+    'Автопокупка — подписка продлена',
+    'Автопокупка — устройства добавлены',
+    'Автопокупка — трафик добавлен',
 )
 
 
@@ -655,7 +660,7 @@ async def test_topup_notification_screens_present(theme_on, language):
         assert not screen.rich, title
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
-        assert screen.text.count('<tg-emoji') == 1, title
+        assert_screen_pattern(title, screen.text)
         assert len(re.sub('<[^>]+>', '', screen.text)) <= 1024, title
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') == 1, title

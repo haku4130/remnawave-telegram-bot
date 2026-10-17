@@ -25,7 +25,7 @@ from app.database.models import (
     TransactionType,
     User,
 )
-from app.localization.fork_text import fork_period, fork_traffic
+from app.localization.fork_text import fork_period, fork_text, fork_traffic
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.gift_notification_service import (
@@ -171,18 +171,37 @@ def _notification_keyboard(
 
 
 def _fork_subscription_notification_text(
-    texts, title_key: str, title_default: str, period_days: int, end_date: datetime | None
+    texts,
+    title_key: str,
+    title_default: str,
+    period_days: int,
+    end_date: datetime | None,
+    *,
+    price_kopeks: int | None = None,
+    note_key: str = '',
 ) -> str:
-    """Уведомление об автопокупке/автопродлении под темой: заголовок и «Действует до …»; подсказка не нужна —
+    """Уведомление об автопокупке/автопродлении под темой: заголовок, затем строки данных — «Действует до …»,
+    период из ключа, «Списано …» — и пояснение «сделали автоматически» последним блоком. Подсказка не нужна:
     под текстом кнопка «Подключиться» или «Моя подписка»."""
-    lines = [texts.t(title_key, title_default).format(period=fork_period(texts, period_days))]
+    title, _, period_block = (
+        texts.t(title_key, title_default).format(period=fork_period(texts, period_days)).partition('\n\n')
+    )
+    data: list[str] = []
     if end_date:
-        lines.append(
+        data.append(
             texts.t('AUTO_PURCHASE_SUBSCRIPTION_EXTENDED_DETAILS', '⏰ Новая дата окончания: {date}.').format(
                 date=format_local_datetime(end_date, '%d.%m.%Y')
             )
         )
-    return '\n'.join(lines)
+    if period_block:
+        data.append(period_block)
+    if price_kopeks is not None:
+        data.append(
+            fork_text(texts, 'FORK_AUTO_PURCHASE_CHARGED', '💰 {price}').format(price=texts.format_price(price_kopeks))
+        )
+    text = '\n\n'.join([title, '\n'.join(data)]) if data else title
+    note = fork_text(texts, note_key, '') if note_key else ''
+    return f'{text}\n\n{note}' if note else text
 
 
 @dataclass(slots=True)
@@ -825,6 +844,8 @@ async def _auto_extend_subscription(
                     '✅ Subscription automatically extended for {period}.',
                     prepared.period_days,
                     new_end_date,
+                    price_kopeks=prepared.price_kopeks,
+                    note_key='FORK_AUTO_EXTEND_NOTE',
                 )
             else:
                 auto_message = texts.t(
@@ -1201,6 +1222,8 @@ async def _auto_purchase_tariff(
                     '✅ Подписка на {period} автоматически оформлена после пополнения баланса.',
                     period_days,
                     getattr(subscription, 'end_date', None),
+                    price_kopeks=final_price,
+                    note_key='FORK_AUTO_PURCHASE_NOTE',
                 )
             else:
                 message = texts.t(
@@ -2635,6 +2658,8 @@ async def try_auto_extend_expired_after_topup(
                     '✅ Subscription automatically extended for {period}.',
                     period_days,
                     new_end_date,
+                    price_kopeks=renewal_cost,
+                    note_key='FORK_AUTO_EXTEND_NOTE',
                 )
             else:
                 auto_message = texts.t(

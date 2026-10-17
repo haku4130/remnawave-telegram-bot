@@ -25,6 +25,7 @@ from app.localization.texts import get_texts
 from app.middlewares.premium_theme import theme_markup
 from app.services.pricing_engine import PricingEngine
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -1153,26 +1154,6 @@ def test_rewritten_texts_follow_the_visual_language(theme_on, key, language):
         assert not rest or rest.startswith('\n'), key
 
 
-def _assert_screen_pattern(name: str, text: str) -> None:
-    """Образец экрана подписки: <b>заголовок</b>, пустая строка, блоки через пустую строку, у строк данных — иконка."""
-    assert text.startswith('<b>') and text.splitlines()[0].endswith('</b>'), name
-    assert text.splitlines()[0].count('<tg-emoji') == 1, name
-    assert text.count('<tg-emoji') <= 5, name
-    assert '\n\n\n' not in text and not text.endswith('\n'), name
-    assert not caption_exceeds_telegram_limit(text), name
-    for banned in ('<blockquote', '<h1', '<p>', '▰', '▓', '━'):
-        assert banned not in text, (name, banned)
-    blocks = text.split('\n\n')
-    assert len(blocks) >= 2, name
-    for block in blocks[1:]:
-        lines = block.split('\n')
-        if all(line.startswith('<tg-emoji') for line in lines):
-            continue
-        # Блок без иконок — одна короткая строка-пояснение; смешанных блоков быть не должно.
-        assert not any(line.startswith('<tg-emoji') for line in lines), (name, block)
-        assert len(lines) == 1, (name, block)
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize('language', ['ru', 'en'])
 async def test_theme_on_screens_follow_the_approved_pattern(theme_on, env, monkeypatch, language):
@@ -1190,6 +1171,6 @@ async def test_theme_on_screens_follow_the_approved_pattern(theme_on, env, monke
     env['subscription'] = _subscription()
     screens['revoke-error'] = (await confirm_revoke(env, monkeypatch, language, new_url=None))[0]
     for name, text in screens.items():
-        _assert_screen_pattern(name, text)
+        assert_screen_pattern(name, text)
         if language == 'en':
             assert not CYRILLIC_RE.search(text.replace('₽', '')), (name, text)

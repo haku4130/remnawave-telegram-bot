@@ -277,15 +277,17 @@ async def show_balance_menu(callback: types.CallbackQuery, db_user: User, db: As
 def _history_text(texts, transactions) -> str:
     """Страница истории операций.
 
-    Под темой: заголовок и по строке на операцию «сумма · описание · дата» (описание укорочено, без времени);
-    без темы — три строки на операцию, как у апстрима.
+    Под темой: заголовок и по строке на операцию «значок сумма · описание · дата» (описание укорочено, без времени);
+    значок — обычный эмодзи по виду операции, как у апстрима: анимированных на сообщение не больше пяти,
+    а строк в списке десять. Без темы — три строки на операцию, как у апстрима.
     """
     if settings.PREMIUM_THEME_ENABLED:
         lines = [texts.FORK_HISTORY_TITLE, '']
         for transaction in transactions:
             is_credit = transaction.type in CREDIT_TRANSACTION_TYPES
+            icon = '💰' if is_credit else '💸'
             sign, amount = ('+', transaction.amount_kopeks) if is_credit else ('−', abs(transaction.amount_kopeks))
-            parts = [f'<b>{sign}{texts.format_price(amount)}</b>']
+            parts = [f'{icon} <b>{sign}{texts.format_price(amount)}</b>']
             description = shorten_text(transaction.description or '', _HISTORY_DESCRIPTION_LIMIT)
             if description:
                 parts.append(html.escape(description))

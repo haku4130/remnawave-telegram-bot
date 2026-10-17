@@ -26,6 +26,7 @@ from app.services.payment.common import PaymentCommonMixin
 from app.services.payment.rollypay import RollyPayPaymentMixin
 from app.utils import payment_utils
 from app.utils.message_patch import caption_exceeds_telegram_limit
+from tests.fixtures.fork_pattern import assert_screen_pattern
 
 
 TAG_RE = re.compile(r'<[^>]+>')
@@ -84,6 +85,8 @@ def _buttons(markup):
 
 
 def _greens(markup) -> int:
+    if markup is None:
+        return 0
     return sum(1 for button in _buttons(theme_markup(markup)) if button.style == 'success')
 
 
@@ -388,7 +391,7 @@ def test_theme_off_success_message_matches_upstream(theme_off):
 async def test_theme_on_balance_menu_ru(theme_on):
     callback = await show_menu()
     text, markup = _sent(callback.message.edit_caption)
-    assert text == f'<b>{_tag("money_bag")} Баланс: 150 ₽</b>'
+    assert text == f'<b>{_tag("coin")} Баланс</b>\n\n{_tag("money_bag")} На счёте: <b>150 ₽</b>'
     assert _labels(markup)[1] == ['⬅️ Назад']
     styled = theme_markup(markup)
     topup = next(button for button in _buttons(styled) if button.callback_data == 'balance_topup')
@@ -404,7 +407,7 @@ async def test_theme_on_balance_menu_ru(theme_on):
 @pytest.mark.asyncio
 async def test_theme_on_balance_menu_en(theme_on):
     text, markup = _sent((await show_menu('en')).message.edit_caption)
-    assert _plain(text) == '💰 Balance: 150 ₽'
+    assert _plain(text) == '🪙 Balance\n\n💰 Available: 150 ₽'
     assert [button.text for button in _buttons(theme_markup(markup))][:2] == ['History', 'Top up']
 
 
@@ -419,10 +422,11 @@ async def test_theme_on_history_ru(theme_on, history):
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("chart")} История операций</b>\n\n'
-        '<b>+150 ₽</b> · Пополнение через RollyPay · 16.10.2026\n'
-        '<b>−199 ₽</b> · Покупка тарифа &lt;Стандартный&gt; на 30 дней · 15.10.2026\n'
-        '<b>+25 ₽</b> · 14.10.2026'
+        '💰 <b>+150 ₽</b> · Пополнение через RollyPay · 16.10.2026\n'
+        '💸 <b>−199 ₽</b> · Покупка тарифа &lt;Стандартный&gt; на 30 дней · 15.10.2026\n'
+        '💰 <b>+25 ₽</b> · 14.10.2026'
     )
+    assert_screen_pattern('history', text, list_screen=True)
     assert _labels(markup) == [['⬅️ Назад']]
     assert _greens(markup) == 0
 
@@ -462,7 +466,7 @@ async def test_theme_on_history_paginates(theme_on, history):
 @pytest.mark.asyncio
 async def test_theme_on_empty_history(theme_on, history):
     text, markup = _sent((await show_history([])).message.edit_text)
-    assert text == f'<b>{_tag("chart")} Операций пока нет</b>\nЗдесь появятся пополнения и списания.'
+    assert text == f'<b>{_tag("chart")} Операций пока нет</b>\n\nЗдесь появятся пополнения и списания.'
     assert _labels(markup) == [['⬅️ Назад']]
 
 
@@ -471,7 +475,7 @@ async def test_theme_on_payment_methods_ru(theme_on):
     callback = await show_methods()
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("coin")} Пополнение баланса</b>\nВыберите способ оплаты. Баланс пополнится сразу после платежа.'
+        f'<b>{_tag("coin")} Пополнение баланса</b>\n\nВыберите способ оплаты — баланс пополнится сразу после платежа.'
     )
     assert 'Выберите способ пополнения' not in text
     styled = theme_markup(markup)
@@ -522,7 +526,7 @@ async def test_theme_on_topup_restriction(theme_on, language):
 @pytest.mark.asyncio
 async def test_theme_on_rollypay_restriction_uses_the_same_text(theme_on):
     text, markup = _sent((await ask_amount(restriction_topup=True, restriction_reason='Спам')).message.edit_text)
-    assert text.startswith(f'<b>{_tag("no_entry")} Пополнение недоступно</b>\nСпам\n')
+    assert text.startswith(f'<b>{_tag("no_entry")} Пополнение недоступно</b>\n\n{_tag("info")} Причина: Спам\n\n')
     assert _greens(markup) == 0
 
 
@@ -532,8 +536,11 @@ async def test_theme_on_amount_prompt_ru(theme_on, quick_amounts):
     text, markup = _sent(callback.message.edit_text)
     assert text == (
         f'<b>{_tag("coin")} Пополнение через RollyPay</b>\n'
-        'Напишите сумму в рублях или выберите ниже.\n'
-        'От 100 ₽ до 100 000 ₽'
+        '\n'
+        f'{_tag("dollar")} Минимум: <b>100 ₽</b>\n'
+        f'{_tag("money_bag")} Максимум: <b>100 000 ₽</b>\n'
+        '\n'
+        'Напишите сумму в рублях или выберите ниже.'
     )
     assert [button.text for row in markup.inline_keyboard[:2] for button in row] == [
         '100 ₽',
@@ -563,7 +570,10 @@ async def test_theme_on_payment_link_ru(theme_on, rollypay_api):
     message = await create_payment(50000)
     text, markup = _sent(message.answer)
     assert text == (
-        f'<b>{_tag("coin")} К оплате 500 ₽</b>\nСпособ: RollyPay\n'
+        f'<b>{_tag("coin")} Оплата через RollyPay</b>\n'
+        '\n'
+        f'{_tag("money_bag")} Сумма: <b>500 ₽</b>\n'
+        '\n'
         'Нажмите кнопку ниже — баланс пополнится сразу после оплаты.'
     )
     assert '.00' not in text
@@ -579,14 +589,15 @@ async def test_theme_on_payment_link_ru(theme_on, rollypay_api):
 async def test_theme_on_payment_link_keeps_kopeks_when_they_exist(theme_on, rollypay_api):
     message = await create_payment(50050)
     text, markup = _sent(message.answer)
-    assert 'К оплате 500.50 ₽' in text
+    assert 'Сумма: <b>500.50 ₽</b>' in text
     assert _buttons(theme_markup(markup))[0].text == 'Оплатить 500.50 ₽'
 
 
 @pytest.mark.asyncio
 async def test_theme_on_payment_link_en(theme_on, rollypay_api):
     text, markup = _sent((await create_payment(30000, 'en')).answer)
-    assert _plain(text).splitlines()[0] == '🪙 To pay: 300 ₽'
+    assert _plain(text).splitlines()[0] == '🪙 Payment via RollyPay'
+    assert '💰 Amount: 300 ₽' in _plain(text)
     assert not CYRILLIC_RE.search(text)
     assert _buttons(theme_markup(markup))[0].text == 'Pay 300 ₽'
 
@@ -614,17 +625,25 @@ async def test_theme_on_payment_error_and_limits(theme_on, rollypay_api, languag
 async def test_theme_on_typed_amount_limits_reuse_the_short_templates(theme_on):
     low = (await type_amount('0.5')).answer.await_args.args[0]
     high = (await type_amount('60000')).answer.await_args.args[0]
-    assert low == f'<b>{_tag("warning")} Минимальная сумма — 1 ₽</b>'
-    assert high == f'<b>{_tag("warning")} Максимальная сумма — 50 000 ₽</b>'
+    assert low == f'<b>{_tag("warning")} Сумма слишком мала</b>\n\n{_tag("dollar")} Минимум: <b>1 ₽</b>'
+    assert high == f'<b>{_tag("warning")} Сумма слишком велика</b>\n\n{_tag("money_bag")} Максимум: <b>50 000 ₽</b>'
     invalid = (await type_amount('abc')).answer.await_args.args[0]
-    assert invalid == f'<b>{_tag("cross")} Неверная сумма</b>\nНапишите число, например 300.'
+    assert invalid == f'<b>{_tag("cross")} Неверная сумма</b>\n\nНапишите число, например 300.'
 
 
 @pytest.mark.asyncio
 async def test_theme_on_support_topup_ru(theme_on):
     callback = await support_topup(email='a<b>@x.ru', telegram_id=None)
     text, markup = _sent(callback.message.edit_text)
-    assert text.startswith(f'<b>{_tag("speech")} Пополнение через поддержку</b>\n')
+    assert text == (
+        f'<b>{_tag("coin")} Пополнение через поддержку</b>\n'
+        '\n'
+        f'{_tag("speech")} Напишите: @zanity_support\n'
+        f'{_tag("user")} Ваш ID: <code>a&lt;b&gt;@x.ru</code>\n'
+        f'{_tag("hourglass")} Обработаем за 1–24 часа\n'
+        '\n'
+        'Укажите ID, сумму и удобный способ — например, криптовалюту или перевод между банками.'
+    )
     assert '@zanity_support' in text
     assert '<code>a&lt;b&gt;@x.ru</code>' in text
     assert '•' not in text and '⏰' not in text
@@ -647,17 +666,28 @@ async def test_theme_on_support_topup_en(theme_on):
 
 def test_theme_on_success_message_ru_en_without_transaction_id(theme_on):
     ru = rollypay_service._topup_success_text(_user('ru'), 50000, 'RollyPay', 77)
-    assert ru == f'<b>{_tag("check")} Баланс пополнен на 500 ₽</b>\nСпособ: RollyPay'
+    assert ru == (
+        f'<b>{_tag("check")} Баланс пополнен</b>\n'
+        '\n'
+        f'{_tag("money_bag")} Зачислено: <b>500 ₽</b>\n'
+        f'{_tag("coin")} На счёте: <b>150 ₽</b>'
+    )
     en = rollypay_service._topup_success_text(_user('en'), 50000, 'RollyPay', 77)
-    assert en == f'<b>{_tag("check")} Balance topped up by 500 ₽</b>\nMethod: RollyPay'
+    assert en == (
+        f'<b>{_tag("check")} Balance topped up</b>\n'
+        '\n'
+        f'{_tag("money_bag")} Credited: <b>500 ₽</b>\n'
+        f'{_tag("coin")} Available: <b>150 ₽</b>'
+    )
     for text in (ru, en):
         assert 'Транзакция' not in text and 'Transaction' not in text and '77' not in text
-        assert not caption_exceeds_telegram_limit(text)
+        assert 'RollyPay' not in text, 'способ у всех один — в сообщении его нет'
+        assert_screen_pattern('success', text)
 
 
-def test_theme_on_success_message_escapes_the_provider_name(theme_on):
-    text = rollypay_service._topup_success_text(_user(), 50000, 'Pay<&>', 77)
-    assert 'Pay&lt;&amp;&gt;' in text
+def test_theme_on_success_message_shows_the_balance_after_the_top_up(theme_on):
+    user = _user(balance=65000)
+    assert 'На счёте: <b>650 ₽</b>' in rollypay_service._topup_success_text(user, 50000, 'RollyPay', 77)
 
 
 def test_theme_on_success_message_falls_back_to_russian_for_a_missing_language(theme_on):
@@ -904,7 +934,12 @@ async def test_theme_on_flow_sends_success_first_then_drops_the_spent_cart_butto
     # Кнопки обновляются только после коммита, который отмечает платёж зачисленным.
     assert finalize_env.events == ['success-message', 'auto-purchase', 'payment-committed', 'markup-refresh']
     sent = finalize_env.bot.send_message.await_args
-    assert sent.args[1] == f'<b>{_tag("check")} Баланс пополнен на 500 ₽</b>\nСпособ: RollyPay'
+    assert sent.args[1] == (
+        f'<b>{_tag("check")} Баланс пополнен</b>\n'
+        '\n'
+        f'{_tag("money_bag")} Зачислено: <b>500 ₽</b>\n'
+        f'{_tag("coin")} На счёте: <b>500 ₽</b>'
+    )
     assert 'return_to_saved_cart' in _callbacks(sent.kwargs['reply_markup'])
     refreshed = finalize_env.bot.edit_message_reply_markup.await_args.kwargs['reply_markup']
     assert 'return_to_saved_cart' not in _callbacks(refreshed)
@@ -997,6 +1032,17 @@ async def _every_screen(language: str, history, rollypay_api) -> list[tuple[str,
     take('amount', (await ask_amount(language)).message.edit_text)
     take('link', (await create_payment(50000, language)).answer)
     take('support', (await support_topup(language)).message.edit_text)
+    for name, kopeks in (('limit-low', 5000), ('limit-high', 20000000)):
+        limit_message = MagicMock()
+        limit_message.answer = AsyncMock()
+        await rollypay_handler.process_rollypay_payment_amount(
+            limit_message, _user(language), MagicMock(), kopeks, _state()
+        )
+        take(name, limit_message.answer)
+    take('invalid-amount', (await type_amount('abc', language)).answer)
+    screens.append(('success', rollypay_service._topup_success_text(_user(language), 50000, 'RollyPay', 77), None))
+    rollypay_api.create_rollypay_payment.return_value = None
+    take('create-error', (await create_payment(50000, language)).answer)
     return screens
 
 
@@ -1006,16 +1052,15 @@ async def test_theme_on_every_screen_follows_the_visual_language(
     theme_on, history, rollypay_api, quick_amounts, language
 ):
     for name, text, markup in await _every_screen(language, history, rollypay_api):
-        assert text.startswith('<b>'), name
-        assert text.splitlines()[0].count('<tg-emoji') == 1, name
-        assert text.count('<tg-emoji') <= 2, name
-        assert not caption_exceeds_telegram_limit(text), name
-        for banned in ('<blockquote', '<h1', '▰', '▓', '━', '💳', '🛠', '📝', '📅', '💰', '💸', '📊', '🚫', '⏰'):
+        # История — список: строки начинаются обычным значком 💰/💸 (анимированных на сообщение не больше пяти).
+        assert_screen_pattern(name, text, list_screen=name == 'history')
+        banned_symbols = ('💳', '🛠', '📝', '📅', '📊', '🚫', '⏰') + (() if name == 'history' else ('💰', '💸'))
+        for banned in banned_symbols:
             assert banned not in _without_emoji(text), (name, banned)
         assert _greens(markup) <= 1, name
         if language == 'en':
             assert not CYRILLIC_RE.search(text.replace('₽', '')), (name, text)
-            for button in _buttons(theme_markup(markup)):
+            for button in _buttons(theme_markup(markup)) if markup is not None else []:
                 assert not CYRILLIC_RE.search(button.text.replace('₽', '')), (name, button.text)
 
 
@@ -1058,7 +1103,7 @@ PLAIN_KEYS = (
 # Эти ключи форка подставляют не .format(), а .replace() — фигурные скобки значений им не страшны.
 REPLACE_PLACEHOLDERS = {
     'FORK_TOPUP_RESTRICTED': {'{reason}'},
-    'FORK_TOPUP_SUCCESS': {'{amount}', '{method}'},
+    'FORK_TOPUP_SUCCESS': {'{amount}', '{balance}'},
     'FORK_SUPPORT_TOPUP': {'{contact}', '{user_id}'},
     'FORK_BUTTON_PAY_VIA': {'{name}'},
 }
@@ -1087,9 +1132,10 @@ def test_replace_templates_carry_exactly_their_placeholders(theme_on, key, langu
 def test_rewritten_texts_follow_the_visual_language(theme_on, key, language):
     value = get_texts(language).get(key)
     assert value is not None, key
-    assert value.count('<tg-emoji') <= 2, key
+    assert value.count('<tg-emoji') <= 5, key
     for banned in ('<blockquote', '<h1', '<h2', '<h3', '▰', '▓', '━'):
         assert banned not in value, (key, banned)
+    assert '\n\n\n' not in value, key
     if value.startswith('<b>'):
         assert value.split('\n')[0].count('<tg-emoji') <= 1, key
 
