@@ -358,7 +358,7 @@ def _device_screens(language: str) -> list[PreviewScreen]:
 
     return [
         PreviewScreen(
-            'Настройки подписки',
+            'Настройки — подписка',
             purchase._build_fork_settings_text(texts, subscription, show_devices=True, devices_used=len(panel_devices)),
             get_updated_subscription_settings_keyboard(language, False, tariff=tariff, subscription=subscription),
         ),
@@ -397,9 +397,22 @@ def _device_screens(language: str) -> list[PreviewScreen]:
             get_back_keyboard(language),
         ),
         PreviewScreen(
+            'Устройства — готово (уменьшено)',
+            texts.DEVICE_CHANGE_DECREASE_SUCCESS
+            + texts.DEVICE_CHANGE_RESULT_LINE.format(old=4, new=3)
+            + texts.DEVICE_CHANGE_DEVICES_REMOVED.format(count=1)
+            + texts.DEVICE_CHANGE_NO_REFUND_INFO,
+            get_back_keyboard(language),
+        ),
+        PreviewScreen(
             'Устройства — список',
             devices._build_fork_devices_text(texts, len(panel_devices), pagination.page, pagination.total_pages),
             get_devices_management_keyboard(pagination.items, pagination, language, add_device=True),
+        ),
+        PreviewScreen(
+            'Устройства — сброшены',
+            texts.DEVICE_RESET_ALL_SUCCESS_MESSAGE.format(count=len(panel_devices)),
+            get_back_keyboard(language),
         ),
         PreviewScreen(
             'Перевыпуск — вопрос',
@@ -410,6 +423,15 @@ def _device_screens(language: str) -> list[PreviewScreen]:
             'Перевыпуск — готово',
             texts.SUBSCRIPTION_REVOKE_SUCCESS,
             revoke._build_revoke_success_keyboard(language),
+        ),
+        PreviewScreen(
+            'Перевыпуск — ошибка',
+            texts.SUBSCRIPTION_REVOKE_ERROR,
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=texts.BACK, callback_data=revoke._back_to_subscription_callback())]
+                ]
+            ),
         ),
     ]
 
@@ -460,10 +482,27 @@ def _extend_screens(language: str) -> list[PreviewScreen]:
             tariff_purchase._extend_success_keyboard(texts, subscription),
         ),
         PreviewScreen(
-            'Смена тарифа — нет вариантов',
+            'Продление — ещё не хватает',
+            tariff_purchase._tariff_insufficient_text(texts, tariff, period, price, balance, still=True),
+            tariff_purchase.get_tariff_extend_insufficient_balance_keyboard(
+                tariff.id, subscription.id, period, language, missing_kopeks=price - balance
+            ),
+        ),
+        PreviewScreen(
+            'Продление — смена тарифа (нет вариантов)',
             texts.TARIFF_SWITCH_NO_TARIFFS,
             InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')]]
+            ),
+        ),
+        PreviewScreen(
+            'Продление — смена тарифа (закончилась)',
+            texts.TARIFF_SWITCH_EXPIRED,
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [tariff_purchase._buy_tariff_button(texts)],
+                    [InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')],
+                ]
             ),
         ),
     ]

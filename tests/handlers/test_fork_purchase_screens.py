@@ -721,7 +721,7 @@ async def test_theme_on_confirm_shows_the_discount_line_and_escapes_the_name(the
     callback = await pick_period(env)
     text, _ = _sent(callback.message.edit_text)
     assert 'Тариф: <b>A &amp; B</b>' in text
-    assert 'Срок: 30 дней\nСкидка: 10% (−19.90 ₽)\nК оплате: <b>179.10 ₽</b>' in text
+    assert f'Срок: 30 дней\n{_tag("gift")} Скидка: <b>10%</b> (−19.90 ₽)\nК оплате: <b>179.10 ₽</b>' in text
 
 
 @pytest.mark.asyncio
@@ -739,10 +739,10 @@ async def test_theme_on_insufficient_ru_en_without_the_old_cart_hint(theme_on, e
     callback = await pick_period(env, balance=5000)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Недостаточно средств</b>\n'
-        'Стандартный на 30 дней: <b>199 ₽</b>\n'
-        'На балансе: 50 ₽\n'
-        'Не хватает: <b>149 ₽</b>\n'
+        f'<b>{_tag("warning")} Недостаточно средств</b>\n\n'
+        f'{_tag("gem")} Стандартный на 30 дней: <b>199 ₽</b>\n'
+        f'{_tag("coin")} На балансе: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Не хватает: <b>149 ₽</b>\n\n'
         'Пополните баланс — оформим автоматически.'
     )
     assert '🛒' not in text and 'Корзина сохранена' not in text
@@ -751,10 +751,10 @@ async def test_theme_on_insufficient_ru_en_without_the_old_cart_hint(theme_on, e
     callback = await pick_period(env, 'en', balance=5000)
     text, _ = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Not enough funds</b>\n'
-        'Standard for 30 days: <b>199 ₽</b>\n'
-        'Balance: 50 ₽\n'
-        'Missing: <b>149 ₽</b>\n'
+        f'<b>{_tag("warning")} Not enough funds</b>\n\n'
+        f'{_tag("gem")} Standard for 30 days: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Balance: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Missing: <b>149 ₽</b>\n\n'
         'Top up your balance — we will activate it automatically.'
     )
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
@@ -791,10 +791,10 @@ async def test_theme_on_switch_insufficient_uses_the_period_label(theme_on, env)
     callback = await switch_period(env)
     text, _ = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Недостаточно средств</b>\n'
-        'Стандартный на 30 дней: <b>199 ₽</b>\n'
-        'На балансе: 50 ₽\n'
-        'Не хватает: <b>149 ₽</b>'
+        f'<b>{_tag("warning")} Недостаточно средств</b>\n\n'
+        f'{_tag("gem")} Стандартный на 30 дней: <b>199 ₽</b>\n'
+        f'{_tag("coin")} На балансе: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Не хватает: <b>149 ₽</b>'
     )
     env['tariff'].name = 'Standard'
     callback = await switch_period(env, 'en')
@@ -870,7 +870,7 @@ async def test_theme_on_charge_and_purchase_errors(theme_on, env):
     env['charge_ok'] = False
     callback = await confirm(env)
     assert _sent(callback.message.edit_text)[0] == (
-        f'<b>{_tag("cross")} Не удалось списать оплату</b>\nПопробуйте ещё раз чуть позже.'
+        f'<b>{_tag("cross")} Не удалось списать оплату</b>\n\nПопробуйте ещё раз чуть позже.'
     )
     env['charge_ok'] = True
     env['create_raises'] = True
@@ -899,7 +899,7 @@ async def test_theme_on_cart_restore_confirm_uses_the_cart_device_limit(theme_on
         'Тариф: <b>Стандартный</b>\n'
         'Трафик: ∞ · Устройств: 4\n'
         'Срок: 30 дней\n'
-        'Скидка: 10% (−22.11 ₽)\n'
+        f'{_tag("gift")} Скидка: <b>10%</b> (−22.11 ₽)\n'
         'К оплате: <b>199 ₽</b>\n'
         'Баланс: 1000 ₽ → останется 801 ₽'
     )
@@ -912,10 +912,10 @@ async def test_theme_on_cart_restore_still_insufficient(theme_on, env):
     callback = await restore_cart(env, balance=5000)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Всё ещё не хватает</b>\n'
-        'Стандартный на 30 дней: <b>199 ₽</b>\n'
-        'На балансе: 50 ₽\n'
-        'Не хватает: <b>149 ₽</b>'
+        f'<b>{_tag("warning")} Всё ещё не хватает</b>\n\n'
+        f'{_tag("gem")} Стандартный на 30 дней: <b>199 ₽</b>\n'
+        f'{_tag("coin")} На балансе: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Не хватает: <b>149 ₽</b>'
     )
     assert _greens(markup) == 1
     env['tariff'].name = 'Standard'
@@ -978,7 +978,7 @@ async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, 
     for name, text, markup in await _every_screen(env, language):
         assert text.startswith('<b>'), name
         assert text.splitlines()[0].count('<tg-emoji') == 1, name
-        assert text.count('<tg-emoji') <= 2, name
+        assert text.count('<tg-emoji') <= 5, name
         assert not caption_exceeds_telegram_limit(text), name
         for banned in ('<blockquote', '<h1', '▰', '▓', '━', '🛒', '📦', '📊', '📱', '📅', '💰', '💳'):
             assert banned not in text, (name, banned)
@@ -1054,7 +1054,7 @@ def test_templates_format_with_real_call_kwargs(theme_on, key, language):
 def test_rewritten_texts_follow_the_visual_language(theme_on, key, language):
     value = get_texts(language).get(key)
     assert value is not None, key
-    assert value.count('<tg-emoji') <= 2, key
+    assert value.count('<tg-emoji') <= 5, key
     for banned in ('<blockquote', '<h1', '<h2', '<h3', '▰', '▓', '━'):
         assert banned not in value, (key, banned)
     if value.startswith('<b>'):

@@ -377,15 +377,18 @@ async def test_subscription_screens_absent_without_theme(monkeypatch):
 
 
 DEVICE_TITLES = (
-    'Настройки подписки',
+    'Настройки — подписка',
     'Устройства — выбор количества',
     'Устройства — подтверждение (увеличить)',
     'Устройства — подтверждение (уменьшить)',
     'Устройства — недостаточно средств',
     'Устройства — готово',
+    'Устройства — готово (уменьшено)',
     'Устройства — список',
+    'Устройства — сброшены',
     'Перевыпуск — вопрос',
     'Перевыпуск — готово',
+    'Перевыпуск — ошибка',
 )
 
 
@@ -404,7 +407,8 @@ async def test_device_screens_present(theme_on, monkeypatch, language):
         assert not screen.rich, title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
+        _assert_approved_pattern(title, screen.text)
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
@@ -418,6 +422,14 @@ async def test_device_screens_present(theme_on, monkeypatch, language):
     # «Добавить устройство» переехала с экрана подписки на список устройств — синяя, над «Назад».
     assert list_buttons[-2].callback_data == 'subscription_change_devices'
     assert list_buttons[-2].style == 'primary'
+
+
+@pytest.mark.asyncio
+async def test_settings_device_revoke_and_extend_titles_use_the_agreed_prefixes(theme_on, monkeypatch):
+    monkeypatch.setattr(settings, 'SALES_MODE', 'tariffs')
+    titles = [screen.title for screen in await preview_screens.build_screens('ru')]
+    for prefix in ('Настройки — ', 'Устройства — ', 'Перевыпуск — ', 'Продление — '):
+        assert any(title.startswith(prefix) for title in titles), prefix
 
 
 @pytest.mark.asyncio
@@ -436,8 +448,26 @@ EXTEND_TITLES = (
     'Продление — подтверждение',
     'Продление — не хватает средств',
     'Продление — готово',
-    'Смена тарифа — нет вариантов',
+    'Продление — ещё не хватает',
+    'Продление — смена тарифа (нет вариантов)',
+    'Продление — смена тарифа (закончилась)',
 )
+
+
+def _assert_approved_pattern(title: str, text: str) -> None:
+    """Образец экрана подписки: заголовок, пустая строка, блоки через пустую строку, у строк данных иконка."""
+    assert text.startswith('<b>') and text.splitlines()[0].endswith('</b>'), title
+    assert text.splitlines()[0].count('<tg-emoji') == 1, title
+    assert text.count('<tg-emoji') <= 5, title
+    assert '\n\n\n' not in text and not text.endswith('\n'), title
+    blocks = text.split('\n\n')
+    assert len(blocks) >= 2, title
+    for block in blocks[1:]:
+        lines = block.split('\n')
+        if all(line.startswith('<tg-emoji') for line in lines):
+            continue
+        assert not any(line.startswith('<tg-emoji') for line in lines), (title, block)
+        assert len(lines) == 1, (title, block)
 
 
 @pytest.mark.asyncio
@@ -456,7 +486,8 @@ async def test_extend_screens_present(theme_on, monkeypatch, language):
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
+        _assert_approved_pattern(title, screen.text)
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':
@@ -508,7 +539,7 @@ async def test_purchase_screens_present(theme_on, monkeypatch, language):
         assert screen.text.startswith('<b>'), title
         assert '<blockquote' not in screen.text, title
         assert not caption_exceeds_telegram_limit(screen.text), title
-        assert screen.text.count('<tg-emoji') <= 2, title
+        assert screen.text.count('<tg-emoji') <= 5, title
         buttons = [button for row in theme_markup(screen.markup).inline_keyboard for button in row]
         assert sum(1 for button in buttons if button.style == 'success') <= 1, title
         if language == 'en':

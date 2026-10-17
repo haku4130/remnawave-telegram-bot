@@ -527,9 +527,9 @@ async def test_theme_on_period_screen_ru(theme_on, env):
     callback = await show_periods(env)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Продление подписки</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 3\n'
+        f'<b>{_tag("refresh")} Продление подписки</b>\n\n'
+        f'{_tag("chart")} Трафик: <b>∞</b>\n'
+        f'{_tag("phone")} Устройства: <b>3</b>\n\n'
         'Выберите срок продления.'
     )
     assert not caption_exceeds_telegram_limit(text)
@@ -545,9 +545,9 @@ async def test_theme_on_period_screen_en_has_no_russian_units(theme_on, env):
     callback = await show_periods(env, 'en')
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Renew subscription</b>\n'
-        'Plan: <b>Standard</b>\n'
-        'Traffic: ∞ · Devices: 3\n'
+        f'<b>{_tag("refresh")} Renew subscription</b>\n\n'
+        f'{_tag("chart")} Traffic: <b>∞</b>\n'
+        f'{_tag("phone")} Devices: <b>3</b>\n\n'
         'Choose a renewal period.'
     )
     assert _labels(markup) == [['30 days — 199 ₽'], ['90 days — 499 ₽'], ['180 days — 899 ₽'], ['⬅️ Back']]
@@ -557,11 +557,11 @@ async def test_theme_on_period_screen_en_has_no_russian_units(theme_on, env):
 async def test_theme_on_period_screen_discount_hint_and_prices(theme_on, env):
     callback = await show_periods(env, promo_group=_promo_group())
     text, markup = _sent(callback.message.edit_text)
-    assert text.endswith('Выберите срок продления.\nСкидка зависит от срока.')
+    assert f'{_tag("phone")} Устройства: <b>3</b>\n{_tag("gift")} Скидка зависит от срока\n\nВыберите срок' in text
     assert _labels(markup)[0] == ['30 дней — 179.10 ₽ · −10%']
     assert '🔥' not in ''.join(button.text for button in _buttons(markup))
     callback = await show_periods(env, 'en', promo_group=_promo_group())
-    assert _sent(callback.message.edit_text)[0].endswith('The discount depends on the period.')
+    assert f'\n{_tag("gift")} The discount depends on the period\n\nChoose' in _sent(callback.message.edit_text)[0]
     assert _labels(_sent(callback.message.edit_text)[1])[0] == ['30 days — 179.10 ₽ · −10%']
 
 
@@ -570,7 +570,7 @@ async def test_theme_on_period_screen_counts_extra_devices(theme_on, env):
     env['subscription'].device_limit = 4
     callback = await show_periods(env)
     text, markup = _sent(callback.message.edit_text)
-    assert 'Трафик: ∞ · Устройств: 4' in text
+    assert f'{_tag("phone")} Устройства: <b>4</b>' in text
     assert _labels(markup)[0] == ['30 дней — 254 ₽']
 
 
@@ -588,7 +588,7 @@ async def test_theme_on_legacy_pick_screen(theme_on, env):
     callback = await show_periods(env)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Выберите тариф для продления</b>\nПодписка обновится по параметрам выбранного тарифа.'
+        f'<b>{_tag("refresh")} Выберите тариф для продления</b>\n\nПодписка обновится по параметрам выбранного тарифа.'
     )
     assert _labels(markup) == [
         [f'{_tag("gem")} Стандартный'],
@@ -608,15 +608,14 @@ async def test_theme_on_confirm_ru(theme_on, env):
     callback = await pick_period(env)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Продлить подписку?</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 3\n'
-        'Срок: 30 дней\n'
-        'К оплате: <b>199 ₽</b>\n'
-        'Баланс: 1000 ₽ → останется 801 ₽'
+        f'<b>{_tag("refresh")} Продлить подписку?</b>\n\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("money_bag")} К оплате: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>801 ₽</b>'
     )
     assert not caption_exceeds_telegram_limit(text)
-    assert text.count('<tg-emoji') == 1
+    assert 'Стандартный' not in text  # название единственного тарифа — шум
+    assert text.count('<tg-emoji') == 4
     assert _labels(markup) == [[f'{_tag("check")} Подтвердить'], ['⬅️ Назад']]
     assert [b.callback_data for b in _buttons(markup)] == ['tariff_ext_confirm:7:1:30', 'subscription_extend']
 
@@ -627,12 +626,10 @@ async def test_theme_on_confirm_en(theme_on, env):
     callback = await pick_period(env, 'en')
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Renew subscription?</b>\n'
-        'Plan: <b>Standard</b>\n'
-        'Traffic: ∞ · Devices: 3\n'
-        'Period: 30 days\n'
-        'To pay: <b>199 ₽</b>\n'
-        'Balance: 1000 ₽ → 801 ₽ left'
+        f'<b>{_tag("refresh")} Renew subscription?</b>\n\n'
+        f'{_tag("hourglass")} Period: <b>30 days</b>\n'
+        f'{_tag("money_bag")} To pay: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Balance: <b>1000 ₽</b> → after payment <b>801 ₽</b>'
     )
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
     assert _labels(markup)[0] == [f'{_tag("check")} Confirm']
@@ -643,8 +640,12 @@ async def test_theme_on_confirm_shows_the_discount_line(theme_on, env):
     _discounted_price(env)
     callback = await pick_period(env)
     text, _ = _sent(callback.message.edit_text)
-    assert 'Срок: 30 дней\nСкидка: 10% (−19.90 ₽)\nК оплате: <b>179.10 ₽</b>' in text
-    assert '🎁' not in text
+    assert (
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("gift")} Скидка: <b>10%</b> (−19.90 ₽)\n'
+        f'{_tag("money_bag")} К оплате: <b>179.10 ₽</b>'
+    ) in text
+    assert '🎁' not in text.replace(_tag('gift'), '')
 
 
 @pytest.mark.asyncio
@@ -659,11 +660,11 @@ async def test_theme_on_confirm_has_exactly_one_green_button(theme_on, env):
 
 
 @pytest.mark.asyncio
-async def test_theme_on_confirm_escapes_the_tariff_name(theme_on, env):
+async def test_theme_on_insufficient_escapes_the_tariff_name(theme_on, env):
     env['tariff'].name = '<i>Про</i> & Ко'
-    callback = await pick_period(env)
+    callback = await pick_period(env, balance=5000)
     text, _ = _sent(callback.message.edit_text)
-    assert 'Тариф: <b>&lt;i&gt;Про&lt;/i&gt; &amp; Ко</b>' in text
+    assert f'{_tag("gem")} &lt;i&gt;Про&lt;/i&gt; &amp; Ко на 30 дней: <b>199 ₽</b>' in text
 
 
 # --- Под темой: не хватает средств --------------------------------------------------------
@@ -674,10 +675,10 @@ async def test_theme_on_insufficient_ru_en(theme_on, env):
     callback = await pick_period(env, balance=5000)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Недостаточно средств</b>\n'
-        'Стандартный на 30 дней: <b>199 ₽</b>\n'
-        'На балансе: 50 ₽\n'
-        'Не хватает: <b>149 ₽</b>\n'
+        f'<b>{_tag("warning")} Недостаточно средств</b>\n\n'
+        f'{_tag("gem")} Стандартный на 30 дней: <b>199 ₽</b>\n'
+        f'{_tag("coin")} На балансе: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Не хватает: <b>149 ₽</b>\n\n'
         'Пополните баланс — продлим автоматически.'
     )
     assert not caption_exceeds_telegram_limit(text)
@@ -685,10 +686,10 @@ async def test_theme_on_insufficient_ru_en(theme_on, env):
     callback = await pick_period(env, 'en', balance=5000)
     text, _ = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Not enough funds</b>\n'
-        'Standard for 30 days: <b>199 ₽</b>\n'
-        'Balance: 50 ₽\n'
-        'Missing: <b>149 ₽</b>\n'
+        f'<b>{_tag("warning")} Not enough funds</b>\n\n'
+        f'{_tag("gem")} Standard for 30 days: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Balance: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Missing: <b>149 ₽</b>\n\n'
         'Top up your balance — we will renew automatically.'
     )
     assert not CYRILLIC_RE.search(text.replace('₽', ''))
@@ -730,7 +731,10 @@ async def test_theme_on_success_ru_en_with_end_date(theme_on, env):
     callback = await confirm(env)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("party")} Подписка продлена до 25.11.2026</b>\nДобавлено: 30 дней · списано <b>199 ₽</b>'
+        f'<b>{_tag("party")} Подписка продлена</b>\n\n'
+        f'{_tag("hourglass")} Действует до <b>25.11.2026</b>\n'
+        f'{_tag("refresh")} Добавлено: <b>30 дней</b>\n'
+        f'{_tag("money_bag")} Списано: <b>199 ₽</b>'
     )
     assert not caption_exceeds_telegram_limit(text)
     assert [b.callback_data for b in _buttons(markup)] == ['menu_subscription', 'back_to_menu']
@@ -739,7 +743,10 @@ async def test_theme_on_success_ru_en_with_end_date(theme_on, env):
     callback = await confirm(env, 'en')
     text, _ = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("party")} Subscription renewed until 25.11.2026</b>\nAdded: 30 days · charged <b>199 ₽</b>'
+        f'<b>{_tag("party")} Subscription renewed</b>\n\n'
+        f'{_tag("hourglass")} Valid until <b>25.11.2026</b>\n'
+        f'{_tag("refresh")} Added: <b>30 days</b>\n'
+        f'{_tag("money_bag")} Charged: <b>199 ₽</b>'
     )
 
 
@@ -748,13 +755,13 @@ async def test_theme_on_charge_and_renew_errors(theme_on, env):
     env['charge_ok'] = False
     callback = await confirm(env)
     assert _sent(callback.message.edit_text)[0] == (
-        f'<b>{_tag("cross")} Не удалось списать оплату</b>\nПопробуйте ещё раз чуть позже.'
+        f'<b>{_tag("cross")} Не удалось списать оплату</b>\n\nПопробуйте ещё раз чуть позже.'
     )
     env['charge_ok'] = True
     env['extend_raises'] = True
     callback = await confirm(env)
     assert _sent(callback.message.edit_text)[0] == (
-        f'<b>{_tag("cross")} Не удалось продлить подписку</b>\n'
+        f'<b>{_tag("cross")} Не удалось продлить подписку</b>\n\n'
         'Если деньги списались, а срок не изменился — напишите в поддержку.'
     )
     callback = await confirm(env, 'en')
@@ -777,13 +784,11 @@ async def test_theme_on_cart_restore_confirm_uses_the_cart_device_limit(theme_on
     callback = await restore_cart(env, discount_percent=10)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("refresh")} Продлить подписку?</b>\n'
-        'Тариф: <b>Стандартный</b>\n'
-        'Трафик: ∞ · Устройств: 4\n'
-        'Срок: 30 дней\n'
-        'Скидка: 10% (−22.11 ₽)\n'
-        'К оплате: <b>199 ₽</b>\n'
-        'Баланс: 1000 ₽ → останется 801 ₽'
+        f'<b>{_tag("refresh")} Продлить подписку?</b>\n\n'
+        f'{_tag("hourglass")} Период: <b>30 дней</b>\n'
+        f'{_tag("gift")} Скидка: <b>10%</b> (−22.11 ₽)\n'
+        f'{_tag("money_bag")} К оплате: <b>199 ₽</b>\n'
+        f'{_tag("coin")} Баланс: <b>1000 ₽</b> → после оплаты <b>801 ₽</b>'
     )
     assert _alert(callback) == 'Корзина восстановлена'
     assert [b.callback_data for b in _buttons(markup)] == ['tariff_ext_confirm:7:1:30', 'tariff_extend:7:1']
@@ -795,16 +800,16 @@ async def test_theme_on_cart_restore_still_insufficient(theme_on, env):
     callback = await restore_cart(env, balance=5000)
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("warning")} Всё ещё не хватает</b>\n'
-        'Стандартный на 30 дней: <b>199 ₽</b>\n'
-        'На балансе: 50 ₽\n'
-        'Не хватает: <b>149 ₽</b>'
+        f'<b>{_tag("warning")} Всё ещё не хватает</b>\n\n'
+        f'{_tag("gem")} Стандартный на 30 дней: <b>199 ₽</b>\n'
+        f'{_tag("coin")} На балансе: <b>50 ₽</b>\n'
+        f'{_tag("cross")} Не хватает: <b>149 ₽</b>'
     )
     assert _greens(markup) == 1
     env['tariff'].name = 'Standard'
     callback = await restore_cart(env, 'en', balance=5000)
     text, _ = _sent(callback.message.edit_text)
-    assert text.startswith(f'<b>{_tag("warning")} Still not enough</b>\nStandard for 30 days:')
+    assert text.startswith(f'<b>{_tag("warning")} Still not enough</b>\n\n{_tag("gem")} Standard for 30 days:')
     assert _alert(await restore_cart(env, 'en')) == 'Cart restored'
 
 
@@ -815,12 +820,12 @@ async def test_theme_on_cart_restore_still_insufficient(theme_on, env):
 async def test_theme_on_switch_has_nothing_to_switch_to(theme_on, env):
     for runner in (show_switch, show_legacy_switch):
         text, markup = _sent((await runner(env)).message.edit_text)
-        assert text == f'<b>{_tag("gem")} Сменить тариф пока не на что</b>\nДругих доступных тарифов нет.'
+        assert text == f'<b>{_tag("gem")} Сменить тариф пока не на что</b>\n\nДругих доступных тарифов нет.'
         assert [b.callback_data for b in _buttons(markup)] == ['menu_subscription']
         back = _buttons(theme_markup(markup))[0]
         assert back.style is None and not back.icon_custom_emoji_id
     text, _ = _sent((await show_switch(env, 'en')).message.edit_text)
-    assert text == f'<b>{_tag("gem")} Nothing to switch to</b>\nThere are no other plans available.'
+    assert text == f'<b>{_tag("gem")} Nothing to switch to</b>\n\nThere are no other plans available.'
 
 
 @pytest.mark.asyncio
@@ -828,7 +833,7 @@ async def test_theme_on_switch_expired_offers_one_green_buy_button(theme_on, env
     env['subscription'].end_date = datetime.now(UTC) - timedelta(days=1)
     for runner in (show_switch, show_legacy_switch):
         text, markup = _sent((await runner(env)).message.edit_text)
-        assert text == f'<b>{_tag("hourglass")} Подписка закончилась</b>\nСменить тариф уже нельзя — оформите новый.'
+        assert text == f'<b>{_tag("hourglass")} Подписка закончилась</b>\n\nСменить тариф уже нельзя — оформите новый.'
         buy, back = _buttons(theme_markup(markup))
         assert buy.callback_data == 'menu_buy' and buy.style == 'success' and buy.icon_custom_emoji_id
         assert back.style is None and not back.icon_custom_emoji_id
@@ -844,9 +849,9 @@ async def test_theme_on_switch_disabled(theme_on, env, monkeypatch):
     monkeypatch.setattr(settings, 'TARIFF_SWITCH_DOWNGRADE_ENABLED', False)
     for runner in (show_switch, show_legacy_switch):
         text, _ = _sent((await runner(env)).message.edit_text)
-        assert text == f'<b>{_tag("no_entry")} Смена тарифа отключена</b>\nАдминистратор её выключил.'
+        assert text == f'<b>{_tag("no_entry")} Смена тарифа отключена</b>\n\nАдминистратор её выключил.'
     text, _ = _sent((await show_switch(env, 'en')).message.edit_text)
-    assert text == f'<b>{_tag("no_entry")} Plan switching is off</b>\nThe administrator has disabled it.'
+    assert text == f'<b>{_tag("no_entry")} Plan switching is off</b>\n\nThe administrator has disabled it.'
 
 
 # --- Под темой: ветки E0 / E0b / E2 в purchase.py -----------------------------------------
@@ -859,7 +864,7 @@ async def test_theme_on_extend_without_subscription_or_tariff(theme_on, env):
         env['subscription'] = subscription
         callback = await extend_entry(env)
         text, markup = _sent(callback.message.edit_text)
-        assert text == (f'<b>{_tag("gem")} Выберите тариф</b>\nЧтобы пользоваться VPN дальше, оформите подписку.')
+        assert text == (f'<b>{_tag("gem")} Выберите тариф</b>\n\nЧтобы пользоваться VPN дальше, оформите подписку.')
         assert _labels(markup) == [[f'{_tag("gem")} Купить подписку'], ['Закрыть']]
         buy, close = _buttons(theme_markup(markup))
         assert [buy.callback_data, close.callback_data] == ['menu_buy', 'webhook:close']
@@ -867,7 +872,7 @@ async def test_theme_on_extend_without_subscription_or_tariff(theme_on, env):
         assert close.style is None and not close.icon_custom_emoji_id
     env['subscription'] = None
     text, markup = _sent((await extend_entry(env, 'en')).message.edit_text)
-    assert text == f'<b>{_tag("gem")} Choose a plan</b>\nTo keep using the VPN, get a subscription.'
+    assert text == f'<b>{_tag("gem")} Choose a plan</b>\n\nTo keep using the VPN, get a subscription.'
     assert _labels(markup)[1] == ['Close']
 
 
@@ -876,10 +881,7 @@ async def test_theme_on_extend_legacy_subscription_without_tariff(theme_on, env)
     env['subscription'] = _subscription(tariff_id=None)
     callback = await extend_entry(env)
     text, markup = _sent(callback.message.edit_text)
-    assert text == (
-        f'<b>{_tag("gem")} Выберите тариф для продления</b>\n'
-        'Подписка оформлена до появления тарифов. Текущий срок сохранится.'
-    )
+    assert text == (f'<b>{_tag("gem")} Выберите тариф для продления</b>\n\n{_tag("hourglass")} Текущий срок сохранится')
     choose, back = _buttons(theme_markup(markup))
     assert choose.callback_data == 'tariff_switch' and choose.style == 'success' and choose.icon_custom_emoji_id
     assert back.style is None and not back.icon_custom_emoji_id
@@ -930,8 +932,18 @@ async def test_theme_on_every_screen_follows_the_visual_language(theme_on, env, 
     for name, text, markup in await _every_screen(env, monkeypatch, language):
         assert text.startswith('<b>'), name
         assert text.splitlines()[0].count('<tg-emoji') == 1, name
-        assert text.count('<tg-emoji') <= 2, name
+        assert text.count('<tg-emoji') <= 5, name
         assert not caption_exceeds_telegram_limit(text), name
+        assert '\n\n\n' not in text and not text.endswith('\n'), name
+        blocks = text.split('\n\n')
+        assert len(blocks) >= 2, name
+        for block in blocks[1:]:
+            lines = block.split('\n')
+            if all(line.startswith('<tg-emoji') for line in lines):
+                continue
+            # Блок без иконок — одна короткая строка-пояснение; смешанных блоков быть не должно.
+            assert not any(line.startswith('<tg-emoji') for line in lines), (name, block)
+            assert len(lines) == 1, (name, block)
         for banned in ('<blockquote', '<h1', '▰', '▓', '━'):
             assert banned not in text, (name, banned)
         assert _greens(markup) <= 1, name
@@ -951,8 +963,8 @@ async def test_theme_on_decision_screens_have_one_green_each(theme_on, env, monk
 # --- Шаблоны форка форматируются настоящими kwargs вызова --------------------------------
 
 REAL_KWARGS = {
-    'TARIFF_RENEW_TITLE': {'discount_hint': '', 'name': 'x', 'traffic': '∞', 'devices': 3},
-    'TARIFF_RENEW_CONFIRM': {
+    'FORK_EXTEND_TITLE': {'discount_hint': '', 'name': 'x', 'traffic': '∞', 'devices': 3},
+    'FORK_EXTEND_CONFIRM': {
         'name': 'x',
         'traffic': '∞',
         'devices': 3,
@@ -1023,8 +1035,11 @@ def test_templates_format_with_real_call_kwargs(theme_on, key, language):
 def test_rewritten_texts_follow_the_visual_language(theme_on, key, language):
     value = get_texts(language).get(key)
     assert value is not None, key
-    assert value.count('<tg-emoji') <= 2, key
+    assert value.count('<tg-emoji') <= 5, key
     for banned in ('<blockquote', '<h1', '<h2', '<h3', '▰', '▓', '━'):
         assert banned not in value, (key, banned)
+    assert '\n\n\n' not in value, key
     if value.startswith('<b>'):
-        assert value.split('\n')[0].count('<tg-emoji') <= 1, key
+        first, _, rest = value.partition('\n')
+        assert first.count('<tg-emoji') <= 1, key
+        assert not rest or rest.startswith('\n'), key

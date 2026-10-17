@@ -59,14 +59,14 @@ from .countries import _get_available_countries
 
 
 def _build_fork_devices_text(texts, total: int, page: int, pages: int) -> str:
-    """Список устройств под темой: заголовок, сколько подключено, одна подсказка про кнопки.
+    """Список устройств под темой: заголовок, строка с числом подключённых, одна подсказка про кнопки.
 
     Имена устройств в тексте не повторяются — они на кнопках. Страница — только если страниц больше одной.
     """
     count = texts.FORK_DEVICES_LIST_COUNT.format(total=total)
     if pages > 1:
         count += texts.FORK_DEVICES_LIST_PAGE.format(page=page, pages=pages)
-    return f'{texts.FORK_DEVICES_LIST_TITLE}\n{count}\n{texts.FORK_DEVICES_LIST_HINT}'
+    return f'{texts.FORK_DEVICES_LIST_TITLE}\n\n{count}\n\n{texts.FORK_DEVICES_LIST_HINT}'
 
 
 async def _fork_add_device_available(db: AsyncSession, subscription) -> bool:

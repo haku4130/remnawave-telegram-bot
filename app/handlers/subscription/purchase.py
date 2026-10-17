@@ -217,26 +217,19 @@ def _fork_devices_value(texts, subscription, devices_used: str | int | None) -> 
     return fork_devices(texts, devices_used, subscription.device_limit)
 
 
-def _fork_usage_line(texts, subscription, *, show_devices: bool, devices_used: str | int | None) -> str:
-    """«Трафик: 0 ГБ из ∞ · Устройства: 2 из 3»; устройства — только если выбор устройств включён."""
-    usage = [
-        texts.FORK_SUB_TRAFFIC_PART.format(
-            traffic=fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb)
-        )
-    ]
-    if show_devices:
-        usage.append(texts.FORK_SUB_DEVICES_PART.format(devices=_fork_devices_value(texts, subscription, devices_used)))
-    return ' · '.join(usage)
-
-
 def _build_fork_settings_text(texts, subscription, *, show_devices: bool, devices_used: str | int | None) -> str:
-    """Экран «Настройки подписки» под темой: заголовок и одна строка с трафиком и устройствами.
+    """Экран «Настройки подписки» под темой: заголовок и блок данных, по строке на факт.
 
     Без «Стран» и без подсказки «Выберите, что изменить» — кнопки и так очевидны. Устройства
     не показываются, если выбор устройств выключен (апстрим вырезает эту строку из шаблона).
     """
-    usage = _fork_usage_line(texts, subscription, show_devices=show_devices, devices_used=devices_used)
-    return f'{texts.FORK_SUB_SETTINGS_TITLE}\n{usage}'
+    traffic = fork_traffic_usage(texts, subscription.traffic_used_gb, subscription.traffic_limit_gb, bold_used=True)
+    data_lines = [texts.FORK_SUB_INFO_TRAFFIC.format(traffic=traffic)]
+    if show_devices:
+        data_lines.append(
+            texts.FORK_SUB_INFO_DEVICES.format(devices=_fork_devices_value(texts, subscription, devices_used))
+        )
+    return f'{texts.FORK_SUB_SETTINGS_TITLE}\n\n' + '\n'.join(data_lines)
 
 
 def _build_fork_subscription_text(

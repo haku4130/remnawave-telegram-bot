@@ -2675,15 +2675,21 @@ def _tariff_name_button(texts, tariff: Tariff) -> str:
 
 
 def _extend_title_text(texts, tariff: Tariff, devices, discount_hint: str) -> str:
-    """Экран выбора срока продления."""
-    return texts.t(
-        'TARIFF_RENEW_TITLE',
-        '🔄 <b>Продление подписки</b>{discount_hint}\n\n'
-        '📦 Тариф: <b>{name}</b>\n'
-        '📊 Трафик: {traffic}\n'
-        '📱 Устройств: {devices}\n\n'
-        'Выберите период продления:',
-    ).format(
+    """Экран выбора срока продления. Под темой — ключ форка без названия тарифа (оно у всех одно)."""
+    template = fork_text(
+        texts,
+        'FORK_EXTEND_TITLE',
+        texts.t(
+            'TARIFF_RENEW_TITLE',
+            '🔄 <b>Продление подписки</b>{discount_hint}\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📊 Трафик: {traffic}\n'
+            '📱 Устройств: {devices}\n\n'
+            'Выберите период продления:',
+        ),
+    )
+    # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
+    return template.format(
         discount_hint=discount_hint,
         name=html.escape(tariff.name),
         traffic=_traffic_label(texts, tariff.traffic_limit_gb),
@@ -2707,18 +2713,24 @@ def _extend_confirm_text(
         discount_text = texts.t('TARIFF_PURCHASE_DISCOUNT_SHORT_LINE', '\n🎁 Скидка: {percent}% (-{amount})').format(
             percent=discount_percent, amount=format_price_kopeks(discount_kopeks)
         )
-    return texts.t(
-        'TARIFF_RENEW_CONFIRM',
-        '✅ <b>Подтверждение продления</b>\n\n'
-        '📦 Тариф: <b>{name}</b>\n'
-        '📊 Трафик: {traffic}\n'
-        '📱 Устройств: {devices}\n'
-        '📅 Период: {period}\n'
-        '{discount}\n'
-        '💰 <b>К оплате: {total}</b>\n\n'
-        '💳 Ваш баланс: {balance}\n'
-        'После оплаты: {after}',
-    ).format(
+    template = fork_text(
+        texts,
+        'FORK_EXTEND_CONFIRM',
+        texts.t(
+            'TARIFF_RENEW_CONFIRM',
+            '✅ <b>Подтверждение продления</b>\n\n'
+            '📦 Тариф: <b>{name}</b>\n'
+            '📊 Трафик: {traffic}\n'
+            '📱 Устройств: {devices}\n'
+            '📅 Период: {period}\n'
+            '{discount}\n'
+            '💰 <b>К оплате: {total}</b>\n\n'
+            '💳 Ваш баланс: {balance}\n'
+            'После оплаты: {after}',
+        ),
+    )
+    # Лишние kwargs str.format игнорирует: один вызов обслуживает оба шаблона.
+    return template.format(
         name=html.escape(tariff.name),
         traffic=_traffic_label(texts, tariff.traffic_limit_gb),
         devices=devices,
