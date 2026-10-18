@@ -31,10 +31,19 @@ from app.config import settings
 
 # Тот же предел, что и у rich-уведомлений админ-чата: ограничение самого Telegram,
 # а не наше — держим его в одном месте, чтобы значения не разъехались.
+from app.utils.animated_banner import (
+    RICH_BANNER_TAG,
+    cache_banner_file_id,
+    is_banner_enabled,
+    is_banner_media_error,
+    mark_banner_unavailable,
+    rich_banner_media,
+)
 from app.utils.rich_admin import RICH_TEXT_LIMIT
 from app.utils.rich_buttons import render_keyboard_as_rich_html
 from app.utils.rich_menu import (
     _is_media_fetch_error,
+    _logo_explicitly_disabled,
     _looks_like_unsupported,
     _mark_logo_unavailable_once,
     _mark_rich_unavailable,
@@ -80,7 +89,17 @@ def _paragraphs_html(lines: list[str]) -> list[str]:
     return [f'<p>{chunk.replace(chr(10), "<br>")}</p>' for chunk in chunks if chunk.strip()]
 
 
-def build_notification_rich_html(text: str, *, logo_url: str = '') -> str | None:
+def _notification_logo_html() -> str:
+    """Шапка уведомления — как у rich-меню: баннер, статичная картинка или ничего."""
+    if _logo_explicitly_disabled():
+        return ''
+    if is_banner_enabled():
+        return RICH_BANNER_TAG
+    logo_url = _resolve_rich_logo_url()
+    return f'<img src="{html.escape(logo_url, quote=True)}"/>' if logo_url else ''
+
+
+def build_notification_rich_html(text: str, *, logo_url: str = '', logo_html: str = '') -> str | None:
     """Текст уведомления → rich-разметка в стиле главного меню.
 
     Шапка с логотипом, как у ``build_main_menu_rich_html``, затем заголовок жирным
@@ -99,7 +118,9 @@ def build_notification_rich_html(text: str, *, logo_url: str = '') -> str | None
     lines = value.split('\n')
 
     blocks: list[str] = []
-    if logo_url:
+    if logo_html:
+        blocks.append(logo_html)
+    elif logo_url:
         blocks.append(f'<img src="{html.escape(logo_url, quote=True)}"/>')
 
     # Заголовок отделяем, только если под ним реально есть содержимое: иначе
@@ -139,8 +160,8 @@ async def try_send_rich_notification(
     среди переносимых кнопок допустим.
 
     ``with_logo`` вставляет шапку с логотипом тем же способом, что и rich-меню:
-    публичной ссылкой в ``<img>``, а не загрузкой файла. Так уведомления
-    мониторинга не теряют логотип при переходе на rich.
+    анимированным баннером (file_id) или публичной ссылкой в ``<img>``. Так
+    уведомления мониторинга не теряют логотип при переходе на rich.
 
     ``timeout`` ограничивает ОДНУ попытку. Он обязателен там, где отправка идёт
     по списку получателей: без него залипший запрос держит await до таймаута
@@ -149,8 +170,8 @@ async def try_send_rich_notification(
     if not settings.USER_NOTIFICATIONS_RICH_ENABLED or not is_rich_menu_enabled():
         return False
 
-    logo_url = _resolve_rich_logo_url() if with_logo else ''
-    rich_html = build_notification_rich_html(text, logo_url=logo_url)
+    logo_html = _notification_logo_html() if with_logo else ''
+    rich_html = build_notification_rich_html(text, logo_html=logo_html)
     if rich_html is None or len(rich_html) > RICH_TEXT_LIMIT:
         return False
 
@@ -163,16 +184,19 @@ async def try_send_rich_notification(
 
     kwargs: dict = {
         'chat_id': chat_id,
-        'rich_message': InputRichMessage(html=rich_html, skip_entity_detection=True),
+        'rich_message': InputRichMessage(
+            html=rich_html, skip_entity_detection=True, media=rich_banner_media(rich_html)
+        ),
     }
     if reply_markup is not None:
         kwargs['reply_markup'] = reply_markup
 
     try:
         if timeout is not None:
-            await asyncio.wait_for(bot.send_rich_message(**kwargs), timeout=timeout)
+            sent = await asyncio.wait_for(bot.send_rich_message(**kwargs), timeout=timeout)
         else:
-            await bot.send_rich_message(**kwargs)
+            sent = await bot.send_rich_message(**kwargs)
+        cache_banner_file_id(sent)
         return True
     except TimeoutError:
         # Пробрасываем наверх: вызывающий по списку получателей сам решает,
@@ -184,7 +208,12 @@ async def try_send_rich_notification(
         # пусть отработает её штатная обработка (там свой учёт и метрики).
         return False
     except (TelegramNotFound, TelegramBadRequest) as error:
-        if logo_url and _is_media_fetch_error(error):
+        if RICH_BANNER_TAG in rich_html and is_banner_media_error(error) and mark_banner_unavailable(error):
+            # Баннер отвергнут — единственный повтор со статичным логотипом.
+            return await try_send_rich_notification(
+                bot, chat_id, text, keyboard=keyboard, with_logo=with_logo, timeout=timeout
+            )
+        if logo_html.startswith('<img') and _is_media_fetch_error(error):
             # Логотип не скачался — единственный повтор уже без него, флаг взводится
             # глобально, как в rich-меню, чтобы не долбить недоступную ссылку.
             _mark_logo_unavailable_once(error)

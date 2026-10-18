@@ -1270,6 +1270,11 @@ class Settings(BaseSettings):
     HIDE_SUBSCRIPTION_LINK: bool = False
     ENABLE_LOGO_MODE: bool = True
     LOGO_FILE: str = 'vpn_logo.png'
+    # Анимированный баннер (MP4 без звука) вместо статичного логотипа: и в фото-
+    # сообщениях экранов, и в шапке rich-меню/уведомлений. Если Telegram откажет,
+    # бот до рестарта вернётся к статичному логотипу (LOGO_FILE / MAIN_MENU_RICH_LOGO_URL).
+    ANIMATED_BANNER_ENABLED: bool = False
+    ANIMATED_BANNER_FILE: str = 'assets/bot-banner.mp4'
     SKIP_RULES_ACCEPT: bool = False
     SKIP_REFERRAL_CODE: bool = False
 

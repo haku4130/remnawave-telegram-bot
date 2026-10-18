@@ -12,6 +12,7 @@ from typing import Final
 import structlog
 from aiogram import Bot
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, select
 
@@ -270,7 +271,7 @@ class StartupNotificationService:
             # footer с tg-time. При недоступности — классический вид ниже.
             try:
                 from app.utils.rich_admin import rich_footer_now, rich_kv_table, try_send_rich_admin_message
-                from app.utils.rich_menu import _resolve_rich_logo_url
+                from app.utils.rich_menu import _rich_logo_html
 
                 stats_rows = [
                     ('Версия', f'<code>{html.escape(version)}</code>'),
@@ -282,9 +283,9 @@ class StartupNotificationService:
                     ('Remnawave', f'{remnawave_icon} {html.escape(remnawave_status)}'),
                 ]
                 rich_blocks = []
-                logo_url = _resolve_rich_logo_url()
-                if logo_url:
-                    rich_blocks.append(f'<img src="{html.escape(logo_url, quote=True)}"/>')
+                logo_html = _rich_logo_html()
+                if logo_html:
+                    rich_blocks.append(logo_html)
                 rich_blocks.extend(
                     [
                         '<h5>🤖 Remnawave Bedolaga Bot</h5>',
@@ -365,6 +366,52 @@ class StartupNotificationService:
             logger.warning('Не удалось прогреть логотип на старте', error=str(e)[:200])
             return False
 
+    async def prewarm_banner(self) -> bool:
+        """То же для анимированного баннера: загрузить файл один раз и поймать file_id.
+
+        Без file_id первые сообщения после старта заливали бы MP4 каждое по отдельности,
+        а правка rich-меню ссылалась бы на файл, а не на уже загруженную анимацию.
+        Если Telegram отверг сам файл, баннер выключается до рестарта сразу здесь.
+        """
+        from app.utils import animated_banner
+
+        try:
+            if not animated_banner.is_banner_enabled():
+                return False
+            media = animated_banner.get_banner_media()
+            if isinstance(media, str):
+                return True
+
+            target = self.chat_id or next(iter(settings.get_admin_ids()), None)
+            if not target:
+                logger.debug('prewarm_banner: нет целевого чата (admin), пропуск')
+                return False
+
+            send_kwargs: dict = {'chat_id': target, 'animation': media, 'disable_notification': True}
+            if self.topic_id and target == self.chat_id:
+                send_kwargs['message_thread_id'] = self.topic_id
+
+            timeout = getattr(settings, 'MONITORING_NOTIFICATION_SEND_TIMEOUT', 20.0)
+            msg = await asyncio.wait_for(self.bot.send_animation(**send_kwargs), timeout=timeout)
+            animated_banner.cache_banner_file_id(msg)
+
+            try:
+                await self.bot.delete_message(chat_id=target, message_id=msg.message_id)
+            except Exception:
+                pass  # удаление best-effort — file_id уже пойман
+
+            logger.info('Анимированный баннер прогрет на старте: file_id закеширован', chat_id=target)
+            return True
+        except TelegramBadRequest as e:
+            if animated_banner.is_banner_media_error(e):
+                animated_banner.mark_banner_unavailable(e)
+            else:
+                logger.warning('Не удалось прогреть анимированный баннер на старте', error=str(e)[:200])
+            return False
+        except Exception as e:
+            logger.warning('Не удалось прогреть анимированный баннер на старте', error=str(e)[:200])
+            return False
+
 
 async def send_bot_startup_notification(bot: Bot) -> bool:
     """
@@ -380,6 +427,7 @@ async def send_bot_startup_notification(bot: Bot) -> bool:
     # Прогреваем file_id логотипа до первых рассылок, чтобы ~700КБ файл не
     # перезаливался на каждой первой отправке (см. баг зависания мониторинга).
     await service.prewarm_logo()
+    await service.prewarm_banner()
     return await service.send_startup_notification()
 
 

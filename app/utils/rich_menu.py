@@ -47,6 +47,14 @@ from app.database.crud.user_message import get_random_active_message
 from app.database.models import User
 from app.localization.fork_text import fork_traffic_usage
 from app.localization.texts import Texts
+from app.utils.animated_banner import (
+    RICH_BANNER_TAG,
+    cache_banner_file_id,
+    is_banner_enabled,
+    is_banner_media_error,
+    mark_banner_unavailable,
+    rich_banner_media,
+)
 from app.utils.fork_onboarding import format_days
 from app.utils.fork_subscription import _fork_days_left, _fork_status_label
 from app.utils.formatters import format_username_link
@@ -167,6 +175,25 @@ def _resolve_rich_logo_url() -> str:
     return f'{parsed.scheme}://{parsed.netloc}/cabinet/branding/bot-logo'
 
 
+def _logo_explicitly_disabled() -> bool:
+    return (settings.MAIN_MENU_RICH_LOGO_URL or '').strip().lower() in _LOGO_DISABLED_VALUES
+
+
+def _rich_logo_html() -> str:
+    """Шапка rich-сообщения: анимированный баннер, статичная картинка или ничего.
+
+    Явное «без логотипа» в MAIN_MENU_RICH_LOGO_URL убирает и баннер.
+    """
+    if _logo_explicitly_disabled():
+        return ''
+    if is_banner_enabled():
+        return RICH_BANNER_TAG
+    logo_url = _resolve_rich_logo_url()
+    if logo_url:
+        return f'<img src="{html.escape(logo_url, quote=True)}"/>'
+    return ''
+
+
 def _is_media_fetch_error(error: Exception) -> bool:
     text = str(error).lower()
     return any(marker in text for marker in _MEDIA_FETCH_ERROR_MARKERS)
@@ -180,7 +207,13 @@ def _retry_without_logo(error: Exception) -> bool:
     список заведомо неполон: раньше при незнакомой ошибке меню целиком уезжало
     в классику («рич не включается»), хотя достаточно было убрать картинку.
     Повтор ровно один — _mark_logo_unavailable_once взводит флаг до рестарта.
+
+    Анимированный баннер снимается, только если ошибка говорит о медиа: повтор
+    уйдёт со статичной картинкой. Прочие ошибки (сообщение устарело и т.п.) баннер
+    не выключают — меню просто уходит в классику, где баннер тоже есть.
     """
+    if is_banner_enabled():
+        return is_banner_media_error(error) and mark_banner_unavailable(error)
     if not _resolve_rich_logo_url():
         return False
     if not _is_media_fetch_error(error):
@@ -558,9 +591,9 @@ async def build_main_menu_rich_html(user: User, texts, db: AsyncSession) -> str:
     """Собирает rich-HTML главного меню (контент, без клавиатуры)."""
     blocks: list[str] = []
 
-    logo_url = _resolve_rich_logo_url()
-    if logo_url:
-        blocks.append(f'<img src="{html.escape(logo_url, quote=True)}"/>')
+    logo_html = _rich_logo_html()
+    if logo_html:
+        blocks.append(logo_html)
 
     # full_name подставляет username, когда имени нет (см. User.full_name), — только
     # в этом случае показываем логин ссылкой на профиль, а не голым текстом.
@@ -678,6 +711,7 @@ def _input_rich_message(rich_html: str, language: str | None) -> InputRichMessag
         html=rich_html,
         is_rtl=True if (language or '').lower() in _RTL_LANGUAGES else None,
         skip_entity_detection=True,
+        media=rich_banner_media(rich_html),
     )
 
 
@@ -779,7 +813,8 @@ async def try_send_rich_main_menu(
         return False
 
     try:
-        await _send_rich_menu(bot, chat_id, rich_html, keyboard, db_user.language)
+        sent = await _send_rich_menu(bot, chat_id, rich_html, keyboard, db_user.language)
+        cache_banner_file_id(sent)
         return True
     except TelegramForbiddenError:
         # Пользователь заблокировал бота — классический рендер упадёт так же, не ретраим.
@@ -858,7 +893,7 @@ async def try_edit_rich_main_menu(
         if is_editable_as_rich:
             # parse_mode=None явно: иначе дефолтный parse_mode бота (HTML) сериализуется
             # в запрос рядом с rich_message.
-            await bot(
+            edited = await bot(
                 EditMessageText(
                     chat_id=chat_id,
                     message_id=message.message_id,
@@ -867,6 +902,7 @@ async def try_edit_rich_main_menu(
                     parse_mode=None,
                 )
             )
+            cache_banner_file_id(edited)
         else:
             # Фото/медиа-сообщение (логотип) или недоступное (>48ч) нельзя превратить
             # в rich редактированием — пересоздаём, как это делает edit_or_answer_photo
@@ -880,7 +916,8 @@ async def try_edit_rich_main_menu(
                     # отредактирует уцелевшее сообщение на месте и не наплодит дублей.
                     logger.debug('Не удалось удалить сообщение перед rich-меню', error=str(delete_error))
                     return False
-            await _send_rich_menu(bot, chat_id, rich_html, keyboard, language)
+            sent = await _send_rich_menu(bot, chat_id, rich_html, keyboard, language)
+            cache_banner_file_id(sent)
         return True
     except TelegramForbiddenError:
         logger.warning('Не удалось показать rich-меню: бот заблокирован пользователем', chat_id=chat_id)

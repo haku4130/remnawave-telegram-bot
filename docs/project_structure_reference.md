@@ -1709,7 +1709,7 @@
   Классы: нет
   Функции: `get_start_video_file_id` — file_id видео для стартового меню либо None., `set_start_video_file_id` — Сохраняет (или очищает) file_id видео стартового меню., `reset_start_video_cache` — Сбрасывает кеш (для тестов и ручной инвалидации).
 - `app/services/startup_notification_service.py` — Python-модуль
-  Классы: `StartupNotificationService` (11 методов)
+  Классы: `StartupNotificationService` (12 методов)
   Функции: `send_bot_startup_notification` — Удобная функция для отправки стартового уведомления., `send_crash_notification` — Отправляет уведомление о падении бота с лог-файлом.
 - `app/services/subscription_auto_purchase_service.py` — Python-модуль
   Классы: `AutoPurchaseContext`, `AutoExtendContext`
@@ -2071,6 +2071,9 @@
 - `app/utils/__init__.py` — Python-модуль
   Классы: нет
   Функции: нет
+- `app/utils/animated_banner.py` — Python-модуль
+  Классы: нет
+  Функции: `is_banner_enabled` — Баннер включён, файл на месте и Telegram его ещё не отверг., `get_banner_media` — file_id после первой загрузки, до неё — сам файл., `cache_banner_file_id` — Запоминает file_id баннера из ответа Telegram (анимация или rich-сообщение)., `is_banner_media_error`, `mark_banner_unavailable` — Выключает баннер до рестарта. True — если выключил только что (можно повторить)., `rich_banner_media` — Файл баннера для InputRichMessage.media, если разметка на него ссылается.
 - `app/utils/bot_identity.py` — Python-модуль
   Классы: нет
   Функции: `sync_bot_username` — Sync settings.BOT_USERNAME from the live bot (token-authoritative).
@@ -2133,7 +2136,7 @@
   Функции: `get_cached_menu_layout` — Return the current layout config (DB overrides + defaults)., `load_menu_layout_cache` — Load menu layout from DB and refresh the module cache.
 - `app/utils/message_patch.py` — Python-модуль
   Классы: нет
-  Функции: `caption_exceeds_telegram_limit` — Check if text exceeds Telegram's caption limit (1024 parsed chars)., `get_logo_media` — Возвращает кешированный file_id или FSInputFile для логотипа., `is_qr_message`, `append_privacy_hint`, `prepare_privacy_safe_kwargs`, `is_privacy_restricted_error`, `is_topic_required_error` — Проверяет, является ли ошибка связанной с топиками/форумами., `patch_message_methods`
+  Функции: `caption_exceeds_telegram_limit` — Check if text exceeds Telegram's caption limit (1024 parsed chars)., `get_logo_media` — Возвращает кешированный file_id или FSInputFile для логотипа., `is_logo_media_message` — Сообщение с логотипом: статичным (фото) или анимированным баннером., `send_logo` — Шлёт сообщение с логотипом: анимированным баннером, если он включён, иначе фото., `is_qr_message`, `append_privacy_hint`, `prepare_privacy_safe_kwargs`, `is_privacy_restricted_error`, `is_topic_required_error` — Проверяет, является ли ошибка связанной с топиками/форумами., `patch_message_methods`
 - `app/utils/miniapp_buttons.py` — Python-модуль
   Классы: нет
   Функции: `strip_leading_emoji` — Удалить ведущий юникод-emoji + следующий пробел. Безопасно для текста без emoji., `build_main_menu_button` — Always-callback button for "Main Menu" / "Главное меню" navigation., `build_cabinet_url` — Join ``MINIAPP_CUSTOM_URL`` with an optional *path* segment., `build_miniapp_or_callback_button` — Create a button that opens the cabinet miniapp or falls back to a callback., `build_subscription_extend_button` — Кнопка «Продлить подписку» для уведомлений — единая точка на весь бот., `build_miniapp_startapp_url` — Собрать t.me Mini App deep link, открывающий кабинет в ЛЮБОМ типе чата., `build_admin_ticket_cabinet_button` — Кнопка «открыть тикет в админ-кабинете» для уведомления о тикете.
@@ -2486,6 +2489,7 @@
 ## assets
 
 - `assets/bedolaga_app3.svg` — файл
+- `assets/bot-banner.mp4` — файл
 - `assets/logo2.svg` — файл
 
 ## docs
@@ -4706,6 +4710,9 @@
 
 - `tests/utils/__init__.py` — Python-модуль
   Классы: нет
+  Функции: нет
+- `tests/utils/test_animated_banner.py` — Python-модуль
+  Классы: `TestState` (7 методов), `TestRichHeader` (7 методов), `TestRichNotification` (4 методов), `TestRichAdmin` (1 методов), `TestSendLogo` (4 методов), `TestClassicScreens` (7 методов), `TestPrewarm` (4 методов)
   Функции: нет
 - `tests/utils/test_button_theme.py` — Python-модуль
   Классы: нет

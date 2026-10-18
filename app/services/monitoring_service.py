@@ -390,9 +390,9 @@ class MonitoringService:
             return None
 
         # Rich-путь идёт первым, чтобы уведомления мониторинга выглядели так же, как
-        # меню. Логотип не теряется: в rich он вставляется публичной ссылкой в <img>,
-        # тем же способом, что и в шапке rich-меню. Таймаут тот же, что у классических
-        # отправок ниже, и попытка ровно одна — иначе бюджет цикла на получателя
+        # меню. Логотип не теряется: в rich он вставляется так же, как в шапке
+        # rich-меню (баннер или публичная ссылка в <img>). Таймаут тот же, что у
+        # классических отправок ниже, и попытка ровно одна — иначе бюджет цикла на получателя
         # удвоился бы, а его как раз и ограничивали, чтобы цикл не залипал.
         try:
             sent_rich = await try_send_rich_notification(
@@ -419,25 +419,24 @@ class MonitoringService:
             and not caption_exceeds_telegram_limit(text)
         ):
             try:
-                from app.utils.message_patch import _cache_logo_file_id, get_logo_media
+                from app.utils.message_patch import send_logo
 
                 # Жёсткий per-send таймаут: без него залипший send_photo (на медленном
                 # канале это особенно вероятно на ПЕРВОЙ отправке цикла, где грузится
                 # файл логотипа ~700КБ — file_id кешируется только после успеха) держит
                 # await до session timeout (60s) на каждого получателя и блокирует хвост
                 # цикла мониторинга. На TimeoutError пропускаем получателя.
-                result = await asyncio.wait_for(
-                    self.bot.send_photo(
+                return await asyncio.wait_for(
+                    send_logo(
+                        self.bot.send_animation,
+                        self.bot.send_photo,
                         chat_id=chat_id,
-                        photo=get_logo_media(),
                         caption=text,
                         reply_markup=reply_markup,
                         parse_mode=parse_mode,
                     ),
                     timeout=settings.MONITORING_NOTIFICATION_SEND_TIMEOUT,
                 )
-                _cache_logo_file_id(result)
-                return result
             except TimeoutError:
                 logger.warning(
                     'send_photo завис дольше таймаута — пропускаем получателя, цикл продолжается',

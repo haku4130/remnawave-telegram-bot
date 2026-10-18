@@ -7,10 +7,17 @@ from typing import Any
 
 import structlog
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import FSInputFile, InaccessibleMessage, InputMediaPhoto, Message
+from aiogram.types import FSInputFile, InaccessibleMessage, InputMediaAnimation, InputMediaPhoto, Message
 
 from app.config import settings
 from app.localization.texts import get_texts
+from app.utils.animated_banner import (
+    cache_banner_file_id,
+    get_banner_media,
+    is_banner_enabled,
+    is_banner_media_error,
+    mark_banner_unavailable,
+)
 
 
 logger = structlog.get_logger(__name__)
@@ -175,6 +182,33 @@ def _cache_logo_file_id(result: Message | None) -> None:
         _logo_file_id = result.photo[-1].file_id
 
 
+def is_logo_media_message(message: Message) -> bool:
+    """Сообщение с логотипом: статичным (фото) или анимированным баннером."""
+    return bool(getattr(message, 'photo', None) or getattr(message, 'animation', None))
+
+
+async def send_logo(send_animation, send_photo, **kwargs):
+    """Шлёт сообщение с логотипом: анимированным баннером, если он включён, иначе фото.
+
+    ``send_animation``/``send_photo`` — пара методов одного адресата
+    (``message.answer_animation``/``message.answer_photo`` или ``bot.send_*``),
+    ``kwargs`` — общие параметры: caption, reply_markup, chat_id и т.п.
+    Если Telegram отверг баннер, он выключается до рестарта, а сообщение уходит
+    со статичным логотипом. Остальные ошибки пробрасываются вызывающему.
+    """
+    if is_banner_enabled():
+        try:
+            result = await send_animation(animation=get_banner_media(), **kwargs)
+            cache_banner_file_id(result)
+            return result
+        except TelegramBadRequest as error:
+            if not (is_banner_media_error(error) and mark_banner_unavailable(error)):
+                raise
+    result = await send_photo(photo=get_logo_media(), **kwargs)
+    _cache_logo_file_id(result)
+    return result
+
+
 _TOPIC_REQUIRED_ERRORS = (
     'topic must be specified',
     'TOPIC_CLOSED',
@@ -290,9 +324,7 @@ async def _answer_with_photo(self: Message, text: str = None, **kwargs):
 
     if LOGO_PATH.exists():  # noqa: ASYNC240 — stat локального файла, один системный вызов
         try:
-            result = await self.answer_photo(get_logo_media(), caption=text, **kwargs)
-            _cache_logo_file_id(result)
-            return result
+            return await send_logo(self.answer_animation, self.answer_photo, caption=text, **kwargs)
         except TelegramBadRequest as error:
             if is_topic_required_error(error):
                 # Канал с топиками — просто игнорируем, нельзя ответить без message_thread_id
@@ -355,7 +387,7 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
             if 'message is not modified' in str(error).lower():
                 return None
             raise
-    if self.photo:
+    if is_logo_media_message(self):
         language = _get_language(self)
         # Если caption потенциально слишком длинный — отправим как текст вместо caption
         try:
@@ -367,10 +399,15 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
                 return await _text_answer(self, text, **kwargs)
         except Exception:
             pass
-        if LOGO_PATH.exists():  # noqa: ASYNC240 — stat локального файла, один системный вызов
-            media = get_logo_media()
+        use_banner = is_banner_enabled()
+        if use_banner:
+            media_type, media = InputMediaAnimation, get_banner_media()
+        elif LOGO_PATH.exists():  # noqa: ASYNC240 — stat локального файла, один системный вызов
+            media_type, media = InputMediaPhoto, get_logo_media()
+        elif self.photo:
+            media_type, media = InputMediaPhoto, self.photo[-1].file_id
         else:
-            media = self.photo[-1].file_id
+            media_type, media = InputMediaAnimation, self.animation.file_id
         media_kwargs = {'media': media, 'caption': text}
         edit_kwargs = dict(kwargs)
         if 'parse_mode' in edit_kwargs:
@@ -379,10 +416,16 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
         else:
             media_kwargs['parse_mode'] = 'HTML'
         try:
-            return await self.edit_media(InputMediaPhoto(**media_kwargs), **edit_kwargs)
+            result = await self.edit_media(media_type(**media_kwargs), **edit_kwargs)
+            if use_banner:
+                cache_banner_file_id(result)
+            return result
         except TelegramBadRequest as error:
             if is_topic_required_error(error):
                 return None
+            if use_banner and is_banner_media_error(error) and mark_banner_unavailable(error):
+                # Баннер отвергнут и уже выключен — повторяем со статичным логотипом.
+                return await _edit_with_photo(self, text, **kwargs)
             if is_privacy_restricted_error(error):
                 fallback_text = append_privacy_hint(text, language)
                 safe_kwargs = prepare_privacy_safe_kwargs(kwargs)
@@ -407,7 +450,7 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
                 if is_topic_required_error(inner_error):
                     return None
                 raise
-    # Не-фото медиа (видео, анимация и т.д.) с включённым логотипом — удаляем и отправляем с фото
+    # Прочие медиа (видео, документ и т.д.) с включённым логотипом — удаляем и отправляем с логотипом
     if self.text is None:
         try:
             await self.delete()

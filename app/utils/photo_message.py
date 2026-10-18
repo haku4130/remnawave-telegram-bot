@@ -4,19 +4,27 @@ from contextlib import suppress
 import structlog
 from aiogram import types
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
-from aiogram.types import InaccessibleMessage, InputMediaPhoto
+from aiogram.types import InaccessibleMessage, InputMediaAnimation, InputMediaPhoto
 
 from app.config import settings
 
+from .animated_banner import (
+    cache_banner_file_id,
+    get_banner_media,
+    is_banner_enabled,
+    is_banner_media_error,
+    mark_banner_unavailable,
+)
 from .message_patch import (
     LOGO_PATH,
-    _cache_logo_file_id,
     append_privacy_hint,
     caption_exceeds_telegram_limit,
     get_logo_media,
+    is_logo_media_message,
     is_privacy_restricted_error,
     is_qr_message,
     prepare_privacy_safe_kwargs,
+    send_logo,
 )
 
 
@@ -120,13 +128,13 @@ async def edit_or_answer_photo(
     if isinstance(callback.message, InaccessibleMessage):
         try:
             if settings.ENABLE_LOGO_MODE and LOGO_PATH.exists():
-                result = await callback.message.answer_photo(
-                    photo=get_logo_media(),
+                await send_logo(
+                    callback.message.answer_animation,
+                    callback.message.answer_photo,
                     caption=caption,
                     reply_markup=keyboard,
                     parse_mode=resolved_parse_mode,
                 )
-                _cache_logo_file_id(result)
             else:
                 await callback.message.answer(
                     caption,
@@ -148,7 +156,7 @@ async def edit_or_answer_photo(
     # Если режим логотипа выключен или требуется текстовое сообщение — работаем текстом
     if force_text or not settings.ENABLE_LOGO_MODE:
         try:
-            if callback.message.photo:
+            if is_logo_media_message(callback.message):
                 await callback.message.delete()
                 await _answer_text(callback, caption, keyboard, resolved_parse_mode)
             else:
@@ -170,7 +178,7 @@ async def edit_or_answer_photo(
     # Если текст слишком длинный для caption — отправим как текст
     if caption_exceeds_telegram_limit(caption):
         try:
-            if callback.message.photo:
+            if is_logo_media_message(callback.message):
                 await callback.message.delete()
             await _answer_text(callback, caption, keyboard, resolved_parse_mode)
         except TelegramForbiddenError:
@@ -179,7 +187,8 @@ async def edit_or_answer_photo(
             await _answer_text(callback, caption, keyboard, resolved_parse_mode, error)
         return
 
-    media = _resolve_media(callback.message)
+    use_banner = is_banner_enabled()
+    media = get_banner_media() if use_banner else _resolve_media(callback.message)
 
     # Logo file unavailable (missing / directory bind-mount) — fall back to text.
     # See #586617: this used to surface as IsADirectoryError on every callback.
@@ -194,10 +203,13 @@ async def edit_or_answer_photo(
     # Retry logic для сетевых ошибок
     for attempt in range(MAX_RETRIES):
         try:
-            await callback.message.edit_media(
-                InputMediaPhoto(media=media, caption=caption, parse_mode=(parse_mode or 'HTML')),
+            media_type = InputMediaAnimation if use_banner else InputMediaPhoto
+            result = await callback.message.edit_media(
+                media_type(media=media, caption=caption, parse_mode=(parse_mode or 'HTML')),
                 reply_markup=keyboard,
             )
+            if use_banner:
+                cache_banner_file_id(result)
             return  # Успешно — выходим
         except TelegramNetworkError as net_error:
             if attempt < MAX_RETRIES - 1:
@@ -235,6 +247,10 @@ async def edit_or_answer_photo(
             logger.debug('Пользователь заблокировал бота, пропускаем edit_media')
             return
         except TelegramBadRequest as error:
+            if use_banner and is_banner_media_error(error) and mark_banner_unavailable(error):
+                # Баннер отвергнут и уже выключен — повторяем со статичным логотипом.
+                await edit_or_answer_photo(callback, caption, keyboard, parse_mode, force_text=force_text)
+                return
             if is_privacy_restricted_error(error):
                 try:
                     await callback.message.delete()
@@ -247,19 +263,18 @@ async def edit_or_answer_photo(
                 await callback.message.delete()
             except Exception:
                 pass
-            logo_media = get_logo_media()
-            if logo_media is None:
+            if not is_banner_enabled() and get_logo_media() is None:
                 await _answer_text(callback, caption, keyboard, resolved_parse_mode)
                 return
             try:
-                # Отправим как фото с логотипом
-                result = await callback.message.answer_photo(
-                    photo=logo_media,
+                # Отправим заново с логотипом (баннером или фото)
+                await send_logo(
+                    callback.message.answer_animation,
+                    callback.message.answer_photo,
                     caption=caption,
                     reply_markup=keyboard,
                     parse_mode=resolved_parse_mode,
                 )
-                _cache_logo_file_id(result)
             except (TelegramBadRequest, TelegramForbiddenError) as photo_error:
                 await _answer_text(callback, caption, keyboard, resolved_parse_mode, photo_error)
             except Exception:

@@ -26,8 +26,15 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import InlineKeyboardMarkup, InputRichMessage
 
 from app.config import settings
+from app.utils.animated_banner import (
+    RICH_BANNER_TAG,
+    cache_banner_file_id,
+    is_banner_media_error,
+    mark_banner_unavailable,
+    rich_banner_media,
+)
 from app.utils.rich_buttons import render_keyboard_as_rich_html
-from app.utils.rich_menu import _looks_like_unsupported
+from app.utils.rich_menu import _looks_like_unsupported, _rich_logo_html
 
 
 logger = structlog.get_logger(__name__)
@@ -189,7 +196,9 @@ async def try_send_rich_admin_message(
 
     kwargs: dict = {
         'chat_id': chat_id,
-        'rich_message': InputRichMessage(html=rich_html, skip_entity_detection=True),
+        'rich_message': InputRichMessage(
+            html=rich_html, skip_entity_detection=True, media=rich_banner_media(rich_html)
+        ),
     }
     if thread_id:
         kwargs['message_thread_id'] = thread_id
@@ -197,9 +206,19 @@ async def try_send_rich_admin_message(
         kwargs['reply_markup'] = reply_markup
 
     try:
-        await bot.send_rich_message(**kwargs)
+        cache_banner_file_id(await bot.send_rich_message(**kwargs))
         return True
     except (TelegramNotFound, TelegramBadRequest) as error:
+        if RICH_BANNER_TAG in rich_html and is_banner_media_error(error) and mark_banner_unavailable(error):
+            # Баннер отвергнут — один повтор со статичным логотипом (баннер уже выключен).
+            # Кнопки, перенесённые в полотно, уже в rich_html, и reply_markup тогда None.
+            return await try_send_rich_admin_message(
+                bot,
+                chat_id,
+                rich_html.replace(RICH_BANNER_TAG, _rich_logo_html()),
+                thread_id=thread_id,
+                reply_markup=reply_markup,
+            )
         if _looks_like_unsupported(error):
             _mark_rich_admin_unavailable(error)
         else:
