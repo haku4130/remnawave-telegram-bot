@@ -21,6 +21,7 @@ from app.handlers.balance import main as balance_main, rollypay as rollypay_hand
 from app.localization import loader
 from app.localization.texts import get_texts
 from app.middlewares.premium_theme import theme_markup
+from app.services import payment_method_config_service
 from app.services.payment import rollypay as rollypay_service
 from app.services.payment.common import PaymentCommonMixin
 from app.services.payment.rollypay import RollyPayPaymentMixin
@@ -485,6 +486,25 @@ async def test_theme_on_payment_methods_ru(theme_on):
 
 
 @pytest.mark.asyncio
+async def test_theme_on_cabinet_name_replaces_the_label_but_keeps_the_icon(theme_on, monkeypatch):
+    # Имя способа из кабинета (PaymentMethodConfig.display_name) — одно на бот и кабинет.
+    monkeypatch.setattr(
+        payment_method_config_service, '_display_name_overrides', {'rollypay': ' СБП, карта, криптовалюта '}
+    )
+    markup = _sent((await show_methods()).message.edit_text)[1]
+    pay = _buttons(theme_markup(markup))[0]
+    assert (pay.text, pay.style) == ('СБП, карта, криптовалюта', 'success')
+    assert pay.icon_custom_emoji_id
+
+
+@pytest.mark.asyncio
+async def test_theme_off_cabinet_name_replaces_the_whole_label(theme_off, monkeypatch):
+    monkeypatch.setattr(payment_method_config_service, '_display_name_overrides', {'rollypay': 'СБП, карта'})
+    markup = _sent((await show_methods()).message.edit_text)[1]
+    assert markup.inline_keyboard[0][0].text == 'СБП, карта'
+
+
+@pytest.mark.asyncio
 async def test_theme_on_payment_methods_with_a_saved_cart_keep_one_green(theme_on, monkeypatch):
     from app.services.user_cart_service import user_cart_service
 
@@ -545,7 +565,7 @@ async def test_theme_on_amount_prompt_ru(theme_on, quick_amounts):
     callback = await ask_amount()
     text, markup = _sent(callback.message.edit_text)
     assert text == (
-        f'<b>{_tag("coin")} Пополнение через RollyPay</b>\n'
+        f'<b>{_tag("coin")} Сумма пополнения</b>\n'
         '\n'
         f'{_tag("dollar")} Минимум: <b>100 ₽</b>\n'
         f'{_tag("money_bag")} Максимум: <b>100 000 ₽</b>\n'
@@ -562,10 +582,15 @@ async def test_theme_on_amount_prompt_ru(theme_on, quick_amounts):
 
 
 @pytest.mark.asyncio
-async def test_theme_on_amount_prompt_escapes_the_provider_name(theme_on, quick_amounts, monkeypatch):
-    monkeypatch.setattr(settings, 'ROLLYPAY_DISPLAY_NAME', 'Pay<&>')
-    text = _sent((await ask_amount()).message.edit_text)[0]
-    assert 'Pay&lt;&amp;&gt;' in text
+async def test_theme_on_amount_and_payment_screens_do_not_name_the_provider(
+    theme_on, quick_amounts, rollypay_api, monkeypatch
+):
+    # Пользователи не знают, что такое RollyPay: под темой экраны суммы и счёта его не называют.
+    monkeypatch.setattr(settings, 'ROLLYPAY_DISPLAY_NAME', 'RollyPay')
+    amount_text = _sent((await ask_amount()).message.edit_text)[0]
+    link_text = _sent((await create_payment(50000)).answer)[0]
+    assert 'RollyPay' not in amount_text
+    assert 'RollyPay' not in link_text
 
 
 @pytest.mark.asyncio
@@ -580,7 +605,7 @@ async def test_theme_on_payment_link_ru(theme_on, rollypay_api):
     message = await create_payment(50000)
     text, markup = _sent(message.answer)
     assert text == (
-        f'<b>{_tag("coin")} Оплата через RollyPay</b>\n'
+        f'<b>{_tag("coin")} Счёт на оплату</b>\n'
         '\n'
         f'{_tag("money_bag")} Сумма: <b>500 ₽</b>\n'
         '\n'
@@ -606,7 +631,7 @@ async def test_theme_on_payment_link_keeps_kopeks_when_they_exist(theme_on, roll
 @pytest.mark.asyncio
 async def test_theme_on_payment_link_en(theme_on, rollypay_api):
     text, markup = _sent((await create_payment(30000, 'en')).answer)
-    assert _plain(text).splitlines()[0] == '🪙 Payment via RollyPay'
+    assert _plain(text).splitlines()[0] == '🪙 Payment'
     assert '💰 Amount: 300 ₽' in _plain(text)
     assert not CYRILLIC_RE.search(text)
     assert _buttons(theme_markup(markup))[0].text == 'Pay 300 ₽'

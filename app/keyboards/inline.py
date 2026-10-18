@@ -1,4 +1,5 @@
 import math
+import re
 from datetime import UTC, datetime
 
 import structlog
@@ -1816,6 +1817,9 @@ def get_balance_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+_LEADING_TG_EMOJI_RE = re.compile(r'^(<tg-emoji\b[^>]*>[^<]*</tg-emoji>)\s*')
+
+
 def _apply_payment_name_overrides(keyboard: list[list[InlineKeyboardButton]]) -> None:
     """Replace payment-method button labels with cabinet-set display names.
 
@@ -1839,7 +1843,10 @@ def _apply_payment_name_overrides(keyboard: list[list[InlineKeyboardButton]]) ->
                 continue
             override = get_display_name_override(method) if method else None
             if override:
-                row[idx] = button.model_copy(update={'text': override})
+                # Под темой значок кнопки — ведущий <tg-emoji>; имя из кабинета его не стирает.
+                icon = _LEADING_TG_EMOJI_RE.match(button.text) if settings.PREMIUM_THEME_ENABLED else None
+                text = f'{icon.group(1)} {override.strip()}' if icon else override
+                row[idx] = button.model_copy(update={'text': text})
 
 
 def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:

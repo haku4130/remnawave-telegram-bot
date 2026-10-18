@@ -10,6 +10,7 @@ from app.config import settings
 from app.database.models import User
 from app.keyboards.inline import get_back_keyboard
 from app.keyboards.topup_amounts import get_topup_amount_keyboard
+from app.localization.fork_text import fork_text
 from app.localization.texts import get_texts
 from app.services.payment_service import PaymentService
 from app.states import BalanceStates
@@ -122,12 +123,16 @@ async def _create_rollypay_payment_and_respond(
         ]
     )
 
-    response_text = texts.t(
-        'ROLLYPAY_PAYMENT_CREATED',
-        '\U0001f4b3 <b>Оплата через {name}</b>\n\n'
-        'Сумма: <b>{amount}\u20bd</b>\n\n'
-        'Нажмите кнопку ниже для оплаты.\n'
-        'После успешной оплаты баланс будет пополнен автоматически.',
+    response_text = fork_text(
+        texts,
+        'FORK_ROLLYPAY_PAYMENT_CREATED',
+        texts.t(
+            'ROLLYPAY_PAYMENT_CREATED',
+            '\U0001f4b3 <b>Оплата через {name}</b>\n\n'
+            'Сумма: <b>{amount}\u20bd</b>\n\n'
+            'Нажмите кнопку ниже для оплаты.\n'
+            'После успешной оплаты баланс будет пополнен автоматически.',
+        ),
     ).format(name=display_name, amount=text_amount)
 
     if edit_message:
@@ -240,12 +245,16 @@ async def start_rollypay_topup(
     keyboard = await get_topup_amount_keyboard('rollypay', db_user.language)
 
     await callback.message.edit_text(
-        texts.t(
-            'ROLLYPAY_ENTER_AMOUNT',
-            '\U0001f4b3 <b>Пополнение через {name}</b>\n\n'
-            'Введите сумму пополнения в рублях.\n\n'
-            'Минимум: {min_amount}\u20bd\n'
-            'Максимум: {max_amount}\u20bd',
+        fork_text(
+            texts,
+            'FORK_ROLLYPAY_ENTER_AMOUNT',
+            texts.t(
+                'ROLLYPAY_ENTER_AMOUNT',
+                '\U0001f4b3 <b>Пополнение через {name}</b>\n\n'
+                'Введите сумму пополнения в рублях.\n\n'
+                'Минимум: {min_amount}\u20bd\n'
+                'Максимум: {max_amount}\u20bd',
+            ),
         ).format(
             name=display_name,
             min_amount=_limit_rubles(settings.ROLLYPAY_MIN_AMOUNT_KOPEKS),

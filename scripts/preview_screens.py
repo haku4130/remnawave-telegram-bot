@@ -693,7 +693,7 @@ async def _balance_screens(language: str) -> list[PreviewScreen]:
         PreviewScreen('Баланс — через поддержку', support_call.args[0], support_call.kwargs['reply_markup']),
         PreviewScreen(
             'Оплата — ввод суммы',
-            texts.ROLLYPAY_ENTER_AMOUNT.format(
+            texts.FORK_ROLLYPAY_ENTER_AMOUNT.format(
                 name=settings.get_rollypay_display_name_html(),
                 min_amount=limit_min,
                 max_amount=limit_max,
