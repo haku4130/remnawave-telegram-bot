@@ -47,7 +47,11 @@ from app.services.subscription_purchase_service import (
 )
 from app.services.subscription_service import SubscriptionService
 from app.services.user_cart_service import user_cart_service
-from app.utils.pricing_utils import calculate_price_per_month, format_period_description
+from app.utils.pricing_utils import (
+    calculate_period_device_price,
+    calculate_price_per_month,
+    format_period_description,
+)
 
 from ...dependencies import get_cabinet_db, get_current_cabinet_user
 from ...schemas.subscription import (
@@ -166,7 +170,9 @@ async def _build_tariff_response(
             base_tariff_price = int(price_kopeks)
 
             # Стоимость доп. устройств за этот период
-            extra_devices_cost = extra_devices_count * extra_device_price_per_month * months
+            extra_devices_cost = extra_devices_count * calculate_period_device_price(
+                extra_device_price_per_month, period_days
+            )
 
             # Apply per-category promo group discounts
             original_price = base_tariff_price + extra_devices_cost

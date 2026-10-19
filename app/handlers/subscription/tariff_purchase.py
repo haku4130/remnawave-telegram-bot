@@ -31,6 +31,7 @@ from app.services.tariff_switch_policy import remaining_days_for_switch, should_
 from app.services.user_cart_service import user_cart_service
 from app.utils.decorators import error_handler
 from app.utils.formatting import format_period, format_price_kopeks, format_traffic, shorten_text as _shorten
+from app.utils.pricing_utils import calculate_period_device_price
 from app.utils.promo_offer import get_user_active_promo_discount_percent
 from app.utils.timezone import format_local_datetime
 
@@ -2577,8 +2578,7 @@ def _calc_extra_devices_cost(tariff: Tariff, subscription_device_limit: int, per
     device_price = getattr(tariff, 'device_price_kopeks', None) or 0
     if device_price <= 0:
         return 0
-    months = max(1, round(period_days / 30))
-    return additional * device_price * months
+    return additional * calculate_period_device_price(device_price, period_days)
 
 
 def get_tariff_extend_keyboard(

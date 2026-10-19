@@ -2166,7 +2166,7 @@
   Функции: `calculate_user_price` — Calculate final price for a user with all applicable discounts., `format_price_button` — Format a price button text with unified discount display., `format_price_text` — Format a price for message text (not button) with unified discount display.
 - `app/utils/pricing_utils.py` — Python-модуль
   Классы: нет
-  Функции: `calculate_months_from_days`, `calculate_price_per_month` — Месячная ставка для периода длиной period_days дней (месяц = 30 дней)., `calculate_prorated_price` — Calculate prorated price based on remaining days., `apply_percentage_discount` — Apply percentage discount using PricingEngine's floor division., `resolve_discount_percent` — Определяет размер скидки для указанной категории., `compute_simple_subscription_price` — Вычисляет стоимость простой подписки с учетом всех доплат и скидок., `format_period_description`, `validate_pricing_calculation`
+  Функции: `calculate_months_from_days`, `calculate_period_device_price` — Цена одного доп. устройства тарифа за период длиной period_days дней., `calculate_price_per_month` — Месячная ставка для периода длиной period_days дней (месяц = 30 дней)., `calculate_prorated_price` — Calculate prorated price based on remaining days., `apply_percentage_discount` — Apply percentage discount using PricingEngine's floor division., `resolve_discount_percent` — Определяет размер скидки для указанной категории., `compute_simple_subscription_price` — Вычисляет стоимость простой подписки с учетом всех доплат и скидок., `format_period_description`, `validate_pricing_calculation`
 - `app/utils/promo_offer.py` — Python-модуль
   Классы: нет
   Функции: `get_user_active_promo_discount_percent`, `consume_user_promo_offer` — Consume the user's one-shot promo-offer discount (zeroes out the fields)., `build_promo_offer_timer_line`, `build_promo_offer_hint`, `build_test_access_hint`
@@ -2960,6 +2960,9 @@
 - `tests/test_device_limit_resolution.py` — Python-модуль
   Классы: `DummySubscription` (1 методов), `StubSettings` (4 методов)
   Функции: `test_resolve_hwid_device_limit_disabled_mode`, `test_resolve_hwid_device_limit_enabled_mode`, `test_resolve_hwid_device_limit_enabled_ignores_non_positive`, `test_resolve_hwid_device_limit_for_payload_returns_subscription_limit`, `test_resolve_hwid_device_limit_for_payload_ignores_non_positive`, `test_resolve_hwid_device_limit_for_payload_prefers_forced_limit`, `test_resolve_hwid_device_limit_for_payload_handles_zero`, `test_resolve_simple_subscription_device_limit`, `test_coerce_panel_device_limit_preserves_zero_and_rejects_invalid`, `test_coerce_panel_device_limit_honors_default`, `test_device_limit_needs_heal_preserves_zero`, `test_zero_device_limit_is_not_a_warning` — Ноль = «без ограничения» (HWID выключен) — штатное состояние, не повод для warning.
+- `tests/test_device_period_price.py` — Python-модуль
+  Классы: `TestCalculatePeriodDevicePrice` (3 методов), `TestPricingEngineTariffDevices` (1 методов), `TestBotRenewalKeyboardDevices` (1 методов), `TestCabinetTariffPeriodsDevices` (1 методов)
+  Функции: нет
 - `tests/test_expired_sub_tariff_button.py` — Python-модуль
   Классы: нет
   Функции: `test_expired_sub_offers_buy_not_switch`, `test_disabled_sub_offers_buy_not_switch`, `test_active_sub_keeps_change_tariff`, `test_limited_sub_keeps_change_tariff` — 'limited' = traffic exhausted but time remaining (end_date>now) — switch still valid.

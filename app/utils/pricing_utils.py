@@ -20,6 +20,18 @@ def calculate_months_from_days(days: int) -> int:
     return max(1, round(days / 30))
 
 
+def calculate_period_device_price(monthly_price_kopeks: int, period_days: int) -> int:
+    """Цена одного доп. устройства тарифа за период длиной period_days дней.
+
+    По дням (месяц = 30 дней), а не по округлённым месяцам: через
+    calculate_months_from_days 14-дневный период считался полным месяцем.
+    Для 30/90/180/360 дней результат тот же, что месячная ставка × месяцы.
+    """
+    if monthly_price_kopeks <= 0 or period_days <= 0:
+        return 0
+    return round(monthly_price_kopeks * period_days / 30)
+
+
 def calculate_price_per_month(price_kopeks: int, period_days: int) -> int:
     """Месячная ставка для периода длиной period_days дней (месяц = 30 дней).
 
