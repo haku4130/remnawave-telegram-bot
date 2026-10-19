@@ -282,6 +282,12 @@ class Settings(BaseSettings):
     REMNAWAVE_WEBHOOK_NODE_COALESCE_WINDOW_SECONDS: float = 10.0
     REMNAWAVE_WEBHOOK_NODE_BUFFER_MAX: int = 500
 
+    # Блок «Локации» в админке: счётчики устройств на нодах шлют отчёты с этим токеном
+    # (пусто = приём отчётов выключен). Overrides — ручная привязка хоста панели к ноде,
+    # когда адрес хоста не совпадает с адресом ноды: `адрес=ИМЯ_НОДЫ,адрес2=ИМЯ2`.
+    LOCATION_COUNTER_TOKEN: str = ''
+    LOCATION_HOST_NODE_OVERRIDES: str = ''
+
     # Ограниченный grace-доступ для продления истёкшей подписки.
     # Режимы: false (выключено), observe (только журнал), true (активно),
     # drain (не выдавать новые grace-сессии, но завершать уже открытые).
@@ -2173,6 +2179,16 @@ class Settings(BaseSettings):
         if not value:
             return []
         return [n.strip() for n in value.split(',') if n.strip()]
+
+    def get_location_host_node_overrides(self) -> dict[str, str]:
+        """Привязка «адрес хоста панели (в нижнем регистре) -> имя ноды» для блока «Локации»."""
+        result: dict[str, str] = {}
+        for pair in (self.LOCATION_HOST_NODE_OVERRIDES or '').split(','):
+            address, separator, node_name = pair.partition('=')
+            address, node_name = address.strip().lower(), node_name.strip()
+            if separator and address and node_name:
+                result[address] = node_name
+        return result
 
     def get_traffic_ignored_nodes(self) -> list[str]:
         """Возвращает список UUID нод для исключения из мониторинга"""
