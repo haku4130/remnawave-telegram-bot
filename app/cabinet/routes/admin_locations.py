@@ -167,6 +167,7 @@ async def get_locations(
         merge_presence(devices, now),
         reports_at,
         settings.get_location_host_node_overrides(),
+        settings.get_location_exit_breakdown_inbounds(),
     )
     return LocationsOverview(
         window_seconds=int(WINDOW.total_seconds()),

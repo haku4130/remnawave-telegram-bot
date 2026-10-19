@@ -84,7 +84,7 @@
   Функции: `create_bot` — Create a Bot instance with SOCKS5 proxy and/or custom Telegram API server.
 - `app/cabinet/`
 - `app/config.py` — Python-модуль
-  Классы: `Settings` (399 методов)
+  Классы: `Settings` (400 методов)
   Функции: `transliterate_cyrillic` — Заменяет кириллические буквы латинскими, сохраняя регистр («Шмель» → «Shmel»)., `set_period_prices_from_db` — Устанавливает периоды/цены из БД., `get_db_period_prices` — Возвращает периоды/цены из БД если они загружены., `clear_db_period_prices` — Очищает кеш цен из тарифов (при переключении в classic mode)., `refresh_period_prices` — Rebuild cached period price mapping., `refresh_classic_period_prices` — Rebuild CLASSIC_PERIOD_PRICES from current settings., `get_traffic_prices`, `refresh_traffic_prices`
 - `app/database/`
 - `app/external/`
@@ -2942,7 +2942,7 @@
 - `scripts/location_counter/location-counter.service` — файл
 - `scripts/location_counter/location_counter.py` — Python-модуль
   Классы: `LogEvent`, `DeviceState`, `DeviceTracker` (3 методов)
-  Функции: `parse_line`, `make_key`, `build_report`, `main`
+  Функции: `parse_line`, `make_key`, `build_report`, `clock_skew` — Расхождение «часы ноды - время событий в логе» в секундах, если оно больше допустимого., `main`
 
 ## tests
 
@@ -4021,7 +4021,7 @@
 
 - `tests/scripts/test_location_counter.py` — Python-модуль
   Классы: нет
-  Функции: `test_parse_regular_line`, `test_parse_double_arrow_and_tcp_prefix`, `test_parse_ipv6_client`, `test_skip_lines_without_user`, `ev`, `test_last_connection_wins_and_exit_tracked`, `test_inbound_switch_resets_exit`, `test_older_event_ignored`, `test_snapshot_prunes_after_window`, `test_report_has_no_raw_ids`
+  Функции: `test_parse_regular_line`, `test_parse_double_arrow_and_tcp_prefix`, `test_parse_ipv6_client`, `test_skip_lines_without_user`, `ev`, `test_last_connection_wins_and_exit_tracked`, `test_inbound_switch_resets_exit`, `test_older_event_ignored`, `test_snapshot_prunes_after_window`, `test_report_has_no_raw_ids`, `test_stale_exit_dropped_but_device_stays`, `test_fresh_exit_kept_in_window`, `test_exit_refreshed_by_new_bridge_connection`, `test_exit_not_leaked_across_inbound_switch_via_exit_seen`, `test_log_command_wraps_tail_with_stdin_watchdog`, `test_log_reader_keeps_stdin_pipe_open`, `test_clock_skew_flags_both_directions_beyond_limit`, `test_tracker_remembers_newest_event_and_count`
 - `tests/scripts/test_preview_screens.py` — Python-модуль
   Классы: нет
   Функции: `theme_on`, `db_sources_forbidden` — Источники rich-меню, которым нужна БД: если предпросмотр до них доберётся — вызов запишется., `test_build_screens_contains_catalog_sheets_and_menus`, `test_rich_menus_built_without_db`, `test_menu_keyboard_has_plain_balance_button`, `test_plain_screens_are_not_rich`, `test_send_screens_enables_theme_and_sends_everything_to_one_chat`, `test_stage_two_screens_present`, `test_stage_two_screens_absent_without_theme`, `test_stage_two_menus_have_one_green_button`, `test_welcome_title_follows_actual_variant`, `test_more_submenu_screen`, `test_send_screens_swaps_buttons_of_more_menu_after_sending`, `test_send_screens_fails_loudly_when_telegram_rejects_button_swap`, `test_send_screens_ignores_stale_server_locales`, `test_subscription_screens_present`, `test_subscription_screens_absent_without_theme`, `test_device_screens_present`, `test_settings_device_revoke_and_extend_titles_use_the_agreed_prefixes`, `test_device_screens_absent_without_theme`, `test_extend_screens_present`, `test_extend_screens_absent_without_theme`, `test_purchase_screens_present`, `test_purchase_screens_absent_without_theme`, `test_balance_screens_present`, `test_balance_screens_absent_without_theme`, `test_topup_notification_screens_present`, `test_topup_notification_screens_absent_without_theme`, `test_notification_screens_present_and_go_rich`, `test_notification_screens_absent_without_theme`, `test_referral_screens_present`, `test_referral_screens_absent_without_theme`, `test_support_screens_present`, `test_support_screens_absent_without_theme`, `test_misc_screens_present`, `test_misc_screens_absent_without_theme`, `test_parse_only_splits_and_normalizes`, `test_select_screens_matches_substrings_case_insensitively`, `test_send_screens_only_sends_matching_screens`, `test_main_passes_only_filter`
@@ -4245,7 +4245,7 @@
   Функции: `test_both_documents_required_by_default`, `test_setting_disables_the_gate`, `test_prechecked_flag_is_reported`, `test_document_hidden_from_web_is_not_required` — Документ только для бота нельзя прочитать в кабинете — галочки по нему нет., `test_empty_document_is_not_required`, `test_no_documents_at_all_disables_the_gate` — Иначе установка без юр. документов заблокировала бы регистрацию всем., `test_broken_document_read_does_not_block_login`, `test_missing_documents_reports_unchecked_boxes`, `test_record_consent_writes_a_row_per_document`, `test_record_consent_with_no_documents_is_a_noop`, `test_gate_rejects_missing_consent`, `test_gate_passes_with_full_consent`, `test_gate_is_transparent_when_disabled` — Выключенная настройка не должна ломать регистрацию без чекбоксов.
 - `tests/services/test_location_presence.py` — Python-модуль
   Классы: нет
-  Функции: `dev`, `test_devices_from_report_parses_utc_and_node`, `test_latest_device_wins_across_nodes`, `test_stale_devices_dropped`, `test_users_unique_and_exits_counted`, `test_exit_display_name`, `test_location_host_node_overrides_parsing`, `test_cards_order_filters_and_mapping`, `test_counter_source_with_zero`, `test_exits_sorted_by_count_descending`, `test_panel_fallback_single_location`, `test_no_data_for_multi_location_node_without_report`, `test_ambiguous_host_without_override`
+  Функции: `dev`, `test_devices_from_report_parses_utc_and_node`, `test_latest_device_wins_across_nodes`, `test_stale_devices_dropped`, `test_users_unique_and_exits_counted`, `test_exit_display_name`, `test_location_host_node_overrides_parsing`, `test_location_exit_breakdown_inbounds_parsing`, `test_cards_order_filters_and_mapping`, `test_counter_source_with_zero`, `test_exits_sorted_by_count_descending`, `test_panel_fallback_single_location`, `test_no_data_for_multi_location_node_without_report`, `test_ambiguous_host_without_override`, `test_exit_breakdown_only_for_configured_inbounds`, `test_exit_breakdown_disabled_when_setting_empty`
 - `tests/services/test_log_level_resolver.py` — Python-модуль
   Классы: нет
   Функции: `test_resolves_canonical_uppercase_names`, `test_resolves_lowercase_names` — REGRESSION: ``LOG_LEVEL=warning`` from .env must NOT return, `test_resolves_mixed_case_and_whitespace` — Whitespace and mixed-case variants normalize to the canonical level., `test_lowercase_does_not_return_the_logger_function` — The exact failure mode: the ``logging`` module has BOTH, `test_unknown_or_empty_falls_back_to_default`, `test_non_string_input_falls_back_to_default` — The resolver accepts only str input. Anything else → default., `test_default_argument_is_respected` — Custom default values flow through the fallback paths., `test_resolver_output_is_acceptable_to_structlog` — REGRESSION smoke: ``make_filtering_bound_logger`` must accept

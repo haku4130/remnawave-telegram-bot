@@ -287,6 +287,9 @@ class Settings(BaseSettings):
     # когда адрес хоста не совпадает с адресом ноды: `адрес=ИМЯ_НОДЫ,адрес2=ИМЯ2`.
     LOCATION_COUNTER_TOKEN: str = ''
     LOCATION_HOST_NODE_OVERRIDES: str = ''
+    # Теги входящих профилей (через запятую), у которых на карточке показывается разбивка по
+    # реальным выходам; у остальных локаций выход и так один. Пусто = разбивка выключена.
+    LOCATION_EXIT_BREAKDOWN_INBOUNDS: str = 'vless-to-eu-auto'
 
     # Ограниченный grace-доступ для продления истёкшей подписки.
     # Режимы: false (выключено), observe (только журнал), true (активно),
@@ -2189,6 +2192,10 @@ class Settings(BaseSettings):
             if separator and address and node_name:
                 result[address] = node_name
         return result
+
+    def get_location_exit_breakdown_inbounds(self) -> set[str]:
+        """Теги входящих профилей, для которых блок «Локации» показывает разбивку по выходам."""
+        return {tag.strip() for tag in (self.LOCATION_EXIT_BREAKDOWN_INBOUNDS or '').split(',') if tag.strip()}
 
     def get_traffic_ignored_nodes(self) -> list[str]:
         """Возвращает список UUID нод для исключения из мониторинга"""

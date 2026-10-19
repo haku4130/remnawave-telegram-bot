@@ -94,8 +94,22 @@ def test_location_host_node_overrides_parsing():
     assert Settings(BOT_TOKEN='t', LOCATION_HOST_NODE_OVERRIDES='').get_location_host_node_overrides() == {}
 
 
-def _cards(presence=None, reports_at=None, overrides=OVERRIDES):
-    return build_location_cards(prod_hosts(), prod_nodes(), presence or {}, reports_at or {}, overrides)
+def test_location_exit_breakdown_inbounds_parsing():
+    assert Settings(BOT_TOKEN='t').get_location_exit_breakdown_inbounds() == {'vless-to-eu-auto'}
+    parsed = Settings(BOT_TOKEN='t', LOCATION_EXIT_BREAKDOWN_INBOUNDS=' a , b,,a ')
+    assert parsed.get_location_exit_breakdown_inbounds() == {'a', 'b'}
+    assert Settings(BOT_TOKEN='t', LOCATION_EXIT_BREAKDOWN_INBOUNDS='').get_location_exit_breakdown_inbounds() == set()
+
+
+def _cards(presence=None, reports_at=None, overrides=OVERRIDES, exit_breakdown_inbounds=frozenset({TAG_AUTO})):
+    return build_location_cards(
+        prod_hosts(),
+        prod_nodes(),
+        presence or {},
+        reports_at or {},
+        overrides,
+        set(exit_breakdown_inbounds),
+    )
 
 
 def _by_title(cards):
@@ -161,3 +175,29 @@ def test_no_data_for_multi_location_node_without_report():
 def test_ambiguous_host_without_override():
     card = _by_title(_cards(overrides={}))['🇷🇺 #2 Россия (МСК)']
     assert (card.node_name, card.users) == (None, None)
+
+
+def test_exit_breakdown_only_for_configured_inbounds():
+    cards = _by_title(
+        _cards(
+            presence={
+                ('MSK-4', TAG_AUTO): Presence(2, {'SS_OUTBOUND_FI2': 2}),
+                ('MSK-4', TAG_DE): Presence(5, {'SS_OUTBOUND_DE1': 5}),
+            },
+            reports_at={'MSK-4': NOW},
+        )
+    )
+    assert cards['🇪🇺 [AUTO] Европа'].exits == [('FI-2', 2)]
+    germany = cards['🇩🇪 Германия']
+    assert (germany.users, germany.exits) == (5, [])
+
+
+def test_exit_breakdown_disabled_when_setting_empty():
+    cards = _by_title(
+        _cards(
+            presence={('MSK-4', TAG_AUTO): Presence(2, {'SS_OUTBOUND_FI2': 2})},
+            reports_at={'MSK-4': NOW},
+            exit_breakdown_inbounds=set(),
+        )
+    )
+    assert cards['🇪🇺 [AUTO] Европа'].exits == []

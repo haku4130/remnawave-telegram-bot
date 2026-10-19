@@ -119,6 +119,7 @@ def build_location_cards(
     presence: dict[tuple[str, str], Presence],
     reports_at: dict[str, datetime],
     overrides: dict[str, str],
+    exit_breakdown_inbounds: set[str],
 ) -> list[LocationCard]:
     visible = sorted(
         (h for h in hosts if not h.is_disabled and not h.is_hidden and '👇' not in h.remark),
@@ -151,14 +152,11 @@ def build_location_cards(
             if node.name in reports_at:
                 found = presence.get((node.name, tag)) if tag is not None else None
                 users = found.users if found else 0
-                exits = (
-                    [
+                if found and tag in exit_breakdown_inbounds:
+                    exits = [
                         (exit_display_name(name), count)
                         for name, count in sorted(found.exits.items(), key=lambda item: (-item[1], item[0]))
                     ]
-                    if found
-                    else []
-                )
                 source = 'counter'
                 reported_at = reports_at[node.name]
             elif cards_per_node[node.name] == 1:

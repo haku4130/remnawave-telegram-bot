@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.cabinet.routes import admin_locations as route
 from app.services.location_presence import devices_from_report
-from tests.fixtures.locations import OVERRIDES, TAG_DE, TAG_GH, prod_hosts, prod_nodes
+from tests.fixtures.locations import OVERRIDES, TAG_AUTO, TAG_DE, TAG_GH, prod_hosts, prod_nodes
 
 
 TOKEN = 'secret-token'
@@ -76,6 +76,7 @@ def _client(monkeypatch, *, token: str = TOKEN, panel_fails: bool = False, cache
     monkeypatch.setattr(
         route.settings, 'LOCATION_HOST_NODE_OVERRIDES', ','.join(f'{k}={v}' for k, v in OVERRIDES.items())
     )
+    monkeypatch.setattr(route.settings, 'LOCATION_EXIT_BREAKDOWN_INBOUNDS', TAG_AUTO)
     monkeypatch.setattr(route, 'RemnaWaveService', lambda: FakeService(fail=panel_fails))
 
     app = FastAPI()
@@ -185,7 +186,13 @@ def test_get_merges_reports_from_two_nodes(monkeypatch):
     with _client(monkeypatch) as (http, _cache):
         for body in (
             _report('NL-1', [_device(60, TAG_GH)]),
-            _report('MSK-4', [_device(10, TAG_DE, exit_tag='SS_OUTBOUND_FI2')]),
+            _report(
+                'MSK-4',
+                [
+                    _device(10, TAG_DE, exit_tag='SS_OUTBOUND_DE1'),
+                    _device(10, TAG_AUTO, exit_tag='SS_OUTBOUND_FI2', user='u2', device='d2'),
+                ],
+            ),
         ):
             assert http.post('/cabinet/admin/stats/locations/report', json=body, headers=HEADERS).status_code == 200
 
@@ -196,7 +203,8 @@ def test_get_merges_reports_from_two_nodes(monkeypatch):
     assert payload['window_seconds'] == 300
     by_title = {item['title']: item for item in payload['locations']}
     assert by_title['🇩🇪 Германия']['users'] == 1
-    assert by_title['🇩🇪 Германия']['exits'] == [{'name': 'FI-2', 'users': 1}]
+    assert by_title['🇩🇪 Германия']['exits'] == []
+    assert by_title['🇪🇺 [AUTO] Европа']['exits'] == [{'name': 'FI-2', 'users': 1}]
     assert by_title['🇩🇪 Германия']['source'] == 'counter'
     assert by_title['🇳🇱 Нидерланды']['users'] == 0
     assert by_title['🇳🇱 Нидерланды']['node_name'] == 'NL-1'
