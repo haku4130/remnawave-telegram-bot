@@ -217,6 +217,9 @@
 - `app/cabinet/routes/admin_legal_pages.py` — Python-модуль
   Классы: `LegalDocumentItem`, `LegalDocumentResponse`, `LegalDocumentItemUpdate`, `LegalDocumentUpdateRequest`, `RulesItem`, `RulesResponse`, `RulesItemUpdate`, `RulesUpdateRequest`, `FaqSettingItem`, `FaqPageItem`, `FaqResponse`, `FaqUpdateRequest`, `FaqPageCreateRequest`, `FaqPageUpdateRequest`
   Функции: `get_privacy_policy_admin`, `update_privacy_policy_admin`, `get_public_offer_admin`, `update_public_offer_admin`, `get_recurrent_payments_admin`, `update_recurrent_payments_admin`, `get_rules_admin`, `update_rules_admin`, `get_faq_admin`, `update_faq_admin`, `create_faq_page_admin`, `update_faq_page_admin`, `delete_faq_page_admin`
+- `app/cabinet/routes/admin_locations.py` — Python-модуль
+  Классы: `ReportDevice`, `LocationReport`, `ReportAccepted`, `LocationExit`, `LocationItem`, `LocationsOverview`
+  Функции: `require_counter_token` — Пустой токен в настройках выключает приём; иначе заголовок должен совпасть с ним., `receive_location_report` — Принять отчёт счётчика с ноды (без админской авторизации — только токен)., `get_locations` — Карточки локаций: хосты панели, на каждой — число пользователей онлайн.
 - `app/cabinet/routes/admin_menu_layout.py` — Python-модуль
   Классы: `ButtonConfig`, `RowConfig`, `MenuConfigResponse`, `MenuConfigUpdateRequest`
   Функции: `get_menu_layout` — Return merged menu layout config (rows + button styles). Admin only., `update_menu_layout` — Save full menu layout config. Splits into layout + button styles. Admin only., `reset_menu_layout` — Reset menu layout AND button styles to defaults. Admin only.
@@ -3098,6 +3101,9 @@
 - `tests/cabinet/test_admin_legal_pages_routes.py` — Python-модуль
   Классы: нет
   Функции: `test_admin_legal_pages_routes_registered`, `test_legal_responses_expose_env_lock_flag`, `test_set_display_mode_commits`, `test_set_display_mode_env_locked_conflict`, `test_set_display_mode_env_locked_same_value_allowed`, `test_require_language_rejects_unknown`
+- `tests/cabinet/test_admin_locations_http.py` — Python-модуль
+  Классы: `FakeCache` (4 методов), `FakeApi` (2 методов), `FakeService` (2 методов)
+  Функции: `test_report_rejected_when_token_unset`, `test_report_rejected_with_wrong_token`, `test_report_stored_with_ttl`, `test_report_with_broken_body_is_rejected_and_not_stored`, `test_report_returns_503_when_cache_unavailable`, `test_get_merges_reports_from_two_nodes`, `test_get_skips_corrupted_stored_report`, `test_get_returns_503_when_panel_fails`
 - `tests/cabinet/test_admin_overpay_certificate_routes.py` — Python-модуль
   Классы: нет
   Функции: `p12_bytes`, `stubbed_service`, `test_admin_overpay_certificate_routes_registered`, `test_upload_certificate_commits`, `test_upload_certificate_env_locked_warning`, `test_upload_certificate_invalid_returns_422`, `test_upload_certificate_oversize_returns_413`, `test_delete_certificate_commits`
