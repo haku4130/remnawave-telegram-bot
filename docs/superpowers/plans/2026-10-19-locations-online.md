@@ -452,7 +452,9 @@ git commit -m "feat(admin): блок «Локации» на панели ста
   Проверка: `curl -s -o /dev/null -w '%{http_code}' -X POST https://cabinet.zanity.net/api/cabinet/admin/stats/locations/report` → 403.
 - [ ] **Step 2:** Счётчик на msk4 по README. Проверка: `journalctl -u location-counter -n 20` без ошибок отправки; в Redis
   на msk3 появился `location_report:MSK-4`; `GET /cabinet/admin/stats/locations` (под админом) отдаёт числа MSK-4,
-  сумма по карточкам MSK-4 близка к онлайну ноды в панели.
+  сумма по карточкам MSK-4 близка к онлайну ноды в панели; строки «через …» есть только у AUTO Европа.
+  Проверка, что `tail` не остаётся в контейнере: после `systemctl restart location-counter` проверка из README
+  (шаг 5) печатает 1, после `systemctl stop location-counter` — 0. Только после этого — остальные ноды.
 - [ ] **Step 3:** Так же nl1, SE-1 (`root@191.44.114.69`), msk1, msk2. Проверка: у всех десяти карточек `source == 'counter'`;
   `top`/`systemctl status` — процесс < 1 % CPU, память < 50 МБ.
 - [ ] **Step 4:** Фронт: push ветки, PR в `haku4130/bedolaga-cabinet`, после мёржа — ручной деплой
