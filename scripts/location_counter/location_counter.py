@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -24,10 +25,23 @@ UTC = timezone.utc  # noqa: UP017 -- datetime.UTC появился только 
 
 WINDOW_SECONDS = 300
 REPORT_INTERVAL_SECONDS = 60
+CLOCK_SKEW_SECONDS = 300
+CLOCK_WARNING_INTERVAL_SECONDS = 600
 HTTP_TIMEOUT_SECONDS = 15
 REPORT_PATH = '/api/cabinet/admin/stats/locations/report'
 TOKEN_HEADER = 'X-Location-Counter-Token'
-LOG_COMMAND = ['docker', 'exec', 'remnanode', 'tail', '-F', '-n', '+1', '/var/log/xray/current']
+# `docker exec` без -i не передаёт сигналы, а dockerd не убивает процесс в контейнере при обрыве
+# клиента, поэтому одинокий `tail -F` пережил бы перезапуск сервиса. Здесь stdin держится открытым
+# со стороны Python: когда счётчик умирает, `cat` получает EOF, и `kill` останавливает tail.
+LOG_COMMAND = [
+    'docker',
+    'exec',
+    '-i',
+    'remnanode',
+    'sh',
+    '-c',
+    'tail -F -n +1 /var/log/xray/current & p=$!; cat >/dev/null; kill $p',
+]
 EXIT_PREFIX = 'SS_OUTBOUND_'
 
 _LINE_RE = re.compile(
@@ -54,6 +68,7 @@ class DeviceState:
     last_seen: datetime
     inbound: str
     exit: str | None
+    exit_seen: datetime | None = None
 
 
 def parse_line(line: str) -> LogEvent | None:
@@ -78,28 +93,48 @@ class DeviceTracker:
 
     def __init__(self) -> None:
         self._devices: dict[tuple[str, str], DeviceState] = {}
+        self.events_seen = 0
+        self.newest_ts: datetime | None = None
 
     def observe(self, event: LogEvent) -> None:
+        self.events_seen += 1
+        if self.newest_ts is None or event.ts > self.newest_ts:
+            self.newest_ts = event.ts
         key = (event.user, event.ip)
         state = self._devices.get(key)
         if state is None:
-            self._devices[key] = DeviceState(event.user, event.ip, event.ts, event.inbound, _exit_of(event.outbound))
+            exit_tag = _exit_of(event.outbound)
+            self._devices[key] = DeviceState(
+                event.user, event.ip, event.ts, event.inbound, exit_tag, event.ts if exit_tag else None
+            )
             return
         if event.ts < state.last_seen:
             return
+        exit_tag = _exit_of(event.outbound)
         if event.inbound != state.inbound:
             state.inbound = event.inbound
-            state.exit = _exit_of(event.outbound)
-        elif state.exit is None:
-            state.exit = _exit_of(event.outbound)
-        elif _exit_of(event.outbound) is not None:
-            state.exit = event.outbound
+            state.exit = exit_tag
+            state.exit_seen = event.ts if exit_tag else None
+        elif exit_tag is not None:
+            state.exit = exit_tag
+            state.exit_seen = event.ts
         state.last_seen = event.ts
 
     def snapshot(self, now: datetime) -> list[DeviceState]:
         threshold = now - timedelta(seconds=WINDOW_SECONDS)
         self._devices = {k: v for k, v in self._devices.items() if v.last_seen >= threshold}
-        return [DeviceState(s.user, s.ip, s.last_seen, s.inbound, s.exit) for s in self._devices.values()]
+        # Выход без мостового подключения в окне в разбивку не попадает, само устройство остаётся.
+        return [
+            DeviceState(
+                s.user,
+                s.ip,
+                s.last_seen,
+                s.inbound,
+                s.exit if s.exit_seen is not None and s.exit_seen >= threshold else None,
+                s.exit_seen,
+            )
+            for s in self._devices.values()
+        ]
 
 
 def make_key(token: str, value: str) -> str:
@@ -128,6 +163,14 @@ def build_report(node: str, devices: list[DeviceState], token: str, now: datetim
     }
 
 
+def clock_skew(newest_ts: datetime | None, now: datetime) -> float | None:
+    """Расхождение «часы ноды - время событий в логе» в секундах, если оно больше допустимого."""
+    if newest_ts is None:
+        return None
+    skew = (now - newest_ts).total_seconds()
+    return skew if abs(skew) > CLOCK_SKEW_SECONDS else None
+
+
 def _send(url: str, token: str, report: dict) -> None:
     request = urllib.request.Request(
         url,
@@ -141,8 +184,14 @@ def _send(url: str, token: str, report: dict) -> None:
 
 def _read_log(tracker: DeviceTracker, lock: threading.Lock, stopped: threading.Event) -> None:
     try:
+        # stdin = PIPE: не пишем и не закрываем до выхода процесса — см. комментарий к LOG_COMMAND
         process = subprocess.Popen(  # noqa: S603
-            LOG_COMMAND, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='replace'
+            LOG_COMMAND,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            errors='replace',
         )
         for line in process.stdout:
             event = parse_line(line)
@@ -175,10 +224,25 @@ def main() -> int:
     stopped = threading.Event()
     threading.Thread(target=_read_log, args=(tracker, lock, stopped), daemon=True).start()
 
+    events_before = 0
+    first_cycle = True
+    last_warning = 0.0
     while not stopped.wait(REPORT_INTERVAL_SECONDS):
         now = datetime.now(UTC)
         with lock:
             devices = tracker.snapshot(now)
+            events_total, newest_ts = tracker.events_seen, tracker.newest_ts
+        # Строки идут, а время последней далеко от часов ноды: скорее всего, часовой пояс или часы
+        # (первый цикл пропускаем: после старта tail перечитывает весь лог, он может быть старым).
+        skew = clock_skew(newest_ts, now) if events_total > events_before and not first_cycle else None
+        if skew is not None and time.monotonic() - last_warning >= CLOCK_WARNING_INTERVAL_SECONDS:
+            last_warning = time.monotonic()
+            print(
+                f'clock warning: newest log event differs from node time by {skew:.0f}s (timezone or clock?)',
+                file=sys.stderr,
+                flush=True,
+            )
+        events_before, first_cycle = events_total, False
         try:
             _send(url, token, build_report(node, devices, token, now))
         except Exception as exc:

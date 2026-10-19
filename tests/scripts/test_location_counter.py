@@ -1,7 +1,16 @@
 import json
+import subprocess
+import threading
 from datetime import UTC, datetime, timedelta
 
-from scripts.location_counter.location_counter import DeviceTracker, LogEvent, build_report, make_key, parse_line
+from scripts.location_counter import location_counter
+from scripts.location_counter.location_counter import (
+    DeviceTracker,
+    LogEvent,
+    build_report,
+    make_key,
+    parse_line,
+)
 
 
 LINE = (
@@ -87,3 +96,83 @@ def test_report_has_no_raw_ids():
         'exit': 'SS_OUTBOUND_FI2',
     }
     assert len(d['u']) == 16 and '4242' not in json.dumps(r) and '9.9.9.9' not in json.dumps(r)
+
+
+def test_stale_exit_dropped_but_device_stays():
+    t = DeviceTracker()
+    t.observe(ev(0, 'vless-to-eu-auto', 'SS_OUTBOUND_FI1'))
+    t.observe(ev(100, 'vless-to-eu-auto', 'direct'))
+    t.observe(ev(200, 'vless-to-eu-auto', 'direct'))
+    # последний мост был 305 с назад (вне окна), а само устройство подключалось 105 с назад
+    [d] = t.snapshot(ev(305, 'x', 'y').ts)
+    assert (d.last_seen, d.exit) == (ev(200, 'x', 'y').ts, None)
+
+
+def test_fresh_exit_kept_in_window():
+    t = DeviceTracker()
+    t.observe(ev(0, 'vless-to-eu-auto', 'SS_OUTBOUND_FI1'))
+    t.observe(ev(250, 'vless-to-eu-auto', 'direct'))
+    [d] = t.snapshot(ev(299, 'x', 'y').ts)
+    assert d.exit == 'SS_OUTBOUND_FI1'
+
+
+def test_exit_refreshed_by_new_bridge_connection():
+    t = DeviceTracker()
+    t.observe(ev(0, 'vless-to-eu-auto', 'SS_OUTBOUND_FI1'))
+    t.observe(ev(200, 'vless-to-eu-auto', 'SS_OUTBOUND_DE1'))
+    [d] = t.snapshot(ev(400, 'x', 'y').ts)
+    assert d.exit == 'SS_OUTBOUND_DE1'
+
+
+def test_exit_not_leaked_across_inbound_switch_via_exit_seen():
+    t = DeviceTracker()
+    t.observe(ev(0, 'vless-to-eu-auto', 'SS_OUTBOUND_FI1'))
+    t.observe(ev(5, 'vless-to-de1-ss', 'direct'))
+    [d] = t.snapshot(ev(10, 'x', 'y').ts)
+    assert (d.inbound, d.exit) == ('vless-to-de1-ss', None)
+
+
+def test_log_command_wraps_tail_with_stdin_watchdog():
+    cmd = location_counter.LOG_COMMAND
+    assert cmd[:4] == ['docker', 'exec', '-i', 'remnanode']
+    assert cmd[4:6] == ['sh', '-c']
+    script = cmd[6]
+    assert 'tail -F -n +1 /var/log/xray/current' in script
+    assert 'cat >/dev/null' in script and 'kill $p' in script
+
+
+def test_log_reader_keeps_stdin_pipe_open(monkeypatch):
+    captured = {}
+
+    class FakeProcess:
+        stdout = iter([])
+
+        def wait(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        captured['cmd'] = cmd
+        captured['kwargs'] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(location_counter.subprocess, 'Popen', fake_popen)
+    stopped = threading.Event()
+    location_counter._read_log(DeviceTracker(), threading.Lock(), stopped)
+    assert captured['cmd'] == location_counter.LOG_COMMAND
+    assert captured['kwargs']['stdin'] == subprocess.PIPE
+    assert stopped.is_set()
+
+
+def test_clock_skew_flags_both_directions_beyond_limit():
+    now = ev(1000, 'x', 'y').ts
+    assert location_counter.clock_skew(None, now) is None
+    assert location_counter.clock_skew(now - timedelta(seconds=299), now) is None
+    assert location_counter.clock_skew(now - timedelta(seconds=3600), now) == 3600
+    assert location_counter.clock_skew(now + timedelta(seconds=301), now) == -301
+
+
+def test_tracker_remembers_newest_event_and_count():
+    t = DeviceTracker()
+    t.observe(ev(10, 'a', 'direct'))
+    t.observe(ev(5, 'a', 'direct', ip='2.2.2.2'))
+    assert (t.events_seen, t.newest_ts) == (2, ev(10, 'x', 'y').ts)
