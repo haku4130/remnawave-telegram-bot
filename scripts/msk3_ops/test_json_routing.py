@@ -56,6 +56,11 @@ class AutoTemplateTest(unittest.TestCase):
         last = auto_template(P)['routing']['rules'][-1]
         self.assertEqual(last, {'type': 'field', 'ip': ['0.0.0.0/0', '::/0'], 'balancerTag': 'EU_AUTO'})
 
+    def test_auto_template_pins_ip_if_non_match(self):
+        # Ловушка 0.0.0.0/0 срабатывает только на втором проходе IPIfNonMatch, даже если в профиле стоит другая стратегия.
+        self.assertEqual(auto_template({**P, 'DomainStrategy': 'AsIs'})['routing']['domainStrategy'], 'IPIfNonMatch')
+        self.assertEqual(auto_template(P)['routing']['domainStrategy'], 'IPIfNonMatch')
+
     def test_auto_template_observatory_and_inject(self):
         t = auto_template(P)
         self.assertEqual(t['observatory']['probeInterval'], '168h')
@@ -162,6 +167,10 @@ HOSTS = [
 ]
 
 
+def with_template(uuid, template_uuid):
+    return [{**h, 'xrayJsonTemplateUuid': template_uuid} if h['uuid'] == uuid else h for h in HOSTS]
+
+
 class HostAssignTest(unittest.TestCase):
     def test_find_host_exact(self):
         self.assertEqual(find_host(HOSTS, TEST_HOST_REMARK)['uuid'], 'h2')
@@ -174,9 +183,9 @@ class HostAssignTest(unittest.TestCase):
             find_host(HOSTS, 'dup')
         self.assertIn('2', str(many.exception))
 
-    def run_assign(self, templates, remark, assign=True):
+    def run_assign(self, templates, remark, assign=True, hosts=HOSTS):
         """Возвращает (записи в панель, файлы бэкапа, содержимое бэкапа, SystemExit или None)."""
-        panel = FakePanel(templates, HOSTS)
+        panel = FakePanel(templates, hosts)
         old = Path.cwd()
         refused = None
         with tempfile.TemporaryDirectory() as d:
@@ -203,7 +212,9 @@ class HostAssignTest(unittest.TestCase):
         self.assertEqual(saved, HOSTS)
 
     def test_unassign_clears_template(self):
-        writes, backups, _, refused = self.run_assign([tpl(AUTO_NAME, 'u3', {})], TEST_HOST_REMARK, assign=False)
+        writes, backups, _, refused = self.run_assign(
+            [tpl(AUTO_NAME, 'u3', {})], TEST_HOST_REMARK, assign=False, hosts=with_template('h2', 'u3')
+        )
         self.assertIsNone(refused)
         self.assertEqual(
             writes, [('PATCH', '/api/hosts', {'uuid': 'h2', 'isDisabled': False, 'xrayJsonTemplateUuid': None})]
@@ -217,6 +228,40 @@ class HostAssignTest(unittest.TestCase):
 
     def test_assign_refuses_ambiguous_host_and_writes_nothing(self):
         writes, backups, _, refused = self.run_assign([tpl(AUTO_NAME, 'u3', {})], 'dup')
+        self.assertIsNotNone(refused)
+        self.assertEqual((writes, backups), ([], []))
+
+    def test_assign_refuses_host_with_foreign_template(self):
+        writes, backups, _, refused = self.run_assign(
+            [tpl(AUTO_NAME, 'u3', {})], TEST_HOST_REMARK, hosts=with_template('h2', 'u-other')
+        )
+        self.assertIn('u-other', str(refused))
+        self.assertEqual((writes, backups), ([], []))
+
+    def test_assign_prints_previous_value(self):
+        for hosts, expected in ((HOSTS, 'was none'), (with_template('h2', 'u3'), 'was u3')):
+            out = io.StringIO()
+            panel = FakePanel([tpl(AUTO_NAME, 'u3', {})], hosts)
+            with tempfile.TemporaryDirectory() as d:
+                old = Path.cwd()
+                os.chdir(d)
+                try:
+                    with mock.patch.object(json_routing, 'call', panel), contextlib.redirect_stdout(out):
+                        json_routing.assign_auto(TEST_HOST_REMARK)
+                finally:
+                    os.chdir(old)
+            self.assertEqual(len(panel.writes), 1)
+            self.assertIn(expected, out.getvalue())
+
+    def test_unassign_refuses_host_with_foreign_template(self):
+        writes, backups, _, refused = self.run_assign(
+            [tpl(AUTO_NAME, 'u3', {})], TEST_HOST_REMARK, assign=False, hosts=with_template('h2', 'u-other')
+        )
+        self.assertIn('u-other', str(refused))
+        self.assertEqual((writes, backups), ([], []))
+
+    def test_unassign_refuses_host_without_template(self):
+        writes, backups, _, refused = self.run_assign([tpl(AUTO_NAME, 'u3', {})], TEST_HOST_REMARK, assign=False)
         self.assertIsNotNone(refused)
         self.assertEqual((writes, backups), ([], []))
 

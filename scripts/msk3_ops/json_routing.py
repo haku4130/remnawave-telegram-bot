@@ -85,6 +85,7 @@ def auto_template(p):
     # Тот же split, но `proxy` -> балансировщик EU_AUTO по скрытым хостам. Виртуальный хост как outbound не
     # добавляем, поэтому «первого outbound» для неподпавшего трафика нет: ловим его последним ip-правилом.
     t = split_template(p)
+    t['routing']['domainStrategy'] = 'IPIfNonMatch'  # ip-ловушка работает только на втором проходе этой стратегии
     for r in t['routing']['rules']:
         if r.get('outboundTag') == 'proxy': del r['outboundTag']; r['balancerTag'] = 'EU_AUTO'
     t['routing']['rules'].append({'type': 'field', 'ip': ['0.0.0.0/0', '::/0'], 'balancerTag': 'EU_AUTO'})
@@ -162,11 +163,15 @@ def set_host_template(remark, assign):  # назначить/снять шабл
     if assign and not uuids: sys.exit(f'template {AUTO_NAME!r} does not exist, run auto-create first')
     hosts = call('GET', '/api/hosts')['response']
     h = find_host(hosts, remark)
+    cur = h.get('xrayJsonTemplateUuid')
+    if cur not in set(uuids[:1]) | ({None} if assign else set()):  # чужой шаблон не трогаем; unassign снимает только AUTO
+        sys.exit(f'host {remark!r} has template {cur or "none"}, expected {AUTO_NAME!r}'
+                 f'{"" if assign else " to unassign"}: refusing, nothing changed')
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
     with open(f'hosts-backup-{stamp}.json', 'w') as f: json.dump(hosts, f, ensure_ascii=False, indent=1)
     tpl = uuids[0] if assign else None
     call('PATCH', '/api/hosts', {'uuid': h['uuid'], 'isDisabled': h['isDisabled'], 'xrayJsonTemplateUuid': tpl})
-    print('host', h['remark'], '->', AUTO_NAME if assign else 'no template')
+    print('host', h['remark'], '->', AUTO_NAME if assign else 'no template', f'(was {cur or "none"})')
 
 
 def assign_auto(remark): set_host_template(remark, True)
