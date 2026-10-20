@@ -1,0 +1,175 @@
+{
+ "dns": {
+  "hosts": {
+   "lkfl2.nalog.ru": "213.24.64.175",
+   "lknpd.nalog.ru": "213.24.64.181"
+  },
+  "queryStrategy": "UseIPv4",
+  "servers": [
+   {
+    "address": "https://8.8.8.8/dns-query"
+   },
+   {
+    "address": "https://8.8.8.8/dns-query",
+    "domains": [
+     "domain:gosuslugi.ru"
+    ],
+    "skipFallback": true
+   },
+   {
+    "address": "https://77.88.8.8/dns-query",
+    "domains": [
+     "geosite:private",
+     "geosite:category-ru",
+     "geosite:whitelist",
+     "geosite:microsoft",
+     "geosite:apple",
+     "geosite:epicgames",
+     "geosite:riot",
+     "geosite:escapefromtarkov",
+     "geosite:steam",
+     "geosite:twitch",
+     "geosite:pinterest",
+     "geosite:faceit"
+    ],
+    "skipFallback": true
+   }
+  ]
+ },
+ "routing": {
+  "domainStrategy": "IPIfNonMatch",
+  "domainMatcher": "hybrid",
+  "rules": [
+   {
+    "type": "field",
+    "ip": [
+     "8.8.8.8"
+    ],
+    "outboundTag": "proxy"
+   },
+   {
+    "type": "field",
+    "ip": [
+     "77.88.8.8"
+    ],
+    "outboundTag": "direct"
+   },
+   {
+    "type": "field",
+    "protocol": [
+     "bittorrent"
+    ],
+    "outboundTag": "direct"
+   },
+   {
+    "type": "field",
+    "domain": [
+     "domain:gosuslugi.ru"
+    ],
+    "outboundTag": "direct-gu"
+   },
+   {
+    "type": "field",
+    "domain": [
+     "geosite:win-spy",
+     "geosite:torrent",
+     "geosite:category-ads"
+    ],
+    "outboundTag": "block"
+   },
+   {
+    "type": "field",
+    "domain": [
+     "geosite:google-play",
+     "geosite:github",
+     "geosite:twitch-ads",
+     "geosite:youtube",
+     "geosite:telegram"
+    ],
+    "outboundTag": "proxy"
+   },
+   {
+    "type": "field",
+    "domain": [
+     "geosite:private",
+     "geosite:category-ru",
+     "geosite:whitelist",
+     "geosite:microsoft",
+     "geosite:apple",
+     "geosite:epicgames",
+     "geosite:riot",
+     "geosite:escapefromtarkov",
+     "geosite:steam",
+     "geosite:twitch",
+     "geosite:pinterest",
+     "geosite:faceit"
+    ],
+    "outboundTag": "direct"
+   },
+   {
+    "type": "field",
+    "ip": [
+     "geoip:private",
+     "geoip:direct"
+    ],
+    "outboundTag": "direct"
+   }
+  ]
+ },
+ "inbounds": [
+  {
+   "tag": "socks",
+   "port": 10808,
+   "listen": "127.0.0.1",
+   "protocol": "socks",
+   "settings": {
+    "udp": true,
+    "auth": "noauth"
+   },
+   "sniffing": {
+    "enabled": true,
+    "routeOnly": false,
+    "destOverride": [
+     "http",
+     "tls",
+     "quic"
+    ]
+   }
+  },
+  {
+   "tag": "http",
+   "port": 10809,
+   "listen": "127.0.0.1",
+   "protocol": "http",
+   "settings": {
+    "allowTransparent": false
+   },
+   "sniffing": {
+    "enabled": true,
+    "routeOnly": false,
+    "destOverride": [
+     "http",
+     "tls",
+     "quic"
+    ]
+   }
+  }
+ ],
+ "outbounds": [
+  {
+   "tag": "direct",
+   "protocol": "freedom"
+  },
+  {
+   "tag": "block",
+   "protocol": "blackhole"
+  },
+  {
+   "tag": "direct-gu",
+   "protocol": "freedom",
+   "settings": {
+    "domainStrategy": "UseIPv4"
+   }
+  }
+ ]
+}

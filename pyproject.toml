@@ -76,6 +76,7 @@ exclude = [
     'node_modules',
     'venv',
     'migrations',
+    'scripts/msk3_ops/json_routing.py',  # копия живого cron-скрипта msk3 в его компактном стиле
 ]
 
 [tool.ruff.lint]
