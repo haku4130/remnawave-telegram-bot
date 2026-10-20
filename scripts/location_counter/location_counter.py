@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 
@@ -43,11 +43,15 @@ LOG_COMMAND = [
     'tail -F -n +1 /var/log/xray/current & p=$!; cat >/dev/null; kill $p',
 ]
 EXIT_PREFIX = 'SS_OUTBOUND_'
+# Клиенты AUTO проверяют каждый выход запросом к этому хосту; такое соединение не пользовательский
+# трафик и не должно размазывать устройство по портам выходов.
+PROBE_HOSTS: frozenset[str] = frozenset({'cp.cloudflare.com'})
 
 _LINE_RE = re.compile(
     r'^(?P<date>\d{4}/\d{2}/\d{2}) (?P<time>\d{2}:\d{2}:\d{2})(?:\.(?P<frac>\d+))? '
     r'from (?:(?:tcp|udp):)?(?:\[(?P<ip6>[0-9A-Fa-f:.]+)\]|(?P<ip4>\d{1,3}(?:\.\d{1,3}){3})):\d+ '
-    r'accepted \S+ \[(?P<inbound>[^\s\]]+) (?:->|>>) (?P<outbound>[^\s\]]+)\] '
+    r'accepted (?:tcp|udp):(?:\[(?P<host6>[0-9A-Fa-f:.]+)\]|(?P<host>[^\s:\[\]]+)):\d+ '
+    r'\[(?P<inbound>[^\s\]]+) (?:->|>>) (?P<outbound>[^\s\]]+)\] '
     r'email: (?P<user>\S+)\s*$'
 )
 
@@ -59,6 +63,8 @@ class LogEvent:
     inbound: str
     outbound: str
     user: str
+    # Не участвует в сравнении: событие описывает устройство и выход, а не назначение.
+    host: str = field(default='', compare=False)
 
 
 @dataclass
@@ -81,7 +87,11 @@ def parse_line(line: str) -> LogEvent | None:
         return None
     if m['frac']:
         ts = ts.replace(microsecond=int(m['frac'][:6].ljust(6, '0')))
-    return LogEvent(ts, m['ip6'] or m['ip4'], m['inbound'], m['outbound'], m['user'])
+    return LogEvent(ts, m['ip6'] or m['ip4'], m['inbound'], m['outbound'], m['user'], m['host6'] or m['host'])
+
+
+def is_probe(event: LogEvent) -> bool:
+    return event.host in PROBE_HOSTS
 
 
 def _exit_of(outbound: str) -> str | None:
@@ -195,7 +205,7 @@ def _read_log(tracker: DeviceTracker, lock: threading.Lock, stopped: threading.E
         )
         for line in process.stdout:
             event = parse_line(line)
-            if event is not None:
+            if event is not None and not is_probe(event):
                 with lock:
                     tracker.observe(event)
         process.wait()

@@ -8,6 +8,7 @@ from scripts.location_counter.location_counter import (
     DeviceTracker,
     LogEvent,
     build_report,
+    is_probe,
     make_key,
     parse_line,
 )
@@ -43,6 +44,28 @@ def test_parse_ipv6_client():
 def test_skip_lines_without_user():
     assert parse_line('2026/10/18 17:34:07.1 from DNS accepted udp:1.1.1.1:53 [xray.system.49d7 >> direct]') is None
     assert parse_line('garbage') is None
+
+
+def test_parse_line_captures_destination_host():
+    e = parse_line(
+        '2026/10/19 15:17:39.217281 from 109.252.162.151:1230 accepted tcp:cp.cloudflare.com:443 '
+        '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141'
+    )
+    assert e.host == 'cp.cloudflare.com'
+    e6 = parse_line('2026/10/19 15:17:39 from 1.2.3.4:5 accepted udp:[2a00:1450::1]:443 [a -> direct] email: 7')
+    assert e6.host == '2a00:1450::1'
+
+
+def test_probe_connections_are_ignored():
+    probe = parse_line(
+        '2026/10/19 15:17:39 from 1.2.3.4:5 accepted tcp:cp.cloudflare.com:443 '
+        '[vless-auto-de1 -> SS_OUTBOUND_DE1] email: 141'
+    )
+    real = parse_line(
+        '2026/10/19 15:17:40 from 1.2.3.4:5 accepted tcp:instagram.com:443 '
+        '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141'
+    )
+    assert is_probe(probe) and not is_probe(real)
 
 
 def ev(sec, inbound, outbound, user='1', ip='1.1.1.1'):
@@ -161,6 +184,25 @@ def test_log_reader_keeps_stdin_pipe_open(monkeypatch):
     assert captured['cmd'] == location_counter.LOG_COMMAND
     assert captured['kwargs']['stdin'] == subprocess.PIPE
     assert stopped.is_set()
+
+
+def test_log_reader_skips_probe_connections(monkeypatch):
+    lines = [
+        '2026/10/19 15:17:39 from 1.2.3.4:5 accepted tcp:cp.cloudflare.com:443 [vless-auto-de1 -> SS_OUTBOUND_DE1] email: 141\n',
+        '2026/10/19 15:17:40 from 1.2.3.4:5 accepted tcp:instagram.com:443 [vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141\n',
+    ]
+
+    class FakeProcess:
+        stdout = iter(lines)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(location_counter.subprocess, 'Popen', lambda cmd, **kwargs: FakeProcess())
+    tracker = DeviceTracker()
+    location_counter._read_log(tracker, threading.Lock(), threading.Event())
+    assert tracker.events_seen == 1
+    assert tracker.newest_ts == datetime(2026, 10, 19, 15, 17, 40, tzinfo=UTC)
 
 
 def test_clock_skew_flags_both_directions_beyond_limit():
