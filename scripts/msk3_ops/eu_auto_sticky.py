@@ -3,16 +3,21 @@
 #   profile — профиль MSK-4: 7 входов vless-auto-*, балансеры AUTO_<X>/AUTO_GEM_<X> на один выход с запасным,
 #             правила по портам (зонд первым), Gemini по портам, observatory -> burstObservatory;
 #   panel   — новые входы в activeInbounds ноды MSK-4 (+ перезапуск), шесть vless-auto-* во все сквады
-#             с vless-to-eu-auto, vless-auto-test — только в Testers;
+#             с vless-to-eu-auto и в Testers (иначе панель выкинет виртуальный хост шаблона из подписки),
+#             vless-auto-test — только в Testers;
 #   hosts   — скрытые хосты «EU AUTO · <X>» и видимый тестовый «🧪 AUTO Европа (тест)», поля — как у хоста AUTO.
+#   restore-profile <backup.json> — откат профиля MSK-4 из бэкапа, который пишет profile --apply.
 # Без --apply только печатает; с --apply — JSON-бэкап в /root/fi2-migration/, затем запись.
+# После profile/panel --apply ждёт до 90 с, пока нода MSK-4 подключится; если нет — код 1 и команда отката.
 # Не печатает ключи Reality, UUID пользователей и профиль целиком.
-# Запуск на msk3: REMNAWAVE_API_URL=... REMNAWAVE_API_KEY=... python3 eu_auto_sticky.py profile|panel|hosts [--apply]
+# Запуск на msk3: REMNAWAVE_API_URL=... REMNAWAVE_API_KEY=... python3 eu_auto_sticky.py profile|panel|hosts [--apply] | restore-profile <backup.json> [--apply]
 import copy
 import datetime
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 
 
@@ -23,6 +28,7 @@ AUTO_HOST = '🇪🇺 [AUTO] Европа'
 GEMINI_BALANCER = 'GEMINI_BALANCER'
 TESTERS = 'Testers'
 BACKUP_DIR = '/root/fi2-migration'
+HEALTH_TRIES, HEALTH_INTERVAL = 18, 5  # ~90 с после записи
 
 EXITS = ['DE1', 'FI1', 'FI2', 'NL1', 'SE1', 'UK1']
 PORTS = {'DE1': 3452, 'FI1': 3453, 'FI2': 3454, 'NL1': 3455, 'SE1': 3456, 'UK1': 3457}
@@ -213,7 +219,9 @@ def squad_additions(squads, inbound_uuids):
     plan = {}
     for sq in squads:
         tags = {i['tag'] for i in sq['inbounds']}
-        want = list(six) if AUTO_TAG in tags else []
+        # Панель выкидывает виртуальный хост шаблона из подписки, если инбаунд любого из подмешиваемых хостов
+        # не входит в сквады пользователя, поэтому тестеры получают и шесть, и тестовый вход.
+        want = list(six) if AUTO_TAG in tags or sq['name'] == TESTERS else []
         if sq['name'] == TESTERS:
             want.append(TEST_TAG)
         add = [t for t in want if t not in tags and inbound_uuids.get(t) not in {i['uuid'] for i in sq['inbounds']}]
@@ -232,9 +240,31 @@ def _call(method, path, body=None):
     if body is not None:
         req.add_header('Content-Type', 'application/json')
         data = json.dumps(body).encode()
-    with urllib.request.urlopen(req, data, timeout=60) as r:
-        raw = r.read()
-        return json.loads(raw) if raw else {}
+    try:
+        with urllib.request.urlopen(req, data, timeout=60) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        body = e.read(2000).decode('utf-8', 'replace')
+        print(f'HTTP {method} {path} {e.code}: {body}', file=sys.stderr)  # заголовки запроса не печатаем
+        raise
+
+
+def restore_body(backup):
+    """Тело PATCH /api/config-profiles из бэкапа cmd_profile (полный ответ GET профиля)."""
+    if backup.get('name') != PROFILE or not backup.get('uuid') or not isinstance(backup.get('config'), dict):
+        raise ValueError(f'это не бэкап профиля {PROFILE} (нужны name, uuid и config)')
+    return {'uuid': backup['uuid'], 'config': backup['config']}
+
+
+def config_stats(cfg):
+    obs = [k for k in ('observatory', 'burstObservatory') if k in cfg]
+    return {
+        'inbounds': len(cfg.get('inbounds', [])),
+        'balancers': len(cfg.get('routing', {}).get('balancers', [])),
+        'rules': len(cfg.get('routing', {}).get('rules', [])),
+        'observer': '+'.join(obs) or '—',
+    }
 
 
 def _backup(kind, obj):
@@ -243,6 +273,34 @@ def _backup(kind, obj):
     with open(path, 'w') as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
     print('backup:', path)
+    return path
+
+
+def wait_node_connected(tries=HEALTH_TRIES, interval=HEALTH_INTERVAL, sleep=time.sleep):
+    """Опрашивает /api/nodes, пока MSK-4 не окажется подключённой два опроса подряд (один может поймать
+    момент до реального отключения). True — подключилась, False — не успела."""
+    streak = 0
+    for _ in range(tries):
+        sleep(interval)
+        node = next((n for n in _call('GET', '/api/nodes')['response'] if n.get('name') == NODE), None)
+        up = bool(node) and node.get('isConnected') and not node.get('isConnecting') and not node.get('isDisabled')
+        streak = streak + 1 if up else 0
+        if streak >= 2:
+            print(f'нода {NODE}: подключена')
+            return True
+    print(f'нода {NODE}: не подключена за {tries * interval} с')
+    return False
+
+
+def verify_node(backup_path):
+    """0 — нода поднялась; 1 — нет, печатает точную команду отката."""
+    if wait_node_connected():
+        return 0
+    print('!' * 70)
+    print(f'!!! НОДА {NODE} НЕ ПОДНЯЛАСЬ. Откат профиля:')
+    print(f'!!! python3 eu_auto_sticky.py restore-profile {backup_path} --apply')
+    print('!' * 70)
+    return 1
 
 
 def _profile_summary():
@@ -284,9 +342,31 @@ def cmd_profile(apply):
     if not apply:
         print('DRY RUN')
         return 0
-    _backup('msk4-profile', _call('GET', '/api/config-profiles/' + uuid)['response'])
+    saved = _backup('msk4-profile', _call('GET', '/api/config-profiles/' + uuid)['response'])
     print('PATCH ok:', _call('PATCH', '/api/config-profiles', {'uuid': uuid, 'config': cfg})['response']['name'])
-    return 0
+    return verify_node(saved)
+
+
+def cmd_restore_profile(path, apply):
+    with open(path) as f:
+        body = restore_body(json.load(f))
+    live = _call('GET', '/api/config-profiles/' + body['uuid'])['response']
+    old, now = config_stats(body['config']), config_stats(live['config'])
+    for k, label in (('inbounds', 'входов'), ('balancers', 'балансеров'), ('rules', 'правил')):
+        print(f'{label}: бэкап {old[k]}, сейчас {now[k]}')
+    print(f'наблюдатель: бэкап {old["observer"]}, сейчас {now["observer"]}')
+    if live['config'] == body['config']:
+        print('нечего менять')
+        return 0
+    if not apply:
+        print('DRY RUN')
+        return 0
+    _backup('msk4-profile', live)
+    print('PATCH ok:', _call('PATCH', '/api/config-profiles', body)['response']['name'])
+    if wait_node_connected():
+        return 0
+    print(f'!!! НОДА {NODE} НЕ ПОДНЯЛАСЬ и после отката — разбирайтесь вручную (свежий бэкап выше).')
+    return 1
 
 
 def cmd_panel(apply):
@@ -322,6 +402,7 @@ def cmd_panel(apply):
 
     _backup('nodes', nodes)
     _backup('squads', squads)
+    saved = _backup('msk4-profile', _call('GET', '/api/config-profiles/' + prof['uuid'])['response'])
     if node_add:
         body = {
             'uuid': node['uuid'],
@@ -343,7 +424,7 @@ def cmd_panel(apply):
         uuids = [i['uuid'] for i in sq['inbounds']] + [ib[t] for t in add]
         r = _call('PATCH', '/api/internal-squads', {'uuid': sq['uuid'], 'inbounds': uuids})['response']
         print('сквад', r['name'], '-> inbounds:', len(r['inbounds']))
-    return 0
+    return verify_node(saved) if node_add else 0
 
 
 def cmd_hosts(apply):
@@ -384,10 +465,14 @@ def cmd_hosts(apply):
 
 def main(argv):
     cmds = {'profile': cmd_profile, 'panel': cmd_panel, 'hosts': cmd_hosts}
-    if len(argv) < 2 or argv[1] not in cmds:
-        print('usage: eu_auto_sticky.py profile|panel|hosts [--apply]')
+    apply = '--apply' in argv
+    args = [a for a in argv[2:] if a != '--apply']
+    if len(argv) >= 2 and argv[1] == 'restore-profile' and len(args) == 1:
+        return cmd_restore_profile(args[0], apply)
+    if len(argv) < 2 or argv[1] not in cmds or args:
+        print('usage: eu_auto_sticky.py profile|panel|hosts [--apply] | restore-profile <backup.json> [--apply]')
         return 2
-    return cmds[argv[1]]('--apply' in argv)
+    return cmds[argv[1]](apply)
 
 
 if __name__ == '__main__':

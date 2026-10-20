@@ -1,8 +1,17 @@
 # ruff: noqa: PT009, PT027
 # Запуск: cd scripts/msk3_ops && python3 -m unittest test_eu_auto_sticky -v (только stdlib).
+import contextlib
 import copy
+import io
+import json
+import os
+import tempfile
 import unittest
+import urllib.error
+from pathlib import Path
+from unittest import mock
 
+import eu_auto_sticky
 from eu_auto_sticky import (
     BACKUP,
     EXITS,
@@ -12,8 +21,10 @@ from eu_auto_sticky import (
     TEST_PORT,
     TEST_TAG,
     add_auto,
+    config_stats,
     host_body,
     inbound_tag,
+    restore_body,
     squad_additions,
     use_burst,
 )
@@ -289,23 +300,194 @@ class GlueHelpersTest(unittest.TestCase):
             },
         )
 
-    def test_squad_additions_six_to_auto_squads_test_only_to_testers(self):
+    def test_squad_additions_six_to_auto_squads_and_testers_test_only_to_testers(self):
         ib = {inbound_tag(x): 'u-' + x for x in EXITS} | {TEST_TAG: 'u-test'}
+        six = [inbound_tag(x) for x in EXITS]
         squads = [
             {'name': 'Default-Squad', 'uuid': 'd', 'inbounds': [{'tag': 'vless-to-eu-auto', 'uuid': 'u-auto'}]},
             {'name': 'Bridge Profile', 'uuid': 'b', 'inbounds': [{'tag': 'vless-simple', 'uuid': 'u-s'}]},
             {'name': 'Testers', 'uuid': 't', 'inbounds': [{'tag': 'vless-x', 'uuid': 'u-x'}]},
         ]
         plan = squad_additions(squads, ib)
-        self.assertEqual(
-            plan,
-            {
-                'Default-Squad': [inbound_tag(x) for x in EXITS],
-                'Testers': [TEST_TAG],
-            },
-        )
+        self.assertEqual(plan, {'Default-Squad': six, 'Testers': [*six, TEST_TAG]})
         squads[0]['inbounds'].append({'tag': 'vless-auto-de1', 'uuid': 'u-DE1'})
         self.assertNotIn('vless-auto-de1', squad_additions(squads, ib)['Default-Squad'])
+        squads[2]['inbounds'] += [{'tag': t, 'uuid': ib[t]} for t in [*six, TEST_TAG]]
+        self.assertNotIn('Testers', squad_additions(squads, ib))
+
+
+def _backup_dict(cfg=None):
+    return {'uuid': 'p-1', 'name': 'MSK-4', 'config': cfg if cfg is not None else profile(), 'inbounds': [{'x': 1}]}
+
+
+class RestoreTest(unittest.TestCase):
+    def test_restore_body_is_uuid_and_config_only(self):
+        b = _backup_dict()
+        self.assertEqual(restore_body(b), {'uuid': 'p-1', 'config': b['config']})
+
+    def test_restore_body_refuses_foreign_or_broken_backup(self):
+        for bad in ({'uuid': 'p-1', 'name': 'MSK-1', 'config': {}}, {'name': 'MSK-4', 'config': {}}, {'uuid': 'p-1'}):
+            with self.assertRaises(ValueError):
+                restore_body(bad)
+
+    def test_config_stats(self):
+        cfg = profile()
+        self.assertEqual(config_stats(cfg)['observer'], 'observatory')
+        add_auto(cfg)
+        use_burst(cfg)
+        st = config_stats(cfg)
+        self.assertEqual(st['observer'], 'burstObservatory')
+        self.assertEqual((st['inbounds'], st['balancers']), (11, 12))
+
+    def run_restore(self, apply, live_cfg):
+        """Возвращает (записи в панель, вывод, код, файлы бэкапа) для restore-profile."""
+        writes = []
+
+        def fake_call(method, path, body=None):
+            if method == 'GET' and path == '/api/config-profiles/p-1':
+                return {'response': {'uuid': 'p-1', 'name': 'MSK-4', 'config': live_cfg}}
+            writes.append((method, path, body))
+            return {'response': {'name': 'MSK-4'}}
+
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(eu_auto_sticky, 'BACKUP_DIR', d):
+            src = Path(d) / 'src.json'
+            src.write_text(json.dumps(_backup_dict()))
+            with (
+                mock.patch.object(eu_auto_sticky, '_call', fake_call),
+                mock.patch.object(eu_auto_sticky, 'wait_node_connected', return_value=True),
+                contextlib.redirect_stdout(out),
+            ):
+                code = eu_auto_sticky.cmd_restore_profile(str(src), apply)
+            made = [f.name for f in Path(d).iterdir() if f.name.startswith('msk4-profile-backup')]
+        return writes, out.getvalue(), code, made
+
+    def test_restore_dry_run_writes_nothing_and_does_not_print_config(self):
+        live = profile()
+        add_auto(live)
+        writes, out, code, made = self.run_restore(False, live)
+        self.assertEqual((writes, code, made), ([], 0, []))
+        self.assertIn('DRY RUN', out)
+        self.assertNotIn('privateKey', out)
+
+    def test_restore_apply_backs_up_live_then_patches(self):
+        live = profile()
+        add_auto(live)
+        writes, out, code, made = self.run_restore(True, live)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(made), 1)
+        self.assertEqual(writes, [('PATCH', '/api/config-profiles', {'uuid': 'p-1', 'config': profile()})])
+        self.assertNotIn('privateKey', out)
+
+    def test_restore_when_live_equals_backup_does_nothing(self):
+        writes, out, code, made = self.run_restore(True, profile())
+        self.assertEqual((writes, code, made), ([], 0, []))
+        self.assertIn('нечего менять', out)
+
+    def test_main_dispatches_restore_profile_and_rejects_bad_usage(self):
+        with mock.patch.object(eu_auto_sticky, 'cmd_restore_profile', return_value=0) as m:
+            self.assertEqual(eu_auto_sticky.main(['x', 'restore-profile', 'b.json']), 0)
+            self.assertEqual(eu_auto_sticky.main(['x', 'restore-profile', 'b.json', '--apply']), 0)
+            self.assertEqual(m.call_args_list, [mock.call('b.json', False), mock.call('b.json', True)])
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(eu_auto_sticky.main(['x', 'restore-profile']), 2)
+                self.assertEqual(eu_auto_sticky.main(['x', 'profile', 'extra']), 2)
+
+    def test_profile_apply_returns_health_verdict_with_profile_backup_path(self):
+        calls = []
+
+        def fake_call(method, path, body=None):
+            if path == '/api/config-profiles':
+                if method == 'PATCH':
+                    return {'response': {'name': 'MSK-4'}}
+                return {'response': {'configProfiles': [{'name': 'MSK-4', 'uuid': 'p-1'}]}}
+            return {'response': {'uuid': 'p-1', 'name': 'MSK-4', 'config': profile()}}
+
+        with (
+            mock.patch.object(eu_auto_sticky, '_call', fake_call),
+            mock.patch.object(eu_auto_sticky, '_backup', return_value='/b/p.json'),
+            mock.patch.object(eu_auto_sticky, 'verify_node', side_effect=lambda p: calls.append(p) or 1),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(eu_auto_sticky.cmd_profile(True), 1)
+        self.assertEqual(calls, ['/b/p.json'])
+
+
+class HttpErrorTest(unittest.TestCase):
+    def test_call_prints_status_and_trimmed_body_to_stderr_and_reraises(self):
+        err = urllib.error.HTTPError('http://x/api/y', 400, 'Bad', {}, io.BytesIO(b'E' * 3000))
+        env = {'REMNAWAVE_API_URL': 'http://x', 'REMNAWAVE_API_KEY': 'SECRET-KEY'}
+        stderr = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch('urllib.request.urlopen', side_effect=err),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(urllib.error.HTTPError),
+        ):
+            eu_auto_sticky._call('PATCH', '/api/y', {'a': 1})
+        text = stderr.getvalue()
+        self.assertIn('PATCH /api/y 400', text)
+        self.assertIn('E' * 2000, text)
+        self.assertNotIn('E' * 2001, text)
+        self.assertNotIn('SECRET-KEY', text)
+        self.assertNotIn('Bearer', text)
+
+
+def _node(**kw):
+    return {'name': 'MSK-4', 'uuid': 'n-1', 'isConnected': True, 'isConnecting': False, 'isDisabled': False} | kw
+
+
+class WaitNodeTest(unittest.TestCase):
+    def run_wait(self, states):
+        """states — ответы GET /api/nodes по очереди (последний повторяется); возвращает (ok, вывод, сколько раз спали)."""
+        queue, slept, out = list(states), [], io.StringIO()
+
+        def fake_call(method, path, body=None):
+            self.assertEqual((method, path), ('GET', '/api/nodes'))
+            node = queue.pop(0) if len(queue) > 1 else queue[0]
+            return {'response': [{'name': 'OTHER', 'isConnected': False}, node]}
+
+        with (
+            mock.patch.object(eu_auto_sticky, '_call', fake_call),
+            contextlib.redirect_stdout(out),
+        ):
+            ok = eu_auto_sticky.wait_node_connected(tries=18, interval=5, sleep=slept.append)
+        return ok, out.getvalue(), slept
+
+    def test_connected_after_two_consecutive_polls(self):
+        ok, out, slept = self.run_wait([_node(isConnected=False), _node(), _node()])
+        self.assertTrue(ok)
+        self.assertEqual(slept, [5, 5, 5])
+        self.assertIn('MSK-4', out)
+
+    def test_flapping_node_is_not_counted_as_connected(self):
+        ok, _, _ = self.run_wait([_node(), _node(isConnected=False), _node(), _node(isConnected=False)])
+        self.assertFalse(ok)
+
+    def test_never_connected_times_out_after_all_tries(self):
+        ok, out, slept = self.run_wait([_node(isConnected=False)])
+        self.assertFalse(ok)
+        self.assertEqual(len(slept), 18)
+        self.assertIn('не подключена', out)
+
+    def test_disabled_or_connecting_node_is_not_connected(self):
+        for bad in (_node(isDisabled=True), _node(isConnecting=True)):
+            self.assertFalse(self.run_wait([bad])[0])
+
+    def test_failed_health_check_prints_exact_restore_command_and_returns_1(self):
+        out = io.StringIO()
+        with (
+            mock.patch.object(eu_auto_sticky, 'wait_node_connected', return_value=False),
+            contextlib.redirect_stdout(out),
+        ):
+            code = eu_auto_sticky.verify_node('/root/fi2-migration/msk4-profile-backup-1.json')
+        self.assertEqual(code, 1)
+        self.assertIn(
+            'python3 eu_auto_sticky.py restore-profile /root/fi2-migration/msk4-profile-backup-1.json --apply',
+            out.getvalue(),
+        )
+        with mock.patch.object(eu_auto_sticky, 'wait_node_connected', return_value=True):
+            self.assertEqual(eu_auto_sticky.verify_node('x'), 0)
 
 
 if __name__ == '__main__':
