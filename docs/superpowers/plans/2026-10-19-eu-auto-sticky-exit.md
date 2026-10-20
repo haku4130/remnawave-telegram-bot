@@ -48,17 +48,24 @@
 
 ```python
 def test_parse_line_captures_destination_host():
-    e = parse_line('2026/10/19 15:17:39.217281 from 109.252.162.151:1230 accepted tcp:cp.cloudflare.com:443 '
-                   '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141')
+    e = parse_line(
+        '2026/10/19 15:17:39.217281 from 109.252.162.151:1230 accepted tcp:cp.cloudflare.com:443 '
+        '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141'
+    )
     assert e.host == 'cp.cloudflare.com'
     e6 = parse_line('2026/10/19 15:17:39 from 1.2.3.4:5 accepted udp:[2a00:1450::1]:443 [a -> direct] email: 7')
     assert e6.host == '2a00:1450::1'
 
+
 def test_probe_connections_are_ignored():
-    probe = parse_line('2026/10/19 15:17:39 from 1.2.3.4:5 accepted tcp:cp.cloudflare.com:443 '
-                       '[vless-auto-de1 -> SS_OUTBOUND_DE1] email: 141')
-    real = parse_line('2026/10/19 15:17:40 from 1.2.3.4:5 accepted tcp:instagram.com:443 '
-                      '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141')
+    probe = parse_line(
+        '2026/10/19 15:17:39 from 1.2.3.4:5 accepted tcp:cp.cloudflare.com:443 '
+        '[vless-auto-de1 -> SS_OUTBOUND_DE1] email: 141'
+    )
+    real = parse_line(
+        '2026/10/19 15:17:40 from 1.2.3.4:5 accepted tcp:instagram.com:443 '
+        '[vless-auto-fi1 -> SS_OUTBOUND_FI1] email: 141'
+    )
     assert is_probe(probe) and not is_probe(real)
 ```
 
@@ -106,6 +113,7 @@ def test_location_inbound_aliases_parsing():
     parsed = Settings(BOT_TOKEN='t', LOCATION_INBOUND_ALIASES=' vless-auto-de1 = vless-to-eu-auto ,bad,,x=y')
     assert parsed.get_location_inbound_aliases() == {'vless-auto-de1': 'vless-to-eu-auto', 'x': 'y'}
     assert Settings(BOT_TOKEN='t').get_location_inbound_aliases() == {}
+
 
 def test_aliased_inbounds_merge_into_one_card_with_exits():
     aliases = {'vless-auto-fi1': TAG_AUTO, 'vless-auto-se1': TAG_AUTO}
@@ -171,18 +179,29 @@ git commit -m "feat(locations): алиасы входов — порты AUTO в
 
 ```python
 def test_adds_seven_inbounds_copied_from_auto(self):
-    cfg = profile(); add_auto(cfg)
+    cfg = profile()
+    add_auto(cfg)
     by_tag = {i['tag']: i for i in cfg['inbounds']}
     self.assertEqual(by_tag['vless-auto-fi1']['port'], 3453)
     self.assertEqual(by_tag['vless-auto-test']['port'], 3458)
     self.assertEqual(by_tag['vless-auto-uk1']['streamSettings'], by_tag['vless-to-eu-auto']['streamSettings'])
 
+
 def test_balancer_has_one_candidate_and_backup(self):
-    cfg = profile(); add_auto(cfg)
+    cfg = profile()
+    add_auto(cfg)
     b = {x['tag']: x for x in cfg['routing']['balancers']}
-    self.assertEqual(b['AUTO_SE1'], {'tag': 'AUTO_SE1', 'selector': ['SS_OUTBOUND_SE1'],
-                                     'strategy': {'type': 'leastPing'}, 'fallbackTag': 'SS_OUTBOUND_FI2'})
+    self.assertEqual(
+        b['AUTO_SE1'],
+        {
+            'tag': 'AUTO_SE1',
+            'selector': ['SS_OUTBOUND_SE1'],
+            'strategy': {'type': 'leastPing'},
+            'fallbackTag': 'SS_OUTBOUND_FI2',
+        },
+    )
     self.assertEqual(b['AUTO_GEM_UK1']['fallbackTag'], 'SS_OUTBOUND_DE1')
+
 
 def test_probe_rule_first_in_port_group_and_after_blocks(self):
     rules = add_and_get_rules()
@@ -191,6 +210,7 @@ def test_probe_rule_first_in_port_group_and_after_blocks(self):
     self.assertGreater(i, index_of(rules, domain=['geosite:private']))
     self.assertEqual(rules[i + 1]['domain'], ['geosite:youtube'])
 
+
 def test_gemini_on_ports_precedes_general_gemini_rule(self):
     rules = add_and_get_rules()
     general = index_of(rules, balancer='GEMINI_BALANCER')
@@ -198,19 +218,23 @@ def test_gemini_on_ports_precedes_general_gemini_rule(self):
     self.assertLess(se1, general)
     self.assertEqual(rules[se1]['balancerTag'], 'AUTO_GEM_FI2')
 
+
 def test_existing_rules_untouched_and_idempotent(self):
-    cfg = profile(); before = [r for r in cfg['routing']['rules']]
+    cfg = profile()
+    before = [r for r in cfg['routing']['rules']]
     add_auto(cfg)
     self.assertEqual([r for r in cfg['routing']['rules'] if r in before], before)
     self.assertEqual(add_auto(cfg), [])
+
 
 def test_burst_replaces_observatory(self):
     cfg = profile()
     self.assertTrue(use_burst(cfg))
     self.assertNotIn('observatory', cfg)
-    self.assertEqual(cfg['burstObservatory']['pingConfig'],
-                     {'destination': 'https://www.gstatic.com/generate_204', 'interval': '15s',
-                      'sampling': 4, 'timeout': '5s'})
+    self.assertEqual(
+        cfg['burstObservatory']['pingConfig'],
+        {'destination': 'https://www.gstatic.com/generate_204', 'interval': '15s', 'sampling': 4, 'timeout': '5s'},
+    )
     self.assertFalse(use_burst(cfg))
 ```
 
@@ -258,9 +282,11 @@ def test_auto_template_has_no_proxy_outbound_tags(self):
     proxied = [r for r in t['routing']['rules'] if r.get('domain') == P['ProxySites']]
     self.assertEqual(proxied[0]['balancerTag'], 'EU_AUTO')
 
+
 def test_auto_template_catch_all_is_ip_rule_last(self):
     last = auto_template(P)['routing']['rules'][-1]
     self.assertEqual(last, {'type': 'field', 'ip': ['0.0.0.0/0', '::/0'], 'balancerTag': 'EU_AUTO'})
+
 
 def test_auto_template_observatory_and_inject(self):
     t = auto_template(P)
@@ -268,6 +294,7 @@ def test_auto_template_observatory_and_inject(self):
     self.assertTrue(t['observatory']['enableConcurrency'])
     self.assertEqual(t['remnawave']['injectHosts'][0]['selector'], {'type': 'remarkRegex', 'pattern': '^EU AUTO · '})
     self.assertEqual(t['routing']['balancers'][0]['fallbackTag'], 'eu')
+
 
 def test_split_template_unchanged(self):
     self.assertEqual(split_template(P), SPLIT_SNAPSHOT)  # снимок из текущего render до правки
