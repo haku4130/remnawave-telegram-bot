@@ -290,6 +290,10 @@ class Settings(BaseSettings):
     # Теги входящих профилей (через запятую), у которых на карточке показывается разбивка по
     # реальным выходам; у остальных локаций выход и так один. Пусто = разбивка выключена.
     LOCATION_EXIT_BREAKDOWN_INBOUNDS: str = 'vless-to-eu-auto'
+    # Алиасы входящих профилей: устройства с inbound `src` считаются на карточке inbound `dst`
+    # (например, порты AUTO по выходам `vless-auto-de1` собираются в одну карточку AUTO).
+    # Формат: `src=dst,src2=dst`; теги регистрозависимы. Пусто = алиасов нет.
+    LOCATION_INBOUND_ALIASES: str = ''
 
     # Ограниченный grace-доступ для продления истёкшей подписки.
     # Режимы: false (выключено), observe (только журнал), true (активно),
@@ -2196,6 +2200,16 @@ class Settings(BaseSettings):
     def get_location_exit_breakdown_inbounds(self) -> set[str]:
         """Теги входящих профилей, для которых блок «Локации» показывает разбивку по выходам."""
         return {tag.strip() for tag in (self.LOCATION_EXIT_BREAKDOWN_INBOUNDS or '').split(',') if tag.strip()}
+
+    def get_location_inbound_aliases(self) -> dict[str, str]:
+        """Алиасы «тег входящего профиля -> тег карточки» для блока «Локации» (регистр сохраняется)."""
+        result: dict[str, str] = {}
+        for pair in (self.LOCATION_INBOUND_ALIASES or '').split(','):
+            source, separator, target = pair.partition('=')
+            source, target = source.strip(), target.strip()
+            if separator and source and target:
+                result[source] = target
+        return result
 
     def get_traffic_ignored_nodes(self) -> list[str]:
         """Возвращает список UUID нод для исключения из мониторинга"""

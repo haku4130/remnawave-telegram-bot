@@ -88,6 +88,26 @@ def test_exit_display_name():
     assert [exit_display_name(t) for t in tags] == ['FI-2', 'UK-1', 'TO_FI']
 
 
+def test_location_inbound_aliases_parsing():
+    parsed = Settings(BOT_TOKEN='t', LOCATION_INBOUND_ALIASES=' vless-auto-de1 = vless-to-eu-auto ,bad,,x=y')
+    assert parsed.get_location_inbound_aliases() == {'vless-auto-de1': 'vless-to-eu-auto', 'x': 'y'}
+    assert Settings(BOT_TOKEN='t').get_location_inbound_aliases() == {}
+
+
+def test_aliased_inbounds_merge_into_one_card_with_exits():
+    aliases = {'vless-auto-fi1': TAG_AUTO, 'vless-auto-se1': TAG_AUTO}
+    p = merge_presence(
+        [
+            dev('u1', 'd1', 5, 'MSK-4', 'vless-auto-fi1', 'SS_OUTBOUND_FI1'),
+            dev('u1', 'd2', 5, 'MSK-4', 'vless-auto-se1', 'SS_OUTBOUND_SE1'),
+            dev('u2', 'd3', 5, 'MSK-4', TAG_AUTO, 'SS_OUTBOUND_FI2'),
+        ],
+        NOW,
+        aliases,
+    )
+    assert p == {('MSK-4', TAG_AUTO): Presence(2, {'SS_OUTBOUND_FI1': 1, 'SS_OUTBOUND_SE1': 1, 'SS_OUTBOUND_FI2': 1})}
+
+
 def test_location_host_node_overrides_parsing():
     parsed = Settings(BOT_TOKEN='t', LOCATION_HOST_NODE_OVERRIDES='msk2.zanity.net=MSK-2, X.ORG = N')
     assert parsed.get_location_host_node_overrides() == {'msk2.zanity.net': 'MSK-2', 'x.org': 'N'}

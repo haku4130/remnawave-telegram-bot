@@ -164,7 +164,7 @@ async def get_locations(
     cards = build_location_cards(
         hosts,
         nodes,
-        merge_presence(devices, now),
+        merge_presence(devices, now, settings.get_location_inbound_aliases()),
         reports_at,
         settings.get_location_host_node_overrides(),
         settings.get_location_exit_breakdown_inbounds(),

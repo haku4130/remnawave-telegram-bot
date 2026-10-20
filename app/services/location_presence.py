@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -67,8 +68,17 @@ def devices_from_report(report: dict) -> list[Device]:
     ]
 
 
-def merge_presence(devices: list[Device], now: datetime) -> dict[tuple[str, str], Presence]:
-    """Свести устройства со всех нод: устройство считается там, где его видели последним."""
+def merge_presence(
+    devices: list[Device],
+    now: datetime,
+    inbound_aliases: Mapping[str, str] | None = None,
+) -> dict[tuple[str, str], Presence]:
+    """Свести устройства со всех нод: устройство считается там, где его видели последним.
+
+    `inbound_aliases` заменяет inbound устройства до группировки (`src -> dst`), поэтому
+    несколько входов попадают в одну карточку, а разбивка по выходам сохраняется.
+    """
+    aliases = inbound_aliases or {}
     latest: dict[str, Device] = {}
     for device in devices:
         current = latest.get(device.device_key)
@@ -81,7 +91,7 @@ def merge_presence(devices: list[Device], now: datetime) -> dict[tuple[str, str]
     for device in latest.values():
         if device.last_seen < threshold:
             continue
-        key = (device.node, device.inbound)
+        key = (device.node, aliases.get(device.inbound, device.inbound))
         users[key].add(device.user_key)
         if device.exit:
             exit_users[key][device.exit].add(device.user_key)
