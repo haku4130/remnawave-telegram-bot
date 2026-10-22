@@ -2930,6 +2930,7 @@
 - `scripts/install-warp-memory-watchdog.sh` — файл
 - `scripts/location_counter/`
 - `scripts/msk3_ops/`
+- `scripts/msk4_selfsteal_site/`
 - `scripts/preview_screens.py` — Python-модуль
   Классы: `PreviewScreen`
   Функции: `build_screens`, `parse_only` — «Подписка —, Устройства — список» → подстроки без пробелов по краям и в нижнем регистре., `select_screens` — Экраны, в названии которых есть хотя бы одна из подстрок `only` (без учёта регистра); без `only` — все., `send_screens`, `main`
@@ -2967,6 +2968,11 @@
 
 - `scripts/msk3_ops/testdata/routing_header.txt` — файл
 - `scripts/msk3_ops/testdata/split_snapshot.json` — файл
+
+### scripts/msk4_selfsteal_site
+
+- `scripts/msk4_selfsteal_site/favicon.svg` — файл
+- `scripts/msk4_selfsteal_site/index.html` — файл
 
 ## tests
 
