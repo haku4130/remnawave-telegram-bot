@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заявка — программа для сервисных центров и мастерских</title>
+<meta name="description" content="Заявка — учёт ремонтов для сервисных центров и мастерских: квитанции, мастера, статусы для клиента, запчасти и касса.">
+<meta name="theme-color" content="#e9edee">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+:root{
+  --paper:#e9edee;--sheet:#fbfcfc;--ink:#1d2830;--muted:#56636c;--rule:#cfd7da;
+  --stamp:#4a3aa8;--kraft:#e3c98e;--kraft-edge:#c9a95f;
+  --s-new:#7a8790;--s-work:#c07a12;--s-done:#2e7d55;--s-late:#b5352b;
+  --sans:"Segoe UI Variable Text","Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --typed:"PT Mono","Cascadia Mono",Consolas,"Liberation Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--stamp)}
+a:focus-visible,summary:focus-visible{outline:3px solid var(--stamp);outline-offset:3px;border-radius:4px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-weight:700;letter-spacing:-.015em;margin:0}
+h2{font-size:34px;line-height:1.15}
+h3{font-size:19px;line-height:1.3}
+p{margin:0}
+
+/* шапка */
+.top{display:flex;align-items:center;justify-content:space-between;gap:24px;padding-block:22px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-weight:700;font-size:21px;letter-spacing:-.01em}
+.top nav{display:flex;gap:28px}
+.top nav a{color:var(--muted);text-decoration:none;font-size:15px}
+.top nav a:hover{color:var(--ink)}
+
+/* первый экран */
+.hero{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center;padding-block:56px 88px}
+.hero h1{font-size:clamp(34px,4.6vw,54px);line-height:1.06;letter-spacing:-.03em;max-width:12em}
+.lead{font-size:19px;color:var(--muted);max-width:33em;margin:22px 0 32px}
+.actions{display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center}
+.btn{display:inline-block;background:var(--ink);color:#fff;text-decoration:none;font-weight:600;padding:13px 22px;border-radius:6px}
+.btn:hover{background:#2c3a44}
+.link{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:5px}
+.link:hover{text-decoration-color:var(--ink)}
+
+/* квитанция-бирка */
+.tag{position:relative;width:min(100%,380px);background:var(--kraft);color:#3b2f17;padding:30px 30px 34px 58px;
+  clip-path:polygon(34px 0,100% 0,100% 100%,34px 100%,0 50%);transform:rotate(-2.5deg);
+  box-shadow:0 1px 0 var(--kraft-edge) inset;font-family:var(--typed);font-size:14.5px;line-height:1.75}
+.tag:before{content:"";position:absolute;left:24px;top:50%;width:16px;height:16px;margin-top:-8px;border-radius:50%;
+  background:var(--paper);box-shadow:0 0 0 3px var(--kraft-edge) inset}
+.tag:after{content:"";position:absolute;left:48px;top:14px;bottom:14px;border-left:2px dashed rgba(59,47,23,.28)}
+.tag-wrap{display:flex;justify-content:center;filter:drop-shadow(0 14px 18px rgba(29,40,48,.16))}
+.tag .no{font-family:var(--sans);font-size:22px;font-weight:700;letter-spacing:-.01em;color:#2a2110;margin-bottom:10px}
+.tag dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:0 14px}
+.tag dt{color:#7a6538}
+.tag dd{margin:0}
+.stamp{position:absolute;right:34px;bottom:30px;padding:6px 14px;border:3px solid var(--stamp);border-radius:8px;
+  color:var(--stamp);font:800 26px/1 var(--sans);letter-spacing:.08em;opacity:.9;transform:rotate(-12deg);
+  animation:stamp .5s cubic-bezier(.2,.9,.3,1.25) .7s both}
+@keyframes stamp{from{opacity:0;transform:rotate(-22deg) scale(1.9)}to{opacity:.9;transform:rotate(-12deg) scale(1)}}
+
+/* доска статусов */
+.board-sec{background:var(--sheet);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:80px 0}
+.sec-head{display:flex;justify-content:space-between;align-items:end;gap:32px;margin-bottom:36px}
+.sec-head p{color:var(--muted);max-width:30em}
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.col{background:var(--paper);border-radius:10px;padding:16px}
+.col h3{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin:2px 4px 14px}
+.col h3:before{content:"";width:9px;height:9px;border-radius:50%;background:var(--c)}
+.col h3 span{margin-left:auto;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.slip{background:var(--sheet);border-radius:6px;padding:12px 14px;margin-top:8px;border-left:3px solid var(--c);font-size:14.5px;line-height:1.45}
+.slip b{font-variant-numeric:tabular-nums}
+.slip .meta{display:flex;justify-content:space-between;color:var(--muted);font-size:13.5px;margin-top:4px}
+.slip .late{color:var(--s-late);font-weight:600}
+
+/* возможности */
+.features{padding-block:88px}
+.feat{display:grid;grid-template-columns:repeat(2,1fr);gap:40px 64px;margin-top:44px}
+.feat div{border-top:2px solid var(--ink);padding-top:16px}
+.feat p{color:var(--muted);margin-top:8px;max-width:30em}
+
+/* шаги */
+.start{padding-block:0 88px}
+.steps{list-style:none;padding:0;margin:40px 0 0;display:grid;grid-template-columns:repeat(3,1fr);gap:32px;counter-reset:s}
+.steps li{counter-increment:s;position:relative;padding-left:56px}
+.steps li:before{content:counter(s);position:absolute;left:0;top:-2px;width:38px;height:38px;border-radius:50%;
+  border:2px solid var(--stamp);color:var(--stamp);font-weight:700;display:grid;place-items:center}
+.steps p{color:var(--muted);margin-top:6px}
+
+/* тарифы */
+.prices{background:var(--sheet);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:80px 0}
+.table-scroll{overflow-x:auto;margin-top:36px}
+table{width:100%;min-width:620px;border-collapse:collapse;font-size:16px}
+th,td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--rule)}
+thead th{vertical-align:bottom;border-bottom:2px solid var(--ink);font-weight:600}
+thead .plan{display:block;font-size:19px;font-weight:700}
+thead .cost{display:block;font-size:30px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:4px}
+thead .cost small{font-size:15px;font-weight:400;color:var(--muted);letter-spacing:0}
+tbody th{font-weight:400;color:var(--muted)}
+td.hl,th.hl{background:#eeebf8}
+.note{color:var(--muted);font-size:15px;margin-top:18px}
+
+/* вопросы и подключение */
+.bottom{display:grid;grid-template-columns:1fr 1fr;gap:64px;padding-block:88px}
+details{border-bottom:1px solid var(--rule);padding:16px 0}
+details:first-of-type{margin-top:24px;border-top:1px solid var(--rule)}
+summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary:after{content:"+";color:var(--muted);font-weight:400;font-size:22px;line-height:1}
+details[open] summary:after{content:"−"}
+details p{color:var(--muted);margin-top:10px;max-width:34em}
+.invite{background:var(--ink);color:#e7ecee;border-radius:12px;padding:36px 36px 40px;align-self:start}
+.invite h2{color:#fff;font-size:28px}
+.invite p{margin-top:14px;color:#b7c2c8}
+.invite ul{margin:18px 0 0;padding-left:20px;color:#b7c2c8}
+.invite li{margin-top:6px}
+
+footer{border-top:1px solid var(--rule);padding:28px 0 36px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:900px){
+  .hero{grid-template-columns:1fr;gap:48px;padding-block:28px 72px}
+  .board,.steps{grid-template-columns:1fr}
+  .feat,.bottom{grid-template-columns:1fr;gap:32px}
+  .sec-head{display:block}.sec-head p{margin-top:12px}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  .top nav{display:none}
+  h2{font-size:28px}
+  .tag{padding:26px 22px 30px 54px;font-size:13.5px}
+  .stamp{font-size:22px;right:24px}
+  .invite{padding:28px 22px 32px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.stamp{animation:none}}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/"><img src="/favicon.svg" width="30" height="30" alt="">Заявка</a>
+  <nav aria-label="Разделы">
+    <a href="#vozmozhnosti">Возможности</a>
+    <a href="#tarify">Тарифы</a>
+    <a href="#voprosy">Вопросы</a>
+    <a href="#podklyuchenie">Подключение</a>
+  </nav>
+</header>
+
+<main>
+<section class="wrap hero">
+  <div>
+    <h1>Каждый ремонт — с квитанцией, мастером и сроком</h1>
+    <p class="lead">Заявка — программа учёта для сервисных центров и мастерских. Принимайте технику, печатайте квитанции, распределяйте работу и сообщайте клиенту, когда всё готово.</p>
+    <div class="actions">
+      <a class="btn" href="#podklyuchenie">Как подключиться</a>
+      <a class="link" href="#tarify">Тарифы</a>
+    </div>
+  </div>
+  <div class="tag-wrap" aria-hidden="true">
+    <div class="tag">
+      <div class="no">Квитанция № 0412</div>
+      <dl>
+        <dt>Принят</dt><dd>21.10, 11:40</dd>
+        <dt>Техника</dt><dd>Samsung Galaxy A52</dd>
+        <dt>Причина</dt><dd>не заряжается</dd>
+        <dt>Мастер</dt><dd>Олег К.</dd>
+        <dt>Срок</dt><dd>до 23.10</dd>
+        <dt>Сумма</dt><dd>2 400 ₽</dd>
+      </dl>
+      <div class="stamp">ГОТОВ</div>
+    </div>
+  </div>
+</section>
+
+<section class="board-sec">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Вся мастерская на одном экране</h2>
+      <p>Новые заявки, ремонты в работе и техника, которую пора выдавать. Просроченное видно сразу.</p>
+    </div>
+    <div class="board" aria-label="Пример доски заявок">
+      <div class="col" style="--c:var(--s-new)">
+        <h3>Принято<span>3</span></h3>
+        <div class="slip"><b>№ 0418</b> Ноутбук Lenovo, шумит кулер<div class="meta"><span>не назначен</span><span>до 25.10</span></div></div>
+        <div class="slip"><b>№ 0417</b> Кофемашина DeLonghi, течёт<div class="meta"><span>не назначен</span><span>до 28.10</span></div></div>
+        <div class="slip"><b>№ 0416</b> iPhone 11, замена стекла<div class="meta"><span>Олег К.</span><span>до 22.10</span></div></div>
+      </div>
+      <div class="col" style="--c:var(--s-work)">
+        <h3>В работе<span>4</span></h3>
+        <div class="slip"><b>№ 0409</b> Телевизор LG, нет изображения<div class="meta"><span>Сергей М.</span><span class="late">срок вчера</span></div></div>
+        <div class="slip"><b>№ 0413</b> Шуруповёрт Makita, ждёт запчасть<div class="meta"><span>Ильдар Р.</span><span>до 24.10</span></div></div>
+        <div class="slip"><b>№ 0414</b> Xiaomi Redmi 12, разъём<div class="meta"><span>Олег К.</span><span>сегодня</span></div></div>
+        <div class="slip"><b>№ 0415</b> Планшет Huawei, батарея<div class="meta"><span>Сергей М.</span><span>до 23.10</span></div></div>
+      </div>
+      <div class="col" style="--c:var(--s-done)">
+        <h3>Готово к выдаче<span>2</span></h3>
+        <div class="slip"><b>№ 0412</b> Samsung Galaxy A52, разъём<div class="meta"><span>клиент оповещён</span><span>2 400 ₽</span></div></div>
+        <div class="slip"><b>№ 0407</b> Пылесос Dyson V8, щётка<div class="meta"><span>клиент оповещён</span><span>1 800 ₽</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap features" id="vozmozhnosti">
+  <h2>Что умеет Заявка</h2>
+  <div class="feat">
+    <div><h3>Приём и квитанции</h3><p>Записывайте технику, комплектацию и внешний вид. Квитанция с номером печатается на обычном принтере или отправляется клиенту ссылкой.</p></div>
+    <div><h3>Мастера и загрузка</h3><p>Назначайте ремонт на мастера и смотрите, у кого сколько работы на неделю вперёд.</p></div>
+    <div><h3>Статусы для клиента</h3><p>Клиент получает сообщение, когда ремонт принят, когда нужно согласовать цену и когда можно забирать.</p></div>
+    <div><h3>Запчасти</h3><p>Списывайте детали на конкретный ремонт и получайте напоминание, когда позиция заканчивается.</p></div>
+    <div><h3>Касса и отчёты</h3><p>Выручка по дням и мастерам, средний срок ремонта и повторные обращения — без выгрузок в таблицы.</p></div>
+    <div><h3>С телефона</h3><p>Мастер видит свои заявки, добавляет фото и отмечает выполнение прямо с телефона.</p></div>
+  </div>
+</section>
+
+<section class="wrap start">
+  <h2>Начать можно за вечер</h2>
+  <ol class="steps">
+    <li><h3>Создайте мастерскую</h3><p>Укажите адрес, часы работы и пригласите сотрудников.</p></li>
+    <li><h3>Добавьте прайс</h3><p>Виды работ и цены можно загрузить из таблицы целиком.</p></li>
+    <li><h3>Примите первую технику</h3><p>Оформите квитанцию — заявка сразу появится на доске.</p></li>
+  </ol>
+</section>
+
+<section class="prices" id="tarify">
+  <div class="wrap">
+    <h2>Тарифы</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <td></td>
+            <th scope="col"><span class="plan">Старт</span><span class="cost">0 ₽ <small>в месяц</small></span></th>
+            <th scope="col" class="hl"><span class="plan">Мастерская</span><span class="cost">990 ₽ <small>в месяц</small></span></th>
+            <th scope="col"><span class="plan">Сеть</span><span class="cost">2 490 ₽ <small>в месяц</small></span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Заявок в месяц</th><td>до 50</td><td class="hl">без ограничений</td><td>без ограничений</td></tr>
+          <tr><th scope="row">Сотрудники</th><td>2</td><td class="hl">до 10</td><td>без ограничений</td></tr>
+          <tr><th scope="row">Сообщения клиентам</th><td>—</td><td class="hl">есть</td><td>есть</td></tr>
+          <tr><th scope="row">Запчасти и склад</th><td>—</td><td class="hl">есть</td><td>есть</td></tr>
+          <tr><th scope="row">Несколько точек</th><td>—</td><td class="hl">—</td><td>есть</td></tr>
+          <tr><th scope="row">Отчёты</th><td>основные</td><td class="hl">все</td><td>все, по каждой точке</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Тариф «Старт» бесплатный без ограничения по времени. Цены указаны за всю мастерскую, а не за сотрудника.</p>
+  </div>
+</section>
+
+<section class="wrap bottom">
+  <div id="voprosy">
+    <h2>Вопросы</h2>
+    <details><summary>Нужно ли что-то устанавливать?</summary><p>Нет. Заявка работает в браузере на компьютере, планшете и телефоне.</p></details>
+    <details><summary>Можно ли перенести старые заявки?</summary><p>Да. Загрузите таблицу в формате CSV или Excel — номера и история ремонтов сохранятся.</p></details>
+    <details><summary>Как клиент узнаёт о готовности?</summary><p>Заявка отправляет сообщение по номеру телефона из квитанции. Текст можно поменять под вашу мастерскую.</p></details>
+    <details><summary>Что будет с данными, если перестать платить?</summary><p>Мастерская перейдёт на тариф «Старт», все заявки останутся доступны для просмотра и выгрузки.</p></details>
+  </div>
+  <div class="invite" id="podklyuchenie">
+    <h2>Подключение по приглашениям</h2>
+    <p>Сейчас мы работаем с мастерскими из пилотной группы и открываем регистрацию постепенно, чтобы помочь каждой с переносом данных.</p>
+    <ul>
+      <li>сервисные центры по ремонту телефонов и ноутбуков</li>
+      <li>мастерские бытовой техники и электроинструмента</li>
+      <li>небольшие сети на 2–5 точек</li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2024–2026 Заявка</span>
+    <span>Программа учёта для сервисных центров и мастерских</span>
+  </div>
+</footer>
+</body>
+</html>
